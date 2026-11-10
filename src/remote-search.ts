@@ -85,6 +85,34 @@ async function walk(
   return files;
 }
 
+/**
+ * Native grep accepts a search path pointing either to a directory or to one
+ * specific file. The old implementation always passed it to readdir(), which
+ * silently produced zero matches for existing files. An explicitly selected
+ * hidden file is searched; directory recursion still skips hidden entries.
+ */
+async function filesForGrep(connection: SshConnection, root: string, signal?: AbortSignal): Promise<WalkedFile[]> {
+  throwIfAborted(signal, 'grep');
+  const info = await new Promise<{ isFile(): boolean; isDirectory(): boolean; size: number; mtime: number }>((resolve, reject) => {
+    connection.sftp.stat(root, (error, stats) => {
+      if (error) reject(connection.mapSftpError(error, `cannot stat ${root}`));
+      else resolve(stats);
+    });
+  });
+  if (info.isFile()) {
+    return [{ remote: root, rel: path.posix.basename(root), size: Number(info.size), mtime: info.mtime }];
+  }
+  if (info.isDirectory()) return await walk(connection, root, { includeHidden: false, signal });
+  throw new RemoteSshError('SSH_SEARCH_INVALID_PATTERN', `grep path must be a regular file or directory: ${root}`);
+}
+
+/** Convert a DSH placeholder/virtual cwd into the real Linux remote cwd. */
+function remoteWorkdir(manager: RemoteSshManager, cwd: string): string {
+  const route = manager.routeFor(cwd, cwd);
+  if (!route) throw new RemoteSshError('SSH_PATH_INVALID', 'remote search requires a registered SSH workspace');
+  return route.remotePath;
+}
+
 function matchesAny(rel: string, full: string, pattern: string): boolean {
   const normalized = pattern.replaceAll('\\', '/').replace(/^\.\//, '');
   const options = {
@@ -116,16 +144,17 @@ async function remoteGlob(search: SearchContext, args: { pattern?: unknown; path
   const cwd = await search.ctx.workingDirectory.ensure(exec.agent, exec.signal);
   if (!looksVirtual(cwd)) throw new RemoteSshError('SSH_PATH_INVALID', 'glob is not running in a remote workspace');
   const { target, connection } = await resolveSearchRoot(search, cwd, pathArg, exec.signal);
+  const rootCwd = remoteWorkdir(search.manager, cwd);
   const files = await walk(connection, target.remotePath, { includeHidden: true, signal: exec.signal });
   const hits: Array<{ display: string; mtime: number }> = [];
   for (const file of files) {
     throwIfAborted(exec.signal, 'glob');
-    const full = path.posix.relative(cwd, file.remote);
+    const full = path.posix.relative(rootCwd, file.remote);
     if (!matchesAny(file.rel, full, pattern)) continue;
     hits.push({ display: full, mtime: file.mtime });
   }
   hits.sort((left, right) => right.mtime - left.mtime || left.display.localeCompare(right.display));
-  return { root: pathArg === undefined ? '.' : workdirRelative(cwd, target.remotePath), paths: hits.slice(0, 5_000).map((hit) => hit.display) };
+  return { root: pathArg === undefined ? '.' : workdirRelative(rootCwd, target.remotePath), paths: hits.slice(0, 5_000).map((hit) => hit.display) };
 }
 
 async function readFileForGrep(search: SearchContext, target: RemoteTarget, signal?: AbortSignal): Promise<Buffer> {
@@ -152,11 +181,12 @@ async function remoteGrep(
   const cwd = await search.ctx.workingDirectory.ensure(exec.agent, exec.signal);
   if (!looksVirtual(cwd)) throw new RemoteSshError('SSH_PATH_INVALID', 'grep is not running in a remote workspace');
   const { target, connection } = await resolveSearchRoot(search, cwd, pathArg, exec.signal);
-  const files = await walk(connection, target.remotePath, { includeHidden: false, signal: exec.signal });
+  const rootCwd = remoteWorkdir(search.manager, cwd);
+  const files = await filesForGrep(connection, target.remotePath, exec.signal);
   const matches: Array<{ path: string; lineNumber: number; line: string }> = [];
   const selected = files.filter((file) => {
     if (file.size > MAX_GREP_BYTES) return false;
-    const full = path.posix.relative(cwd, file.remote);
+    const full = path.posix.relative(rootCwd, file.remote);
     return include === undefined || matchesAny(file.rel, full, include);
   });
   if (selected.length > MAX_GREP_FILES) {
@@ -193,7 +223,7 @@ async function remoteGrep(
         const line = lines[index] as string;
         if (!regex.test(line)) continue;
         matches.push({
-          path: path.posix.relative(cwd, file.remote),
+          path: path.posix.relative(rootCwd, file.remote),
           lineNumber: index + 1,
           line: line.length > MAX_LINE_CHARS ? line.slice(0, MAX_LINE_CHARS) : line,
         });
