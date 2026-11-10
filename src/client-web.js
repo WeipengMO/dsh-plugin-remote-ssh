@@ -63,52 +63,57 @@ window.__ModuleLoader__.load({
       return remote.replace(/\/+$/, '').replace(/\/[^/]*$/, '') || '/';
     }
     function joinRemote(base, name) { return (base === '/' ? '' : base.replace(/\/+$/, '')) + '/' + name; }
-    // SSH Config values are *inherited*, not copied into persisted overrides.
-    // The user can see them in the form immediately but saving keeps the alias
-    // linked to ~/.ssh/config so changes to HostName/User/Port/IdentityFile apply.
-    const blankHost = { label: '', host: '', port: '', user: '', identityFile: '', useSshConfig: true, useAgent: true };
+    // The SSH Config picker populates ordinary editable fields once. Persist the
+    // resolved HostName plus a separate alias so ProxyCommand still matches.
+    const blankHost = { label: '', host: '', sshAlias: '', port: '', user: '', identityFile: '', useAgent: true };
     function HostModal({ value, aliases = [], onClose, onSave, busy }) {
-      const [form, setForm] = useState(value ? {
-        label: value.label || '', host: value.host || '', port: value.port == null ? '' : String(value.port), user: value.user || '',
-        identityFile: value.identityFile || '', useSshConfig: value.useSshConfig !== false, useAgent: value.useAgent !== false
-      } : blankHost);
-      const [effective, setEffective] = useState(null);
-      const [configError, setConfigError] = useState('');
+      const [form, setForm] = useState(() => value ? {
+        label: value.label || '', host: value.host || '', sshAlias: value.sshAlias || '',
+        port: value.port == null ? '' : String(value.port), user: value.user || '',
+        identityFile: value.identityFile || '', useAgent: value.useAgent !== false
+      } : { ...blankHost });
       const [resolving, setResolving] = useState(false);
+      const [configError, setConfigError] = useState('');
+      const [missingKey, setMissingKey] = useState('');
+      const request = React.useRef(0);
       function set(name, data) { setForm(old => ({ ...old, [name]: data })); }
-      function selectAlias(alias) {
-        setForm(old => ({ ...old, host: alias, label: (!old.label || old.label === old.host) ? alias : old.label,
-          port: '', user: '', identityFile: '', useSshConfig: true }));
+      async function selectAlias(alias) {
+        if (!alias) return;
+        const id = ++request.current;
+        setConfigError(''); setMissingKey(''); setResolving(true);
+        setForm(old => ({ ...old, sshAlias: alias, label: old.label && old.label !== old.sshAlias ? old.label : alias }));
+        try {
+          const result = await api('/config/resolve?alias=' + encodeURIComponent(alias));
+          if (id !== request.current) return;
+          const cfg = result.effective;
+          if (!cfg?.matchedHostConfig) throw Error('SSH Config 中没有该主机的有效配置');
+          setForm(old => ({
+            ...old, sshAlias: alias,
+            label: old.label && old.label !== old.sshAlias ? old.label : alias,
+            host: cfg.hostName || alias, user: cfg.user || '',
+            port: String(cfg.port || 22), identityFile: cfg.identityFiles?.[0] || '',
+          }));
+          setMissingKey((cfg.missingIdentityFiles || [])[0] || '');
+        } catch (err) {
+          if (id === request.current) setConfigError(err.message || String(err));
+        } finally {
+          if (id === request.current) setResolving(false);
+        }
       }
-      useEffect(() => {
-        if (!form.useSshConfig || !form.host.trim()) { setEffective(null); setConfigError(''); setResolving(false); return; }
-        let cancelled = false;
-        setEffective(null); setConfigError(''); setResolving(true);
-        const timer = setTimeout(() => {
-          api('/config/resolve?alias=' + encodeURIComponent(form.host.trim())).then(result => {
-            if (!cancelled) { setEffective(result.effective); setConfigError(''); setResolving(false); }
-          }).catch(err => {
-            if (!cancelled) { setEffective(null); setConfigError(err.message); setResolving(false); }
-          });
-        }, 180);
-        return () => { cancelled = true; clearTimeout(timer); };
-      }, [form.host, form.useSshConfig]);
-      const inherited = form.useSshConfig && effective?.matchedHostConfig ? effective : null;
-      const configValues = { user: inherited?.user || '', port: inherited?.port ? String(inherited.port) : '',
-        identityFile: inherited?.identityFiles?.[0] || '' };
       function field(name, label, placeholder, opts = {}) {
-        const inheritedValue = !form[name] && form.useSshConfig ? configValues[name] : '';
         return h('label', { className: 'rss-field', key: name },
-          h('span', null, label, inheritedValue && h('em', { className: 'rss-inherited-tag' }, '来自 SSH Config')),
-          h('input', { value: form[name] || inheritedValue || '', placeholder, disabled: busy,
-            onChange: e => set(name, e.target.value), ...opts }));
+          h('span', null, label),
+          h('input', { value: form[name] || '', placeholder, disabled: !!busy || resolving,
+            onChange: e => { set(name, e.target.value); if (name === 'identityFile') setMissingKey(''); }, ...opts }));
       }
       const onSubmit = e => {
         e.preventDefault();
+        const alias = form.sshAlias.trim();
         const payload = {
-          label: form.label.trim() || form.host.trim(), host: form.host.trim(),
-          useSshConfig: form.useSshConfig, useAgent: form.useAgent,
-          // null clears stale stored overrides on update, missing fields inherit config on create.
+          label: form.label.trim() || alias || form.host.trim(),
+          host: form.host.trim(),
+          useSshConfig: !!alias, useAgent: form.useAgent,
+          ...(alias ? { sshAlias: alias } : value?.id ? { sshAlias: null } : {}),
           ...(value?.id ? { port: null, user: null, identityFile: null } : {}),
           ...(form.port.trim() ? { port: Number(form.port) } : {}),
           ...(form.user.trim() ? { user: form.user.trim() } : {}),
@@ -118,45 +123,34 @@ window.__ModuleLoader__.load({
       };
       return h('div', { className: 'rss-modal-backdrop', onMouseDown: e => e.target === e.currentTarget && onClose() },
         h('form', { className: 'rss-modal', onSubmit },
-          h('div', { className: 'rss-modal-top' }, h('div', null,
-            h('h2', null, value?.id ? '编辑 SSH 主机' : '添加 SSH 主机'),
-            h('p', null, '选择 SSH Config 主机即可自动读取连接参数。')),
-            h(Button, { icon: 'x', small: true, onClick: onClose })),
+          h('div', { className: 'rss-modal-top' },
+            h('div', null, h('h2', null, value?.id ? '编辑 SSH 主机' : '添加 SSH 主机'),
+              h('p', null, '选择已有主机自动填入参数，也可以手动编辑。')),
+            h(Button, { icon: 'x', small: true, onClick: onClose, title: '关闭' })),
           aliases.length > 0 && h('label', { className: 'rss-field rss-alias-picker' },
-            h('span', null, '从 ~/.ssh/config 选择主机'),
-            h('select', { value: aliases.includes(form.host) ? form.host : '',
-              onChange: e => e.target.value && selectAlias(e.target.value), disabled: busy },
-              h('option', { value: '' }, '选择已配置的 SSH 主机…'),
+            h('span', null, '从 ~/.ssh/config 导入（可选）'),
+            h('select', { value: aliases.includes(form.sshAlias) ? form.sshAlias : '',
+              onChange: e => selectAlias(e.target.value), disabled: !!busy || resolving },
+              h('option', { value: '' }, '选择 SSH 主机…'),
               aliases.map(alias => h('option', { value: alias, key: alias }, alias)))),
-          field('label', '显示名称', '例如：GPU Server'),
-          field('host', 'SSH 别名 / 主机地址', '例如：nansha 或 172.18.50.60', { required: true, autoFocus: !value?.host }),
-          h('label', { className: 'rss-checkbox-line rss-config-toggle' },
-            h('input', { type: 'checkbox', checked: form.useSshConfig, onChange: e => set('useSshConfig', e.target.checked) }),
-            '使用 ~/.ssh/config 中的连接参数'),
-          form.useSshConfig && form.host.trim() && (
-            resolving ? h('p', { className: 'rss-hint' }, '正在解析 SSH Config…') :
-            configError ? h('p', { className: 'rss-config-warning' }, configError) :
-            inherited ? h('div', { className: 'rss-config-preview', role: 'status' },
-              h('strong', null, '已解析：', form.host),
-              h('div', null, h('code', null, inherited.user + '@' + inherited.hostName + ':' + inherited.port)),
-              inherited.proxyCommand && h('div', { className: 'rss-config-proxy' }, '代理：Cloudflare Access (cloudflared)'),
-              inherited.missingIdentityFiles?.length > 0 && h('div', { className: 'rss-config-warning' },
-                '以下私钥路径在运行 DSH 的电脑上不存在：',
-                h('code', null, inherited.missingIdentityFiles.join(', ')))) :
-            h('p', { className: 'rss-config-warning' }, '未在 ~/.ssh/config 找到匹配 Host，将使用手动参数或 SSH 默认值。')),
+          resolving && h('p', { className: 'rss-hint', role: 'status' }, '正在读取 SSH 配置…'),
+          configError && h('p', { className: 'rss-config-warning', role: 'alert' }, configError),
+          field('label', '显示名称', '例如：Nansha GPU'),
+          field('host', '主机地址 / HostName', 'IP 地址或域名', { required: true, autoFocus: !value?.host }),
           h('div', { className: 'rss-form-columns' },
-            field('user', '用户名', inherited?.user || '例如：ubuntu'),
-            field('port', 'SSH 端口', '22', { type: 'number', min: 1, max: 65535 })),
-          field('identityFile', '私钥路径（可选）', inherited?.identityFiles?.[0] || '~/.ssh/id_ed25519'),
-          form.useSshConfig && h('div', { className: 'rss-form-hint-row' },
-            h('span', null, '上方自动填充的参数会继续跟随 SSH Config 更新。'),
-            (form.user || form.port || form.identityFile) && h('button', { type: 'button',
-              onClick: () => setForm(old => ({ ...old, user: '', port: '', identityFile: '' })) }, '清除手动覆盖')),
+            field('user', '用户名', '例如：mowp', { required: true }),
+            field('port', 'SSH 端口', '22', { type: 'number', min: 1, max: 65535, required: true })),
+          field('identityFile', '私钥路径（可选）', '~/.ssh/id_ed25519'),
+          missingKey && h('p', { className: 'rss-config-warning', role: 'alert' },
+            '本机找不到这个私钥：' + missingKey + '。请确认 Windows 文件路径。'),
           h('label', { className: 'rss-checkbox-line' },
-            h('input', { type: 'checkbox', checked: form.useAgent, onChange: e => set('useAgent', e.target.checked) }), '允许 ssh-agent'),
-          h('p', { className: 'rss-hint' }, '只保存密钥路径，不读取或保存私钥内容；首次连接需要验证主机指纹。'),
-          h('div', { className: 'rss-modal-actions' }, h(Button, { onClick: onClose }, '取消'),
-            h('button', { type: 'submit', className: 'rss-btn rss-primary', disabled: busy || resolving || !!configError },
+            h('input', { type: 'checkbox', checked: form.useAgent, onChange: e => set('useAgent', e.target.checked) }),
+            '允许 ssh-agent'),
+          h('p', { className: 'rss-hint' }, '仅保存密钥文件路径；首次连接时仍需验证服务器指纹。'),
+          h('div', { className: 'rss-modal-actions' },
+            h(Button, { onClick: onClose }, '取消'),
+            h('button', { type: 'submit', className: 'rss-btn rss-primary',
+              disabled: !!busy || resolving || !!configError },
               busy ? '保存中…' : '保存主机'))));
     }
     function TrustModal({ probe, onClose, onConfirm, busy }) {
@@ -226,10 +220,10 @@ window.__ModuleLoader__.load({
         finally { setLoading(false); }
       }, []);
       useEffect(() => { refresh(); }, [refresh]);
-      useEffect(() => { const tick = setInterval(refresh, 12000); return () => clearInterval(tick); }, [refresh]);
+      useEffect(() => { const tick = setInterval(refresh, 5000); return () => clearInterval(tick); }, [refresh]);
       const hosts = state.hosts.filter(item => (item.label + ' ' + item.host).toLowerCase().includes(filter.toLowerCase()));
       const stateLabel = status?.state === 'ready' ? '已连接' : status?.state === 'failed' ? '连接失败' : status?.state === 'connecting' ? '连接中' : '未连接';
-      const sessionText = activeSession?.remote ? '当前会话正在使用远程工作区' : activeSession ? '已选择会话，可以将远程目录设为工作区' : '先启动并选择 Agent 会话，再使用远程目录';
+      const sessionText = !state.sessions.length ? '尚未检测到可切换的 Agent。先在目标 DSH 对话中发送一条消息，然后刷新这里。' : activeSession?.remote ? '所选会话当前使用远程工作区。' : activeSession ? '将下面浏览的目录设置为所选 DSH 会话的工作目录。' : '选择要切换的 DSH 会话。';
       const statusClass = status?.state === 'ready' ? 'rss-online' : status?.state === 'failed' ? 'rss-failed' : 'rss-idle';
       const test = async () => {
         const result = await run('test', () => api('/test', { host: selected }));
@@ -325,12 +319,14 @@ window.__ModuleLoader__.load({
             h('div', { className: 'rss-host-address' },
               (status?.user || currentHost.user || 'ssh') + '@' + (status?.hostName || currentHost.host) + ':' + (status?.port || currentHost.port || 22)),
             h('section', { className: 'rss-session' },
-              h('div', { className: 'rss-subheading' }, h(Icon, { name: 'folder', size: 16 }), h('strong', null, 'Agent 工作区')),
+              h('div', { className: 'rss-subheading' }, h(Icon, { name: 'folder', size: 16 }), h('strong', null, 'DSH 会话工作区')),
               h('div', { className: 'rss-session-controls' },
-                h('select', { 'aria-label': '选择 DSH Agent 会话', value: session, onChange: e => setSession(e.target.value) },
-                  h('option', { value: '' }, state.sessions.length ? '选择 Agent 会话' : '尚无活动的 Agent 会话'),
+                state.sessions.length ? h('select', { 'aria-label': '选择 DSH Agent 会话', value: session, onChange: e => setSession(e.target.value) },
+                  h('option', { value: '' }, '选择 DSH 会话'),
                   state.sessions.map(item => h('option', { value: item.id, key: item.id },
-                    item.id.slice(0, 15) + ' · ' + (item.remote ? '远程' : '本地')))),
+                    (item.cwd || '当前会话').split(/[\\/]/).filter(Boolean).slice(-1)[0] + ' · ' + item.id.slice(0, 8) + (item.remote ? ' (远程)' : '')))) :
+                  h('span', { className: 'rss-no-session' }, '暂无已启动的 Agent'),
+                h(Button, { icon: 'refresh', small: true, onClick: refresh, title: '刷新会话列表' }),
                 activeSession?.remote && h(Button, { small: true, onClick: leaveWorkspace, disabled: !!busy },
                   busy === 'leave' ? '切换中…' : '返回本地')),
               h('p', { className: 'rss-session-description' }, sessionText)),
@@ -364,8 +360,8 @@ window.__ModuleLoader__.load({
                     entry.type === 'directory' && h(Icon, { name: 'chevron', size: 13 }))),
                   browse.truncated && h('p', { className: 'rss-hint rss-truncated' }, '目录过大，只显示前 1000 项'))),
               h('div', { className: 'rss-workspace-actions' },
-                h('div', null, h('strong', null, '设为当前 Agent 工作区'),
-                  h('p', null, session ? '在此目录中执行 Agent 命令与文件操作。' : '先在上方选择一个活动会话。')),
+                h('div', null, h('strong', null, '切换所选会话的工作区'),
+                  h('p', null, session ? '将所选会话切换到当前浏览的远程目录。' : '先选择上方的 DSH 会话，才能切换其目录。')),
                 h(Button, { variant: 'primary', icon: 'arrow', disabled: !!busy || !session,
                   onClick: openWorkspace }, busy === 'open' ? '正在切换…' : '使用此目录'))),
             tab === 'terminal' && h('div', { className: 'rss-terminal-tab', role: 'tabpanel' },
