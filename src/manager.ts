@@ -436,8 +436,11 @@ export class RemoteSshManager {
         targetKey: `ssh:${workspace.token}:${normalized}`,
       };
     };
-    const absoluteRemote = (parsed: NonNullable<ReturnType<typeof parseVirtualPath>>, workspace: WorkspaceRecord): string =>
-      parsed.placeholder ? (path.posix.join(workspace.remoteRoot, parsed.remotePath).replace(new RegExp('/+
+    const absoluteRemote = (parsed: NonNullable<ReturnType<typeof parseVirtualPath>>, workspace: WorkspaceRecord): string => {
+      if (!parsed.placeholder) return parsed.remotePath;
+      const value = path.posix.join(workspace.remoteRoot, parsed.remotePath);
+      return value.length > 1 && value.endsWith('/') ? value.slice(0, -1) : value;
+    };
 
     const parsedPath = parseVirtualPath(pathValue);
     if (parsedPath !== null) {
