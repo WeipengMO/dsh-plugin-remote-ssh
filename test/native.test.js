@@ -5,7 +5,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { createNativeHttpHandler } from '../dist/http-api.js';
+import { agentFromCreatedEvent, createNativeHttpHandler } from '../dist/http-api.js';
 import { encodeVirtualPath, workspaceToken } from '../dist/paths.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -202,7 +202,10 @@ test('compact Settings UI keeps a single-column, theme-safe, accessible structur
   assert.match(source, /'aria-pressed': selected === item.id/);
   assert.match(source, /'aria-label': '选择 DSH Agent 会话'/);
   assert.match(source, /'aria-live': 'polite'/);
-  assert.match(source, /'设为当前 Agent 工作区'/);
+  assert.match(source, /'切换所选会话的工作区'/);
+  assert.match(source, /'rss-no-session'/);
+  assert.doesNotMatch(source, /来自 SSH Config/);
+  assert.match(source, /'主机地址 \/ HostName'/);
 });
 
 test('native SSH config preview API is authenticated and returns effective fields without key contents', async () => {
@@ -247,4 +250,13 @@ test('built client bundle resolves CSS and version placeholders from package.jso
   const source = fs.readFileSync(path.join(root, 'lib', 'client.js'), 'utf8');
   assert.doesNotMatch(source, /__CSS_TEXT__|__PLUGIN_VERSION__/);
   assert.ok(source.includes('const CLIENT_VERSION = ' + JSON.stringify(manifest.version) + ';'));
+});
+
+
+test('DSH agent/created event wrapper is unwrapped into a usable session', () => {
+  const agent = { id: 'agent-1', session: { id: 's-1', header: { cwd: '/home/project' } } };
+  assert.equal(agentFromCreatedEvent({ agent }), agent);
+  assert.equal(agentFromCreatedEvent(agent), agent);
+  assert.equal(agentFromCreatedEvent({ agent: {} }), undefined);
+  assert.equal(agentFromCreatedEvent(null), undefined);
 });
