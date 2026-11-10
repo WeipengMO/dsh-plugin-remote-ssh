@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import { looksVirtual, shellQuote } from './paths.js';
 import { listSshConfigAliases, resolveSshConfig } from './ssh-config.js';
 const PREFIX = '/api/remote-ssh';
-const HOST_FIELDS = ['host', 'label', 'port', 'user', 'identityFile', 'identityAgent', 'useAgent', 'useSshConfig', 'configFile', 'hostKeyAlias'];
+const HOST_FIELDS = ['host', 'sshAlias', 'label', 'port', 'user', 'identityFile', 'identityAgent', 'useAgent', 'useSshConfig', 'configFile', 'hostKeyAlias'];
 /**
  * Build stamp published on /state. A running DSH process keeps host plugin
  * modules in its ESM cache, so `dsh plugin add` updates files on disk without
@@ -45,7 +45,7 @@ function hostPatch(input) {
         patch.host = text(patch.host, 'host', 253);
     if ('port' in patch && patch.port !== null && (!Number.isInteger(patch.port) || Number(patch.port) < 1 || Number(patch.port) > 65535))
         throw error(400, 'port must be 1–65535');
-    for (const key of ['label', 'user', 'identityFile', 'identityAgent', 'configFile', 'hostKeyAlias']) {
+    for (const key of ['label', 'sshAlias', 'user', 'identityFile', 'identityAgent', 'configFile', 'hostKeyAlias']) {
         if (key in patch && patch[key] !== null && typeof patch[key] !== 'string')
             throw error(400, `${key} must be a string`);
     }
@@ -124,11 +124,33 @@ function remotePath(input, home) {
         throw error(400, 'remote path must use POSIX syntax');
     return path.posix.normalize(expanded.startsWith('/') ? expanded : path.posix.join(home, expanded));
 }
+/** DSH emits agent/created as {agent}; older hooks may provide the agent directly. */
+export function agentFromCreatedEvent(event) {
+    if (!object(event))
+        return undefined;
+    const candidate = object(event.agent) ? event.agent : event;
+    if (!object(candidate) || !object(candidate.session))
+        return undefined;
+    const session = candidate.session;
+    if (typeof session.id !== 'string' && !(object(session.header) && typeof session.header.id === 'string'))
+        return undefined;
+    return candidate;
+}
 function sessionId(agent) {
     const candidate = agent.session?.id ?? agent.session?.header?.id;
     return typeof candidate === 'string' && candidate.length > 0 ? candidate : undefined;
 }
 function resolveSession(deps, value) {
+    // The settings panel cannot always name the browser current Session. When
+    // sessionId is omitted (or is auto), use the most recently announced Agent,
+    // which is normally the session the operator is looking at.
+    if (value === undefined || value === null || value === '' || value === 'auto' || value === 'current') {
+        const entries = [...deps.agents.entries()];
+        const latest = entries[entries.length - 1];
+        if (latest === undefined)
+            throw error(409, 'This session has no live Agent. Send a message in that DSH session first, then refresh. No workspace was changed.');
+        return { id: latest[0], agent: latest[1] };
+    }
     const id = text(value, 'sessionId', 256);
     const agent = deps.agents.get(id);
     if (!agent)
@@ -158,9 +180,11 @@ export function createNativeHttpHandler(deps) {
                     }
                     catch { /* bad config is reflected in statuses() */ }
                 }
-                const sessions = [...deps.agents.entries()].map(([id, agent]) => ({
+                const agentEntries = [...deps.agents.entries()];
+                const sessions = agentEntries.map(([id, agent], index) => ({
                     id, agentId: agent.id, cwd: deps.workingDirectory.get(agent.session),
                     remote: looksVirtual(deps.workingDirectory.get(agent.session)),
+                    latest: index === agentEntries.length - 1,
                 }));
                 return send(res, 200, { ok: true, version: PACKAGE_VERSION, hosts, effective, statuses: manager.statuses(),
                     recent: manager.recent(), sessions, aliases: listSshConfigAliases() });

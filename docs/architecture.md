@@ -21,5 +21,5 @@ Host Cordis 插件通过 `dist/index.js` 装载，与 DSH Agent 共享 `ctx.fs`�
 - SFTP 路由使用经过验证的 Host Key 和已连接的 ssh2 transport。
 - Agent 文件操作继续使用远程文件根目录 containment 与版本检查。
 - Shell Router 使用 OpenSSH `StrictHostKeyChecking=yes`、`BatchMode=yes`，禁用密码、交互认证与端口转发。
-- Remote 工作区验证失败不会自动落回本地，防止将远程任务错误地写到本地工作区。
+- 远程目录不可用时，插件通过 workingDirectory.set() 显式恢复会话原始本地目录（提交事件并保留 DSH 通知），而不是静默回退，也不会让 system-prompt 组装失败。
 - 本插件不是浏览器多用户访问控制系统；拥有可写 Agent 会话的已授权 DSH operator 自然拥有相应远程 SSH 执行权限。

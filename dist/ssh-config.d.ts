@@ -26,6 +26,7 @@ export declare function expandUserPath(value: string): string;
 export declare function hostPatternMatches(alias: string, pattern: string): boolean;
 export interface HostRecordForConfig {
     host: string;
+    sshAlias?: string;
     port?: number;
     user?: string;
     identityFile?: string;

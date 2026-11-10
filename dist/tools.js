@@ -29,7 +29,7 @@ function findHostId(manager, token) {
     throw new RemoteSshError('SSH_HOST_NOT_FOUND', `unknown SSH host: ${value}; add it with remote_ssh_hosts`);
 }
 function hostView(host) {
-    return {
+    const view = {
         id: host.id,
         label: host.label,
         host: host.host,
@@ -43,6 +43,8 @@ function hostView(host) {
         hostKeyAlias: host.hostKeyAlias,
         updatedAt: host.updatedAt,
     };
+    // DSH validates tool output as lossless JSON: undefined fields are rejected.
+    return Object.fromEntries(Object.entries(view).filter(([, value]) => value !== undefined));
 }
 function statusResult(manager, result) {
     return {

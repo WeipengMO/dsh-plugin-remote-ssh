@@ -24,4 +24,6 @@ export interface NativeApiDeps {
     /** DSH Connection's signed-cookie and Host/Origin admission, fail closed. */
     requestRejection(req: IncomingMessage): number | undefined;
 }
+/** DSH emits agent/created as {agent}; older hooks may provide the agent directly. */
+export declare function agentFromCreatedEvent(event: unknown): AgentRef | undefined;
 export declare function createNativeHttpHandler(deps: NativeApiDeps): (req: IncomingMessage, res: ServerResponse) => Promise<void>;

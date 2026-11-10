@@ -66,7 +66,7 @@ function findHostId(manager: RemoteSshManager, token: unknown): string {
 }
 
 function hostView(host: HostRecord): Record<string, unknown> {
-  return {
+  const view: Record<string, unknown> = {
     id: host.id,
     label: host.label,
     host: host.host,
@@ -80,6 +80,8 @@ function hostView(host: HostRecord): Record<string, unknown> {
     hostKeyAlias: host.hostKeyAlias,
     updatedAt: host.updatedAt,
   };
+  // DSH validates tool output as lossless JSON: undefined fields are rejected.
+  return Object.fromEntries(Object.entries(view).filter(([, value]) => value !== undefined));
 }
 
 function statusResult(manager: RemoteSshManager, result: TestResult): Record<string, unknown> {

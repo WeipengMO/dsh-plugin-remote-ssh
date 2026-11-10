@@ -8,16 +8,19 @@ import { expandUserPath } from './ssh-config.js';
 import { installRemoteSearchShadow } from './remote-search.js';
 import { installShellRouter } from './shell-router.js';
 import { registerManagementTools } from './tools.js';
-import { createNativeHttpHandler } from './http-api.js';
+import { agentFromCreatedEvent, createNativeHttpHandler } from './http-api.js';
 export const name = 'remote-ssh';
 /** The plugin needs the native tool seams before it can route remote work. */
 export const inject = ['fs', 'shell', 'tools', 'workingDirectory', 'systemPrompt', 'webServer', 'connection'];
 /**
- * Guard the one unsafe fallback in DSH's working-directory service: when a
- * current directory no longer exists it restores the session's original local
- * project. For a virtual remote cwd that would silently move the agent back to
- * local files after a remote failure, so remote cwds are validated explicitly
- * and never auto-restored.
+ * Keep remote cwds from being silently discarded, but never break the session
+ * when the remote host becomes unreachable.
+ *
+ * The fs router already makes resolve/stat of a virtual cwd succeed over SFTP,
+ * so DSH's original ensure() keeps a healthy remote cwd. When SFTP fails, this
+ * wrapper recovers to the session's original LOCAL cwd with a real set() (a
+ * committed change plus DSH's own notice) instead of throwing: ensure() runs
+ * while assembling every system prompt, so throwing would strand the session.
  */
 function guardWorkingDirectory(ctx) {
     const workingDirectory = ctx.workingDirectory;
@@ -27,22 +30,30 @@ function guardWorkingDirectory(ctx) {
         const current = workingDirectory.get(sessionAgent.session);
         if (!looksVirtual(current))
             return await originalEnsure(agent, signal);
-        const target = await ctx.fs.resolve(current, { signal });
-        const info = await ctx.fs.stat(target, signal);
-        if (info?.type !== 'directory') {
-            throw new RemoteSshError('SSH_PATH_INVALID', `remote workspace directory ${current} no longer exists or is not a directory; refusing to fall back to local files. Reconnect or open another remote workspace.`);
+        try {
+            const target = await ctx.fs.resolve(current, { signal });
+            const info = await ctx.fs.stat(target, signal);
+            if (info?.type === 'directory')
+                return await originalEnsure(agent, signal);
         }
-        const result = await originalEnsure(agent, signal);
-        if (!looksVirtual(result)) {
+        catch (error) {
+            ctx.logger.warn(`remote-ssh: remote workspace ${current} is unavailable: ${error?.message ?? String(error)}`);
+        }
+        // The remote workspace is gone. Recover with a real workingDirectory.set()
+        // to the session's original LOCAL cwd: that commits a
+        // working-directory/change event and injects DSH's own notice. Never
+        // throw here -- DSH calls ensure() while assembling every system prompt,
+        // and a thrown error leaves the session unable to continue at all.
+        const original = sessionAgent.session?.header?.cwd;
+        if (typeof original === 'string' && !looksVirtual(original)) {
             try {
-                await workingDirectory.set(agent, current, signal);
+                return await workingDirectory.set(agent, original, signal);
             }
-            catch {
-                // Best effort; the error below is the authoritative outcome.
+            catch (error) {
+                ctx.logger.warn(`remote-ssh: could not restore local cwd ${original}: ${error?.message ?? String(error)}`);
             }
-            throw new RemoteSshError('SSH_PATH_INVALID', `remote workspace ${current} could not be validated and DSH tried to restore a local cwd; refused. Reopen the remote workspace.`);
         }
-        return result;
+        return await originalEnsure(agent, signal);
     };
     return () => {
         workingDirectory.ensure = originalEnsure;
@@ -62,9 +73,9 @@ export function apply(ctx, config = {}) {
     const agents = new Map();
     const previousCwd = new Map();
     ctx.on('agent/created', (event) => {
-        const agent = event;
+        const agent = agentFromCreatedEvent(event);
         const id = agent?.session?.id ?? agent?.session?.header?.id;
-        if (typeof id === 'string' && id.length > 0) {
+        if (agent && typeof id === 'string' && id.length > 0) {
             agents.delete(id);
             agents.set(id, agent);
             if (agents.size > 80)
@@ -75,7 +86,7 @@ export function apply(ctx, config = {}) {
         const fsHandle = installFsRouter(ctx, manager);
         const shellHandle = installShellRouter(ctx, manager);
         const remoteFs = fsHandle.remoteFs;
-        installRemoteSearchShadow(ctx, manager, remoteFs);
+        const restoreSearch = installRemoteSearchShadow(ctx, manager, remoteFs);
         const restoreWorkingDirectory = guardWorkingDirectory(ctx);
         registerManagementTools(ctx, manager, remoteFs);
         const unregisterHttp = webServer.register({
@@ -86,6 +97,7 @@ export function apply(ctx, config = {}) {
         ctx.logger.info(`remote-ssh: ready (storage ${storageDir})`);
         return () => {
             unregisterHttp?.();
+            restoreSearch();
             restoreWorkingDirectory();
             shellHandle.dispose();
             fsHandle.dispose();

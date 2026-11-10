@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { RemoteSshError } from './errors.js';
 import { looksVirtual, parseVirtualPath } from './paths.js';
 import { RemoteFileSystem } from './remote-fs.js';
@@ -24,6 +25,17 @@ function targetFromKey(target) {
     const remotePath = rest.slice(colon + 1);
     const displayPath = typeof value.displayPath === 'string' ? value.displayPath : remotePath;
     return { targetKey, displayPath, workspaceToken, remotePath };
+}
+/**
+ * An absolute *host* path is never a remote path, even when the current cwd
+ * is virtual. DSH workingDirectory.set() resolves every requested path with
+ * a cwd option pointing at the current virtual directory; without this
+ * escape hatch, local paths used by close/cd/recovery would be routed into
+ * the SFTP resolver, which rejects Windows paths and makes a remote session
+ * impossible to leave.
+ */
+function isAbsoluteLocalPath(value) {
+    return !looksVirtual(value) && path.isAbsolute(value);
 }
 /** Resolve a target object to its remote coordinates, or null for local targets. */
 export function remoteTargetOf(target) {
@@ -70,7 +82,14 @@ export function installFsRouter(ctx, manager) {
     const originalFileUrl = save('fileUrl');
     fs.resolve = async (pathValue, opts) => {
         const value = typeof pathValue === 'string' ? pathValue : String(pathValue);
-        if (looksVirtual(value) || looksVirtual(opts?.cwd))
+        // DSH's workingDirectory.set() always resolves with the current (possibly
+        // virtual) cwd. A virtual path itself is remote; an absolute local path
+        // must stay local; only a relative path follows a virtual cwd.
+        if (looksVirtual(value))
+            return await remoteFs.resolve(value, opts);
+        if (isAbsoluteLocalPath(value))
+            return await originalResolve(pathValue, opts);
+        if (looksVirtual(opts?.cwd))
             return await remoteFs.resolve(value, opts);
         return await originalResolve(pathValue, opts);
     };
@@ -82,7 +101,11 @@ export function installFsRouter(ctx, manager) {
     };
     fs.lstat = async (pathValue, opts, signal) => {
         const value = typeof pathValue === 'string' ? pathValue : String(pathValue);
-        if (looksVirtual(value) || looksVirtual(opts?.cwd))
+        if (looksVirtual(value))
+            return await remoteFs.lstat(value, opts, signal);
+        if (isAbsoluteLocalPath(value))
+            return await originalLstat(pathValue, opts, signal);
+        if (looksVirtual(opts?.cwd))
             return await remoteFs.lstat(value, opts, signal);
         return await originalLstat(pathValue, opts, signal);
     };

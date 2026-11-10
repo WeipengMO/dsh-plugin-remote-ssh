@@ -6,24 +6,32 @@ interface AnyToolDefinition {
     [key: string]: unknown;
 }
 /**
- * Register per-agent `glob`/`grep` shadows. Local calls delegate to the native
- * definition unchanged; remote calls use SFTP walking so the remote host needs
- * neither ripgrep nor a special shell. This is the only reliable seam because
- * the native search tools spawn a host-packaged ripgrep directly.
+ * Wrap the host glob/grep definitions for agents whose cwd is remote.
+ *
+ * DSH's native search tools spawn a packaged ripgrep with the session cwd as
+ * the child process cwd. A virtual UNC cwd is not a real directory on Windows,
+ * so the spawn fails before execute() is ever reached. Registering a per-agent
+ * variant through agent.ctx.tools proved unreliable (the agent context is not
+ * guaranteed to expose the tools service at agent/created time), so patch the
+ * shared ToolsService.view() in place -- the same seam the fs router uses for
+ * ctx.fs. Shadow definitions are cached so ToolsService.resolve() keeps seeing
+ * a stable object identity for the whole step.
  */
+interface ToolsView {
+    visible: Map<string, AnyToolDefinition>;
+    registrations: Map<string, unknown>;
+    knownNames: Set<string>;
+    restrictableNames: Set<string>;
+}
 export declare function installRemoteSearchShadow(ctx: {
     tools: {
         get(name: string): unknown;
-        register(definition: AnyToolDefinition, options?: unknown): unknown;
+        view(scope?: unknown): ToolsView;
     };
     workingDirectory: {
+        get(session: unknown): string;
         ensure(agent: unknown, signal?: AbortSignal): Promise<string>;
     };
-    on(event: string, listener: (payload: {
-        agent: any;
-    }) => unknown, options?: {
-        global?: boolean;
-    }): unknown;
     logger?: {
         warn(message: string): void;
     };

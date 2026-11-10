@@ -187,58 +187,73 @@ async function remoteGrep(search, args, exec) {
     matches.sort((left, right) => left.path.localeCompare(right.path) || left.lineNumber - right.lineNumber);
     return { matches };
 }
-/**
- * Register per-agent `glob`/`grep` shadows. Local calls delegate to the native
- * definition unchanged; remote calls use SFTP walking so the remote host needs
- * neither ripgrep nor a special shell. This is the only reliable seam because
- * the native search tools spawn a host-packaged ripgrep directly.
- */
 export function installRemoteSearchShadow(ctx, manager, remoteFs) {
-    const installed = new WeakSet();
+    const tools = ctx.tools;
+    const originalView = typeof tools.view === 'function' ? tools.view.bind(tools) : undefined;
     const search = { ctx, manager, remoteFs };
-    const listener = (payload) => {
-        const agent = payload.agent;
-        if (agent === undefined || typeof agent !== 'object' || installed.has(agent))
-            return;
-        if (agent.ctx?.tools === undefined)
-            return;
-        const nativeGlob = ctx.tools.get('glob');
-        const nativeGrep = ctx.tools.get('grep');
-        if (nativeGlob !== undefined && nativeGlob !== null && typeof nativeGlob.execute === 'function') {
-            const definition = {
-                ...nativeGlob,
-                execute: async (args, exec) => {
-                    const execution = exec;
-                    const cwd = await ctx.workingDirectory.ensure(execution.agent, execution.signal);
-                    if (!looksVirtual(cwd))
-                        return await nativeGlob.execute(args, exec);
-                    return await remoteGlob(search, args, execution);
-                },
-            };
-            agent.ctx.tools.register(definition);
+    if (originalView === undefined) {
+        ctx.logger?.warn('remote-ssh: tools.view() unavailable; remote glob/grep routing disabled');
+        return () => { };
+    }
+    const shadows = new WeakMap();
+    const remoteScope = (scope) => {
+        const session = scope?.session;
+        if (session === undefined)
+            return false;
+        try {
+            return looksVirtual(ctx.workingDirectory.get(session));
         }
-        if (nativeGrep !== undefined && nativeGrep !== null && typeof nativeGrep.execute === 'function') {
-            const definition = {
-                ...nativeGrep,
-                execute: async (args, exec) => {
-                    const execution = exec;
-                    const cwd = await ctx.workingDirectory.ensure(execution.agent, execution.signal);
-                    if (!looksVirtual(cwd))
-                        return await nativeGrep.execute(args, exec);
-                    return await remoteGrep(search, args, execution);
-                },
-            };
-            agent.ctx.tools.register(definition);
+        catch {
+            return false;
         }
-        installed.add(agent);
     };
-    // agent/created is emitted on the agent's carrier context. Without
-    // `global: true` Cordis filters the plugin-scoped listener out, so no shadow
-    // tools would ever be installed.
-    ctx.on('agent/created', listener, { global: true });
+    const shadowOf = (native, name) => {
+        const cached = shadows.get(native);
+        if (cached !== undefined)
+            return cached;
+        const shadow = {
+            ...native,
+            __dshRemoteSshShadow: true,
+            execute: async (args, exec) => {
+                const execution = exec;
+                if (execution.agent === undefined)
+                    return await native.execute(args, exec);
+                let cwd;
+                try {
+                    cwd = await ctx.workingDirectory.ensure(execution.agent, execution.signal);
+                }
+                catch {
+                    return await native.execute(args, exec);
+                }
+                if (!looksVirtual(cwd))
+                    return await native.execute(args, exec);
+                const call = execution;
+                return name === 'glob'
+                    ? await remoteGlob(search, args, call)
+                    : await remoteGrep(search, args, call);
+            },
+        };
+        shadows.set(native, shadow);
+        return shadow;
+    };
+    tools.view = (scope) => {
+        const view = originalView(scope);
+        if (!(view.visible instanceof Map) || !remoteScope(scope))
+            return view;
+        let visible;
+        for (const name of ['glob', 'grep']) {
+            const native = view.visible.get(name);
+            if (native === undefined || typeof native.execute !== 'function')
+                continue;
+            if (native.__dshRemoteSshShadow === true)
+                continue;
+            visible ??= new Map(view.visible);
+            visible.set(name, shadowOf(native, name));
+        }
+        return visible === undefined ? view : { ...view, visible };
+    };
     return () => {
-        // The event listener is owned by the plugin context; registrations live in
-        // each agent's context and are disposed with that agent.
+        tools.view = originalView;
     };
 }
 //# sourceMappingURL=remote-search.js.map

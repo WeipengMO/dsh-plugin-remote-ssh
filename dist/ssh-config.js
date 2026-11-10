@@ -151,7 +151,8 @@ function parseConfigFile(file, seen, depth) {
  * an alias resolves HostName/User/Port from the config.
  */
 export function resolveSshConfig(stored) {
-    let alias = stored.host.trim();
+    // Resolve OpenSSH options against the original Host alias, not the visible HostName.
+    let alias = (stored.sshAlias?.trim() || stored.host.trim());
     if (alias.length === 0)
         throw new RemoteSshError('SSH_CONFIG_INVALID', 'host must not be empty');
     let explicitUser = stored.user;
@@ -162,8 +163,8 @@ export function resolveSshConfig(stored) {
     }
     if (alias.length === 0)
         throw new RemoteSshError('SSH_CONFIG_INVALID', 'host must not be empty');
-    if (alias.startsWith('-'))
-        throw new RemoteSshError('SSH_CONFIG_INVALID', 'host must not start with "-"');
+    if (alias.startsWith('-') || /[\s\0]/.test(alias))
+        throw new RemoteSshError('SSH_CONFIG_INVALID', 'invalid SSH alias');
     const useSshConfig = stored.useSshConfig !== false;
     const configFile = stored.configFile !== undefined ? expandUserPath(stored.configFile) : path.join(HOME, '.ssh', 'config');
     const blocks = useSshConfig ? parseConfigFile(configFile, new Set(), 0) : [];
@@ -190,7 +191,8 @@ export function resolveSshConfig(stored) {
         }
     }
     const rawHostName = collected.get('hostname') ?? alias;
-    const hostName = rawHostName.replace(/%h/g, alias);
+    // The form may explicitly override HostName while retaining alias-specific ProxyCommand.
+    const hostName = (stored.sshAlias ? stored.host.trim() : rawHostName).replace(/%h/g, alias);
     const user = explicitUser ?? collected.get('user') ?? process.env.USER ?? process.env.USERNAME ?? os.userInfo().username;
     const portText = stored.port !== undefined ? String(stored.port) : collected.get('port') ?? '22';
     const port = Number(portText);

@@ -206,7 +206,7 @@ window.__ModuleLoader__.load({
           setBuildWarning(next.version === CLIENT_VERSION ? '' :
             'Remote SSH 服务端插件版本与界面不一致（服务端 ' + (next.version || '旧版／未提供版本') + '，界面 ' + CLIENT_VERSION + '）。请完全退出并重启 DSH 客户端后硬刷新页面，否则无法读取 SSH Config。');
           setSelected(old => next.hosts.find(item => item.id === old)?.id || next.hosts[0]?.id || '');
-          setSession(old => next.sessions.find(item => item.id === old)?.id || (next.sessions.length === 1 ? next.sessions[0].id : ''));
+          setSession(old => next.sessions.find(item => item.id === old)?.id || next.sessions.find(item => item.latest)?.id || next.sessions[0]?.id || '');
         } catch (e) { setError(e.message); }
       }, []);
       const run = async (name, fn, msg) => {
@@ -228,7 +228,7 @@ window.__ModuleLoader__.load({
       useEffect(() => { const tick = setInterval(refresh, 5000); return () => clearInterval(tick); }, [refresh]);
       const hosts = state.hosts.filter(item => (item.label + ' ' + item.host).toLowerCase().includes(filter.toLowerCase()));
       const stateLabel = status?.state === 'ready' ? '已连接' : status?.state === 'failed' ? '连接失败' : status?.state === 'connecting' ? '连接中' : '未连接';
-      const sessionText = !state.sessions.length ? '尚未检测到可切换的 Agent。先在目标 DSH 对话中发送一条消息，然后刷新这里。' : activeSession?.remote ? '所选会话当前使用远程工作区。' : activeSession ? '将下面浏览的目录设置为所选 DSH 会话的工作目录。' : '选择要切换的 DSH 会话。';
+      const sessionText = !state.sessions.length ? '尚未检测到可切换的 Agent。先在目标 DSH 对话中发送一条消息，然后刷新这里。' : activeSession?.remote ? '所选会话当前使用远程工作区；DSH 工作区列表仍显示本地目录（宿主限制）。' : activeSession ? '将下面浏览的目录设置为所选 DSH 会话的工作目录；切换只影响所选会话。' : '选择要切换的 DSH 会话。';
       const statusClass = status?.state === 'ready' ? 'rss-online' : status?.state === 'failed' ? 'rss-failed' : 'rss-idle';
       const test = async () => {
         const result = await run('test', () => api('/test', { host: selected }));
@@ -246,8 +246,11 @@ window.__ModuleLoader__.load({
       };
       const openWorkspace = async () => {
         if (!session) { setError('请先选择要切换的 DSH Agent 会话'); return; }
-        const result = await run('open', () => api('/workspace/open', { host: selected, path: dir || '~', sessionId: session }), '已真实切换 Agent 工作目录');
-        if (result) refresh();
+        const result = await run('open', () => api('/workspace/open', { host: selected, path: dir || '~', sessionId: session }));
+        if (result) {
+          setSuccess('已切换会话 ' + String(result.sessionId).slice(0, 8) + ' 的 Agent 工作目录。请切到该 DSH 会话使用；DSH 的工作区列表仍显示本地目录（宿主限制）。');
+          refresh();
+        }
       };
       const leaveWorkspace = async () => {
         if (!session) return;
@@ -329,7 +332,7 @@ window.__ModuleLoader__.load({
                 state.sessions.length ? h('select', { 'aria-label': '选择 DSH Agent 会话', value: session, onChange: e => setSession(e.target.value) },
                   h('option', { value: '' }, '选择 DSH 会话'),
                   state.sessions.map(item => h('option', { value: item.id, key: item.id },
-                    (item.cwd || '当前会话').split(/[\\/]/).filter(Boolean).slice(-1)[0] + ' · ' + item.id.slice(0, 8) + (item.remote ? ' (远程)' : '')))) :
+                    (item.cwd || '当前会话').split(/[\\/]/).filter(Boolean).slice(-1)[0] + ' · ' + item.id.slice(0, 8) + (item.remote ? ' (远程)' : '') + (item.latest ? ' · 最新' : '')))) :
                   h('span', { className: 'rss-no-session' }, '暂无已启动的 Agent'),
                 h(Button, { icon: 'refresh', small: true, onClick: refresh, title: '刷新会话列表' }),
                 activeSession?.remote && h(Button, { small: true, onClick: leaveWorkspace, disabled: !!busy },

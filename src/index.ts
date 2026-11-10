@@ -37,40 +37,43 @@ interface PluginContext {
 }
 
 /**
- * Guard the one unsafe fallback in DSH's working-directory service: when a
- * current directory no longer exists it restores the session's original local
- * project. For a virtual remote cwd that would silently move the agent back to
- * local files after a remote failure, so remote cwds are validated explicitly
- * and never auto-restored.
+ * Keep remote cwds from being silently discarded, but never break the session
+ * when the remote host becomes unreachable.
+ *
+ * The fs router already makes resolve/stat of a virtual cwd succeed over SFTP,
+ * so DSH's original ensure() keeps a healthy remote cwd. When SFTP fails, this
+ * wrapper recovers to the session's original LOCAL cwd with a real set() (a
+ * committed change plus DSH's own notice) instead of throwing: ensure() runs
+ * while assembling every system prompt, so throwing would strand the session.
  */
 function guardWorkingDirectory(ctx: PluginContext): () => void {
   const workingDirectory = ctx.workingDirectory;
   const originalEnsure = workingDirectory.ensure.bind(workingDirectory);
   workingDirectory.ensure = async (agent: unknown, signal?: AbortSignal): Promise<string> => {
-    const sessionAgent = agent as { session: unknown };
+    const sessionAgent = agent as { session: { header?: { cwd?: string } } };
     const current = workingDirectory.get(sessionAgent.session);
     if (!looksVirtual(current)) return await originalEnsure(agent, signal);
-    const target = await (ctx.fs as any).resolve(current, { signal });
-    const info = await (ctx.fs as any).stat(target, signal);
-    if (info?.type !== 'directory') {
-      throw new RemoteSshError(
-        'SSH_PATH_INVALID',
-        `remote workspace directory ${current} no longer exists or is not a directory; refusing to fall back to local files. Reconnect or open another remote workspace.`,
-      );
+    try {
+      const target = await (ctx.fs as any).resolve(current, { signal });
+      const info = await (ctx.fs as any).stat(target, signal);
+      if (info?.type === 'directory') return await originalEnsure(agent, signal);
+    } catch (error) {
+      ctx.logger.warn(`remote-ssh: remote workspace ${current} is unavailable: ${(error as Error)?.message ?? String(error)}`);
     }
-    const result = await originalEnsure(agent, signal);
-    if (!looksVirtual(result)) {
+    // The remote workspace is gone. Recover with a real workingDirectory.set()
+    // to the session's original LOCAL cwd: that commits a
+    // working-directory/change event and injects DSH's own notice. Never
+    // throw here -- DSH calls ensure() while assembling every system prompt,
+    // and a thrown error leaves the session unable to continue at all.
+    const original = sessionAgent.session?.header?.cwd;
+    if (typeof original === 'string' && !looksVirtual(original)) {
       try {
-        await workingDirectory.set(agent, current, signal);
-      } catch {
-        // Best effort; the error below is the authoritative outcome.
+        return await workingDirectory.set(agent, original, signal);
+      } catch (error) {
+        ctx.logger.warn(`remote-ssh: could not restore local cwd ${original}: ${(error as Error)?.message ?? String(error)}`);
       }
-      throw new RemoteSshError(
-        'SSH_PATH_INVALID',
-        `remote workspace ${current} could not be validated and DSH tried to restore a local cwd; refused. Reopen the remote workspace.`,
-      );
     }
-    return result;
+    return await originalEnsure(agent, signal);
   };
   return () => {
     workingDirectory.ensure = originalEnsure;
@@ -105,7 +108,7 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
     const fsHandle = installFsRouter(ctx as unknown as { fs: Record<string, unknown>; effect?: (fn: () => () => void) => void }, manager);
     const shellHandle = installShellRouter(ctx as unknown as { shell: Record<string, unknown>; effect?: (fn: () => () => void) => void }, manager);
     const remoteFs = fsHandle.remoteFs;
-    installRemoteSearchShadow(
+    const restoreSearch = installRemoteSearchShadow(
       ctx as unknown as Parameters<typeof installRemoteSearchShadow>[0],
       manager,
       remoteFs,
@@ -120,6 +123,7 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
     ctx.logger.info(`remote-ssh: ready (storage ${storageDir})`);
     return () => {
       unregisterHttp?.();
+      restoreSearch();
       restoreWorkingDirectory();
       shellHandle.dispose();
       fsHandle.dispose();

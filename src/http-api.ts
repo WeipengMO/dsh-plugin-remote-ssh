@@ -139,6 +139,15 @@ function sessionId(agent: AgentRef): string | undefined {
   return typeof candidate === 'string' && candidate.length > 0 ? candidate : undefined;
 }
 function resolveSession(deps: NativeApiDeps, value: unknown): { id: string; agent: AgentRef } {
+  // The settings panel cannot always name the browser current Session. When
+  // sessionId is omitted (or is auto), use the most recently announced Agent,
+  // which is normally the session the operator is looking at.
+  if (value === undefined || value === null || value === '' || value === 'auto' || value === 'current') {
+    const entries = [...deps.agents.entries()];
+    const latest = entries[entries.length - 1];
+    if (latest === undefined) throw error(409, 'This session has no live Agent. Send a message in that DSH session first, then refresh. No workspace was changed.');
+    return { id: latest[0], agent: latest[1] };
+  }
   const id = text(value, 'sessionId', 256);
   const agent = deps.agents.get(id);
   if (!agent) throw error(409, 'This session has no live Agent. Send a message in that DSH session first, then refresh. No workspace was changed.');
@@ -165,9 +174,11 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
             effective[host.id] = { identityFiles: config.identityFiles, proxyCommand: config.proxyCommand }; }
           catch { /* bad config is reflected in statuses() */ }
         }
-        const sessions = [...deps.agents.entries()].map(([id, agent]) => ({
+        const agentEntries = [...deps.agents.entries()];
+        const sessions = agentEntries.map(([id, agent], index) => ({
           id, agentId: agent.id, cwd: deps.workingDirectory.get(agent.session),
           remote: looksVirtual(deps.workingDirectory.get(agent.session)),
+          latest: index === agentEntries.length - 1,
         }));
         return send(res, 200, { ok: true, version: PACKAGE_VERSION, hosts, effective, statuses: manager.statuses(),
           recent: manager.recent(), sessions, aliases: listSshConfigAliases() });
