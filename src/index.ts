@@ -94,7 +94,7 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
   ctx.on('agent/created', (event: unknown) => {
     const agent = agentFromCreatedEvent(event);
     const id = agent?.session?.id ?? agent?.session?.header?.id;
-    if (typeof id === 'string' && id.length > 0) {
+    if (agent && typeof id === 'string' && id.length > 0) {
       agents.delete(id);
       agents.set(id, agent);
       if (agents.size > 80) agents.delete(agents.keys().next().value!);
