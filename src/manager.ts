@@ -437,7 +437,7 @@ export class RemoteSshManager {
       };
     };
     const absoluteRemote = (parsed: NonNullable<ReturnType<typeof parseVirtualPath>>, workspace: WorkspaceRecord): string =>
-      parsed.placeholder ? path.posix.join(workspace.remoteRoot, parsed.remotePath) : parsed.remotePath;
+      parsed.placeholder ? (path.posix.join(workspace.remoteRoot, parsed.remotePath).replace(/\\/+$/, '') || '/') : parsed.remotePath;
 
     const parsedPath = parseVirtualPath(pathValue);
     if (parsedPath !== null) {
