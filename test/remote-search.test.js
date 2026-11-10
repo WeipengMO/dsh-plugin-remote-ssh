@@ -19,7 +19,7 @@ function setup() {
     sftp: {
       stat(remote, cb) {
         calls.stat.push(remote);
-        if (/\\.py$/.test(remote)) cb(null, attrs('file'));
+        if (remote.endsWith('.py')) cb(null, attrs('file'));
         else cb(null, attrs('directory'));
       },
       readdir(remote, cb) {
