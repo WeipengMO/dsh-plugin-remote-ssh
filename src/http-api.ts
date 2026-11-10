@@ -32,7 +32,7 @@ export interface NativeApiDeps {
 
 type JsonObject = Record<string, unknown>;
 const PREFIX = '/api/remote-ssh';
-const HOST_FIELDS = ['host', 'label', 'port', 'user', 'identityFile', 'identityAgent', 'useAgent', 'useSshConfig', 'configFile', 'hostKeyAlias'] as const;
+const HOST_FIELDS = ['host', 'sshAlias', 'label', 'port', 'user', 'identityFile', 'identityAgent', 'useAgent', 'useSshConfig', 'configFile', 'hostKeyAlias'] as const;
 
 /**
  * Build stamp published on /state. A running DSH process keeps host plugin
@@ -64,7 +64,7 @@ function hostPatch(input: JsonObject): Partial<HostRecord> {
   for (const field of HOST_FIELDS) if (Object.hasOwn(input, field)) patch[field] = input[field];
   if ('host' in patch) patch.host = text(patch.host, 'host', 253);
   if ('port' in patch && patch.port !== null && (!Number.isInteger(patch.port) || Number(patch.port) < 1 || Number(patch.port) > 65535)) throw error(400, 'port must be 1–65535');
-  for (const key of ['label', 'user', 'identityFile', 'identityAgent', 'configFile', 'hostKeyAlias']) {
+  for (const key of ['label', 'sshAlias', 'user', 'identityFile', 'identityAgent', 'configFile', 'hostKeyAlias']) {
     if (key in patch && patch[key] !== null && typeof patch[key] !== 'string') throw error(400, `${key} must be a string`);
   }
   for (const key of ['useAgent', 'useSshConfig']) if (key in patch && typeof patch[key] !== 'boolean') throw error(400, `${key} must be boolean`);
@@ -124,6 +124,16 @@ function remotePath(input: string, home: string): string {
   if (/^[A-Za-z]:[\\/]/.test(expanded)) throw error(400, 'remote path must use POSIX syntax');
   return path.posix.normalize(expanded.startsWith('/') ? expanded : path.posix.join(home, expanded));
 }
+/** DSH emits agent/created as {agent}; older hooks may provide the agent directly. */
+export function agentFromCreatedEvent(event: unknown): AgentRef | undefined {
+  if (!object(event)) return undefined;
+  const candidate = object(event.agent) ? event.agent : event;
+  if (!object(candidate) || !object(candidate.session)) return undefined;
+  const session = candidate.session;
+  if (typeof session.id !== 'string' && !(object(session.header) && typeof session.header.id === 'string')) return undefined;
+  return candidate as unknown as AgentRef;
+}
+
 function sessionId(agent: AgentRef): string | undefined {
   const candidate = agent.session?.id ?? agent.session?.header?.id;
   return typeof candidate === 'string' && candidate.length > 0 ? candidate : undefined;

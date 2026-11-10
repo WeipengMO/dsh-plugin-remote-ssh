@@ -1,8 +1,10 @@
 export interface HostRecord {
   id: string;
   label: string;
-  /** Alias in ~/.ssh/config, hostname, IP, or user@host. */
+  /** Resolved host address, or a manually entered hostname / IP. */
   host: string;
+  /** Original OpenSSH Host alias. Kept for ProxyCommand, keepalive and other options. */
+  sshAlias?: string;
   port?: number;
   user?: string;
   /** Path to a private key. The key itself is never copied or logged. */

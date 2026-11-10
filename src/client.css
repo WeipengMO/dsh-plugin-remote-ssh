@@ -203,3 +203,14 @@
   .rss-config-proxy{color:#a3c6fa}
   .rss-modal .rss-config-warning{color:#ffc17b}
 }
+
+/* Form fields use the same box model and align at small Settings widths. */
+.rss-modal,.rss-modal *{box-sizing:border-box}
+.rss-modal .rss-field{min-width:0}
+.rss-modal .rss-field input,.rss-modal .rss-field select{width:100%;min-width:0;height:35px;border:1px solid var(--rss-line);border-radius:7px;padding:0 10px;font:inherit;font-size:12px;background:var(--rss-bg);color:var(--rss-text)}
+.rss-modal .rss-field input:focus,.rss-modal .rss-field select:focus{outline:2px solid var(--rss-tint-border);outline-offset:0}
+.rss-modal .rss-field span{display:block;margin-bottom:0}
+.rss-modal .rss-form-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(90px,110px);gap:12px}
+.rss-modal .rss-form-columns .rss-field{margin-bottom:12px}
+.rss-no-session{flex:1;padding:8px 10px;border:1px dashed var(--rss-line);border-radius:7px;font-size:12px;color:var(--rss-secondary)}
+@media(max-width:480px){.rss-modal{padding:16px}.rss-modal .rss-form-columns{grid-template-columns:minmax(0,1fr) minmax(80px,92px);gap:8px}}

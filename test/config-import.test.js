@@ -104,3 +104,28 @@ test('clearing saved overrides restores config inheritance for an existing host'
     assert.equal(Object.hasOwn(updated,'identityFile'),false);
   });
 });
+
+
+test('imported HostName retains original alias for ProxyCommand and supports form edits', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-ssh-form-import-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const configFile = path.join(dir, 'config');
+  fs.writeFileSync(configFile, sample);
+  const imported = resolveSshConfig({
+    host: 'txcloud.weipmo.de', sshAlias: 'txcloud',
+    user: 'ubuntu', port: 22,
+    identityFile: '/home/windz/.ssh/key/txcloud.pem',
+    useSshConfig: true, configFile,
+  });
+  assert.equal(imported.alias, 'txcloud');
+  assert.equal(imported.hostName, 'txcloud.weipmo.de');
+  assert.equal(imported.proxyCommand, 'cloudflared access ssh --hostname %h');
+  const override = resolveSshConfig({
+    host: '192.0.2.10', sshAlias: 'txcloud', user: 'other', port: 2222,
+    useSshConfig: true, configFile,
+  });
+  assert.equal(override.hostName, '192.0.2.10');
+  assert.equal(override.user, 'other');
+  assert.equal(override.port, 2222);
+  assert.equal(override.proxyCommand, imported.proxyCommand);
+});

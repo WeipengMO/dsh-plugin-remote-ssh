@@ -1,0 +1,77 @@
+name: Build DSH Remote SSH plugin
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Test and package (Node 22)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install dependencies without install-time build scripts
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Build and test plugin
+        run: pnpm test
+
+      - name: Produce DSH-installable .tgz
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          pnpm pack --pack-destination artifacts
+          file="$(find artifacts -maxdepth 1 -name '*.tgz' -type f -print -quit)"
+          test -n "$file"
+          tar -tzf "$file" > "$RUNNER_TEMP/plugin-files.txt"
+          grep -q '^package/dist/index.js$' "$RUNNER_TEMP/plugin-files.txt"
+          grep -q '^package/lib/client.js$' "$RUNNER_TEMP/plugin-files.txt"
+          grep -q '^package/cordis.patch.yml$' "$RUNNER_TEMP/plugin-files.txt"
+          echo "Validated: $file"
+
+      - name: Upload plugin install package
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-remote-ssh-${{ github.sha }}
+          path: artifacts/*.tgz
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish tagged release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Retrieve install package
+        uses: actions/download-artifact@v4
+        with:
+          name: dsh-remote-ssh-${{ github.sha }}
+          path: artifacts
+
+      - name: Attach .tgz to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.tgz
+          generate_release_notes: true
