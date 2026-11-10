@@ -437,7 +437,39 @@ export class RemoteSshManager {
       };
     };
     const absoluteRemote = (parsed: NonNullable<ReturnType<typeof parseVirtualPath>>, workspace: WorkspaceRecord): string =>
-      parsed.placeholder ? (path.posix.join(workspace.remoteRoot, parsed.remotePath).replace(/\\/+$/, '') || '/') : parsed.remotePath;
+      parsed.placeholder ? (path.posix.join(workspace.remoteRoot, parsed.remotePath).replace(new RegExp('/+
+
+    const parsedPath = parseVirtualPath(pathValue);
+    if (parsedPath !== null) {
+      const workspace = this.workspaceByToken(parsedPath.workspaceToken);
+      return buildRoute(workspace, absoluteRemote(parsedPath, workspace));
+    }
+    if (!looksVirtual(cwd)) return null;
+    const parsedCwd = parseVirtualPath(cwd);
+    if (parsedCwd === null) return null;
+    const workspace = this.workspaceByToken(parsedCwd.workspaceToken);
+    const remoteCwd = absoluteRemote(parsedCwd, workspace);
+    const remotePath = resolveRemotePath(pathValue, remoteCwd, workspace.remoteHome, workspace.token);
+    return buildRoute(workspace, remotePath);
+  }
+
+  async resolveRoute(pathValue: string, cwd: string | undefined): Promise<ResolvedRoute | null> {
+    const route = this.routeFor(pathValue, cwd);
+    if (route === null) return null;
+    const connection = await this.connection(route.workspace.connectionId);
+    return { ...route, connection, homeDir: route.workspace.remoteHome };
+  }
+
+  async ensureKnownHostsFile(connection: SshConnection): Promise<string> {
+    try {
+      fs.accessSync(this.knownHostsPath, fs.constants.R_OK);
+    } catch {
+      connection.hostKeys.writeKnownHostsFile();
+    }
+    return this.knownHostsPath;
+  }
+}
+), '') || '/') : parsed.remotePath;
 
     const parsedPath = parseVirtualPath(pathValue);
     if (parsedPath !== null) {
