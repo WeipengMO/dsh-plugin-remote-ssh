@@ -7,6 +7,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { RemoteSshManager } from './manager.js';
+import { prepareRemoteWorkspace, type WorkspaceRegistry } from './workspace-registration.js';
 import { looksVirtual, shellQuote } from './paths.js';
 import type { HostRecord } from './types.js';
 import { listSshConfigAliases, resolveSshConfig } from './ssh-config.js';
@@ -26,6 +27,8 @@ export interface NativeApiDeps {
   agents: Map<string, AgentRef>;
   /** Local directory from before the first remote activation per session. */
   previousCwd: Map<string, string>;
+  /** Native DSH project registry; optional when only the built-in project picker is available. */
+  workspaceRegistry?: WorkspaceRegistry | (() => WorkspaceRegistry | undefined);
   /** DSH Connection's signed-cookie and Host/Origin admission, fail closed. */
   requestRejection(req: IncomingMessage): number | undefined;
 }
@@ -251,6 +254,16 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
         const verified = manager.trustHostKey(id, hostKey, fingerprint);
         const reconnect = await manager.test(id);
         return send(res, 200, { ok: true, fingerprint: verified.fingerprint, connected: reconnect.ok, probe: reconnect });
+      }
+      // Native project creation flow: return a *real* local placeholder dir.
+      // DSH's own workspace/project picker calls onPicked(localPath), then uses
+      // the standard project registry and session creation path.
+      if (route === '/workspace/prepare') {
+        const hostId = text(body.host, 'host');
+        const remote = text(body.path ?? '~', 'path');
+        const registry = typeof deps.workspaceRegistry === 'function' ? deps.workspaceRegistry() : deps.workspaceRegistry;
+        const prepared = await prepareRemoteWorkspace(manager, hostId, remote, registry);
+        return send(res, 200, { ok: true, ...prepared });
       }
       if (route === '/workspace/open') {
         const { id, agent } = resolveSession(deps, body.sessionId);

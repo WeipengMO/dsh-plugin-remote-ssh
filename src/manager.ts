@@ -422,21 +422,38 @@ export class RemoteSshManager {
     return { workspace, virtualPath: encodeVirtualPath(token, canonicalRoot), status: connection.status() };
   }
 
-  /** Synchronously identify the workspace for an fs request without touching the network. */
+  /**
+   * DSH project cwd is an existing local placeholder; the actual files remain
+   * remote. A placeholder root corresponds to workspace.remoteRoot, not '/'.
+   * Never mistake a normal local path for a remote one.
+   */
   routeFor(pathValue: string, cwd: string | undefined): FsRoute | null {
+    const buildRoute = (workspace: WorkspaceRecord, remotePath: string): FsRoute => {
+      const normalized = path.posix.normalize(remotePath);
+      return {
+        workspace, remotePath: normalized,
+        virtualPath: encodeVirtualPath(workspace.token, normalized),
+        targetKey: `ssh:${workspace.token}:${normalized}`,
+      };
+    };
+    const absoluteRemote = (parsed: NonNullable<ReturnType<typeof parseVirtualPath>>, workspace: WorkspaceRecord): string => {
+      if (!parsed.placeholder) return parsed.remotePath;
+      const value = path.posix.join(workspace.remoteRoot, parsed.remotePath);
+      return value.length > 1 && value.endsWith('/') ? value.slice(0, -1) : value;
+    };
+
     const parsedPath = parseVirtualPath(pathValue);
     if (parsedPath !== null) {
       const workspace = this.workspaceByToken(parsedPath.workspaceToken);
-      const virtualPath = encodeVirtualPath(workspace.token, parsedPath.remotePath);
-      return { workspace, remotePath: parsedPath.remotePath, virtualPath, targetKey: `ssh:${workspace.token}:${parsedPath.remotePath}` };
+      return buildRoute(workspace, absoluteRemote(parsedPath, workspace));
     }
     if (!looksVirtual(cwd)) return null;
     const parsedCwd = parseVirtualPath(cwd);
     if (parsedCwd === null) return null;
     const workspace = this.workspaceByToken(parsedCwd.workspaceToken);
-    const remotePath = resolveRemotePath(pathValue, parsedCwd.remotePath, workspace.remoteHome, workspace.token);
-    const virtualPath = encodeVirtualPath(workspace.token, remotePath);
-    return { workspace, remotePath, virtualPath, targetKey: `ssh:${workspace.token}:${remotePath}` };
+    const remoteCwd = absoluteRemote(parsedCwd, workspace);
+    const remotePath = resolveRemotePath(pathValue, remoteCwd, workspace.remoteHome, workspace.token);
+    return buildRoute(workspace, remotePath);
   }
 
   async resolveRoute(pathValue: string, cwd: string | undefined): Promise<ResolvedRoute | null> {

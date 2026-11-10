@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import os from 'node:os';
 import { RemoteSshError } from './errors.js';
 
 /**
@@ -17,10 +18,32 @@ const WIN_PREFIX = `\\\\${VIRTUAL_NAMESPACE}\\`;
 const POSIX_PREFIX = `/${VIRTUAL_NAMESPACE}/`;
 const TOKEN_RE = /^w[0-9a-f]{16}$/i;
 
+/** Real local directories are required by the DSH project/workspace registry.
+ * These contain NO copies of remote files; they only identify an SSH route.
+ * Stable across plugin upgrades and DSH restarts. Keep outside repo/project trees.
+ */
+export function workspacePlaceholderRoot(): string {
+  return path.join(os.homedir(), '.dsh', 'remote-ssh-workspaces');
+}
+export function workspacePlaceholderPath(token: string): string {
+  if (!TOKEN_RE.test(token)) throw new RemoteSshError('SSH_PATH_INVALID', 'invalid workspace token');
+  return path.join(workspacePlaceholderRoot(), token);
+}
+export function parseWorkspacePlaceholder(value: string | undefined | null): ParsedVirtualPath | null {
+  if (typeof value !== 'string' || !path.isAbsolute(value)) return null;
+  const rel = path.relative(workspacePlaceholderRoot(), path.resolve(value));
+  if (!rel || rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) return null;
+  const [token, ...rest] = rel.split(path.sep);
+  if (!token || !TOKEN_RE.test(token)) return null;
+  return { workspaceToken: token, remotePath: path.posix.normalize('/' + rest.join('/')), placeholder: true };
+}
+
 export interface ParsedVirtualPath {
   workspaceToken: string;
   /** Absolute POSIX path on the remote host. */
   remotePath: string;
+  /** Local, existing DSH workspace directory under our private placeholder root. */
+  placeholder?: boolean;
 }
 
 /** Deterministic workspace token: same host identity + same root reuses the mapping. */
@@ -58,6 +81,8 @@ export function encodeVirtualPath(token: string, remotePath: string): string {
 /** Parse a virtual path; returns null when the path is an ordinary host path. */
 export function parseVirtualPath(value: string | undefined | null): ParsedVirtualPath | null {
   if (typeof value !== 'string' || value.length === 0) return null;
+  const placeholder = parseWorkspacePlaceholder(value);
+  if (placeholder) return placeholder;
   let rest: string | undefined;
   if (value.startsWith(WIN_PREFIX)) rest = value.slice(WIN_PREFIX.length);
   else if (value.startsWith(POSIX_PREFIX)) rest = value.slice(POSIX_PREFIX.length);
@@ -74,7 +99,7 @@ export function parseVirtualPath(value: string | undefined | null): ParsedVirtua
 /** True when the value claims to be in the reserved remote namespace. */
 export function looksVirtual(value: string | undefined | null): boolean {
   if (typeof value !== 'string') return false;
-  return value.startsWith(WIN_PREFIX) || value.startsWith(POSIX_PREFIX) || value.startsWith(`//${VIRTUAL_NAMESPACE}/`);
+  return !!parseWorkspacePlaceholder(value) || value.startsWith(WIN_PREFIX) || value.startsWith(POSIX_PREFIX) || value.startsWith(`//${VIRTUAL_NAMESPACE}/`);
 }
 
 /** Expand `~` and `~/...` against the remote home. `~user` needs a remote user lookup and is left unchanged. */

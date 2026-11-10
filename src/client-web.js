@@ -178,10 +178,9 @@ window.__ModuleLoader__.load({
             onClick: () => onConfirm(fingerprint) }, busy ? '正在校验…' : '信任并连接'))));
     }
     // Mounted directly in the DSH Settings section, not in a global overlay.
-    function RemoteSSHSettings() {
+    function RemoteSSHSettings({ createWorkspace }) {
       const [state, setState] = useState({ hosts: [], effective: {}, statuses: [], sessions: [], aliases: [], recent: [] });
       const [selected, setSelected] = useState('');
-      const [session, setSession] = useState('');
       const [filter, setFilter] = useState('');
       const [browse, setBrowse] = useState(null);
       const [dir, setDir] = useState('~');
@@ -198,7 +197,6 @@ window.__ModuleLoader__.load({
       const [loading, setLoading] = useState(false);
       const currentHost = state.hosts.find(host => host.id === selected);
       const status = state.statuses.find(item => item.id === selected);
-      const activeSession = state.sessions.find(item => item.id === session);
       const refresh = useCallback(async () => {
         try {
           const next = await api('/state');
@@ -206,7 +204,6 @@ window.__ModuleLoader__.load({
           setBuildWarning(next.version === CLIENT_VERSION ? '' :
             'Remote SSH 服务端插件版本与界面不一致（服务端 ' + (next.version || '旧版／未提供版本') + '，界面 ' + CLIENT_VERSION + '）。请完全退出并重启 DSH 客户端后硬刷新页面，否则无法读取 SSH Config。');
           setSelected(old => next.hosts.find(item => item.id === old)?.id || next.hosts[0]?.id || '');
-          setSession(old => next.sessions.find(item => item.id === old)?.id || next.sessions.find(item => item.latest)?.id || next.sessions[0]?.id || '');
         } catch (e) { setError(e.message); }
       }, []);
       const run = async (name, fn, msg) => {
@@ -228,7 +225,6 @@ window.__ModuleLoader__.load({
       useEffect(() => { const tick = setInterval(refresh, 5000); return () => clearInterval(tick); }, [refresh]);
       const hosts = state.hosts.filter(item => (item.label + ' ' + item.host).toLowerCase().includes(filter.toLowerCase()));
       const stateLabel = status?.state === 'ready' ? '已连接' : status?.state === 'failed' ? '连接失败' : status?.state === 'connecting' ? '连接中' : '未连接';
-      const sessionText = !state.sessions.length ? '尚未检测到可切换的 Agent。先在目标 DSH 对话中发送一条消息，然后刷新这里。' : activeSession?.remote ? '所选会话当前使用远程工作区；DSH 工作区列表仍显示本地目录（宿主限制）。' : activeSession ? '将下面浏览的目录设置为所选 DSH 会话的工作目录；切换只影响所选会话。' : '选择要切换的 DSH 会话。';
       const statusClass = status?.state === 'ready' ? 'rss-online' : status?.state === 'failed' ? 'rss-failed' : 'rss-idle';
       const test = async () => {
         const result = await run('test', () => api('/test', { host: selected }));
@@ -244,18 +240,20 @@ window.__ModuleLoader__.load({
           modal === 'new' || !modal?.id ? form : { ...form, id: modal.id }), '主机配置已保存');
         if (result) { setSelected(result.host.id); setBrowse(null); setDir('~'); setModal(null); refresh(); }
       };
+      // Adding a workspace is NOT a mutation of an arbitrary live Agent.
+      // DSH manages the workspace/project and creates sessions normally.
       const openWorkspace = async () => {
-        if (!session) { setError('请先选择要切换的 DSH Agent 会话'); return; }
-        const result = await run('open', () => api('/workspace/open', { host: selected, path: dir || '~', sessionId: session }));
-        if (result) {
-          setSuccess('已切换会话 ' + String(result.sessionId).slice(0, 8) + ' 的 Agent 工作目录。请切到该 DSH 会话使用；DSH 的工作区列表仍显示本地目录（宿主限制）。');
+        if (!selected || !dir) return;
+        const prepared = await run('prepare', () => api('/workspace/prepare', { host: selected, path: dir }));
+        if (!prepared) return;
+        try {
+          if (!prepared.registered) {
+            if (typeof createWorkspace !== 'function') throw Error('DSH 工作区注册服务不可用；请从「新建项目 → 源文件夹」选择远程目录。');
+            await createWorkspace(prepared.localPath);
+          }
+          setSuccess('已添加到 DSH 工作区：' + prepared.title + '。现在可从工作区列表中创建或打开会话。');
           refresh();
-        }
-      };
-      const leaveWorkspace = async () => {
-        if (!session) return;
-        const result = await run('leave', () => api('/workspace/close', { sessionId: session }), '已恢复本地工作目录');
-        if (result) refresh();
+        } catch (e) { setError('添加工作区失败：' + (e.message || String(e))); }
       };
       const execute = async e => {
         e.preventDefault();
@@ -326,18 +324,6 @@ window.__ModuleLoader__.load({
                 } }))),
             h('div', { className: 'rss-host-address' },
               (status?.user || currentHost.user || 'ssh') + '@' + (status?.hostName || currentHost.host) + ':' + (status?.port || currentHost.port || 22)),
-            h('section', { className: 'rss-session' },
-              h('div', { className: 'rss-subheading' }, h(Icon, { name: 'folder', size: 16 }), h('strong', null, 'DSH 会话工作区')),
-              h('div', { className: 'rss-session-controls' },
-                state.sessions.length ? h('select', { 'aria-label': '选择 DSH Agent 会话', value: session, onChange: e => setSession(e.target.value) },
-                  h('option', { value: '' }, '选择 DSH 会话'),
-                  state.sessions.map(item => h('option', { value: item.id, key: item.id },
-                    (item.cwd || '当前会话').split(/[\\/]/).filter(Boolean).slice(-1)[0] + ' · ' + item.id.slice(0, 8) + (item.remote ? ' (远程)' : '') + (item.latest ? ' · 最新' : '')))) :
-                  h('span', { className: 'rss-no-session' }, '暂无已启动的 Agent'),
-                h(Button, { icon: 'refresh', small: true, onClick: refresh, title: '刷新会话列表' }),
-                activeSession?.remote && h(Button, { small: true, onClick: leaveWorkspace, disabled: !!busy },
-                  busy === 'leave' ? '切换中…' : '返回本地')),
-              h('p', { className: 'rss-session-description' }, sessionText)),
             h('div', { className: 'rss-tabs', role: 'tablist', 'aria-label': '远程 SSH 工具' },
               [['files', '文件浏览', 'folder'], ['terminal', '快速命令', 'terminal'], ['info', '连接信息', 'shield']].map(([id, label, glyph]) =>
                 h('button', { key: id, role: 'tab', type: 'button', 'aria-selected': tab === id,
@@ -368,10 +354,10 @@ window.__ModuleLoader__.load({
                     entry.type === 'directory' && h(Icon, { name: 'chevron', size: 13 }))),
                   browse.truncated && h('p', { className: 'rss-hint rss-truncated' }, '目录过大，只显示前 1000 项'))),
               h('div', { className: 'rss-workspace-actions' },
-                h('div', null, h('strong', null, '切换所选会话的工作区'),
-                  h('p', null, session ? '将所选会话切换到当前浏览的远程目录。' : '先选择上方的 DSH 会话，才能切换其目录。')),
-                h(Button, { variant: 'primary', icon: 'arrow', disabled: !!busy || !session,
-                  onClick: openWorkspace }, busy === 'open' ? '正在切换…' : '使用此目录'))),
+                h('div', null, h('strong', null, '添加为 DSH 工作区'),
+                  h('p', null, '添加后在 DSH 左侧工作区中打开，Agent 文件与命令会自动使用此远程目录。')),
+                h(Button, { variant: 'primary', icon: 'arrow', disabled: !!busy || loading || !browse,
+                  onClick: openWorkspace }, busy === 'prepare' ? '正在添加…' : '添加此文件夹'))),
             tab === 'terminal' && h('div', { className: 'rss-terminal-tab', role: 'tabpanel' },
               h('p', { className: 'rss-hint' }, '在服务器执行非交互式命令（30 秒超时）。不是完整 SSH 终端。'),
               h('div', { className: 'rss-console', 'aria-live': 'polite' },
@@ -405,6 +391,138 @@ window.__ModuleLoader__.load({
             if (result) { setTrust(false); refresh(); loadDir(selected, '~'); }
           } }));
     }
+
+    /**
+     * Native DSH new-project source-folder flow. The parent owns the modal
+     * and project creation: we only return a validated REAL local placeholder
+     * to onPicked. DSH then creates/selects the project as usual.
+     *
+     * Both official slots are covered; no direct Agent mutation is needed.
+     */
+    function RemoteProjectDirectoryFlow(props) {
+      const { open, busy, onPicked, onCancel, onError, pickDirectory } = props;
+      const [mode, setMode] = useState('local');
+      const [hosts, setHosts] = useState([]);
+      const [hostId, setHostId] = useState('');
+      const [currentPath, setCurrentPath] = useState('~');
+      const [listing, setListing] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [picking, setPicking] = useState(false);
+      const [error, setError] = useState('');
+      const requestId = React.useRef(0);
+      const reported = React.useRef(false);
+      const hostChosen = React.useRef(false);
+      useEffect(() => {
+        if (!open) return;
+        let disposed = false;
+        reported.current = false;
+        hostChosen.current = false;
+        setError(''); setListing(null); setHostId(''); setLoading(true);
+        api('/state').then(state => {
+          if (disposed) return;
+          const list = state.hosts || [];
+          setHosts(list); setLoading(false);
+          // Keep local project creation as the default; select Remote explicitly.
+          setMode('local');
+        }).catch(e => {
+          if (disposed) return;
+          setError(e.message || String(e)); setLoading(false);
+        });
+        return () => { disposed = true; ++requestId.current; };
+      }, [open]);
+      async function browse(host, remotePath) {
+        if (!host) return;
+        const id = ++requestId.current;
+        setError(''); setLoading(true); setCurrentPath(remotePath);
+        try {
+          const result = await api('/browse?host=' + encodeURIComponent(host) + '&path=' + encodeURIComponent(remotePath));
+          if (requestId.current !== id) return;
+          setListing(result); setCurrentPath(result.path);
+        } catch (e) {
+          if (requestId.current !== id) return;
+          setListing(null);
+          setError((e.message || String(e)) + '。若是首次连接，请先在「设置 → Remote SSH」确认服务器指纹。');
+        } finally { if (requestId.current === id) setLoading(false); }
+      }
+      function chooseHost(id) {
+        setHostId(id); setListing(null); setCurrentPath('~');
+        if (id) { hostChosen.current = true; browse(id, '~'); }
+      }
+      async function chooseRemote() {
+        if (reported.current || busy || picking || !hostId || !listing) return;
+        setPicking(true); setError('');
+        try {
+          const result = await api('/workspace/prepare', { host: hostId, path: listing.path });
+          if (!result.localPath) throw Error('无法生成 DSH 本地工作区占位目录');
+          if (reported.current) return;
+          reported.current = true;
+          onPicked(result.localPath);
+        } catch (e) {
+          setError(e.message || String(e));
+        } finally { setPicking(false); }
+      }
+      async function chooseLocal() {
+        if (reported.current || busy || picking) return;
+        setPicking(true); setError('');
+        try {
+          const picked = await pickDirectory();
+          if (reported.current) return;
+          reported.current = true;
+          if (picked == null) onCancel();
+          else onPicked(picked);
+        } catch (e) {
+          if (typeof onError === 'function') {
+            reported.current = true; onError(e.message || String(e));
+          } else setError(e.message || String(e));
+        } finally { setPicking(false); }
+      }
+      function cancel() {
+        if (busy || picking || reported.current) return;
+        reported.current = true; onCancel();
+      }
+      if (!open) return null;
+      return h('div', { className: 'rss-project-flow', role: 'region', 'aria-label': '选择项目源文件夹' },
+        h('div', { className: 'rss-project-modes' },
+          h('button', { type: 'button', className: mode === 'local' ? 'rss-project-active' : '', onClick: () => setMode('local') }, '本地电脑'),
+          h('button', { type: 'button', className: mode === 'remote' ? 'rss-project-active' : '', onClick: () => setMode('remote') }, '远程 SSH')),
+        mode === 'local' ? h('div', { className: 'rss-project-local' },
+          h('p', null, '使用本机文件夹创建 DSH 项目。'),
+          h('button', { type: 'button', className: 'rss-btn rss-primary', disabled: !!busy || picking, onClick: chooseLocal }, '选择本地文件夹…')) :
+          h('div', { className: 'rss-project-remote' },
+            h('label', { className: 'rss-project-label' }, 'SSH 主机',
+              h('select', { value: hostId, disabled: !!busy || picking, onChange: e => chooseHost(e.target.value) },
+                h('option', { value: '' }, '选择远程服务器…'),
+                hosts.map(host => h('option', { key: host.id, value: host.id }, host.label || host.host)))),
+            !hosts.length && !loading && h('p', { className: 'rss-project-hint' }, '还没有服务器。请先在设置 → Remote SSH 添加主机。'),
+            hostId && h('div', { className: 'rss-project-path-row' },
+              h('button', { type: 'button', title: '上级目录', disabled: loading, onClick: () => browse(hostId, parentOf(listing?.path || currentPath)) }, '↑'),
+              h('form', { onSubmit: e => { e.preventDefault(); browse(hostId, currentPath); } },
+                h('input', { 'aria-label': '远程源目录', spellCheck: false, value: currentPath,
+                  onChange: e => setCurrentPath(e.target.value), placeholder: '/home/user/project' }),
+                h('button', { type: 'submit', title: '打开路径', disabled: loading }, '前往')),
+              h('button', { type: 'button', title: '刷新目录', disabled: loading,
+                onClick: () => browse(hostId, listing?.path || currentPath) }, '↻')),
+            hostId && h('div', { className: 'rss-project-dir-list', role: 'list' },
+              loading ? h('p', { className: 'rss-project-hint' }, '读取目录中…') :
+              !listing ? h('p', { className: 'rss-project-hint' }, '选择服务器以浏览远程文件夹。') :
+              listing.entries.filter(entry => entry.type === 'directory').length === 0 ?
+                h('p', { className: 'rss-project-hint' }, '这是一个空文件夹，可以直接选用。') :
+                listing.entries.filter(entry => entry.type === 'directory').map(entry =>
+                  h('button', { type: 'button', key: entry.name,
+                    title: entry.name, onClick: () => browse(hostId, joinRemote(listing.path, entry.name)) },
+                    h(Icon, { name: 'folder', size: 15 }), h('span', null, entry.name),
+                    h(Icon, { name: 'chevron', size: 14 })))),
+            hostId && listing && h('div', { className: 'rss-project-selected' },
+              '选中的远程目录：', h('code', null, listing.path)),
+          ),
+        error && h('p', { className: 'rss-project-error', role: 'alert' }, error),
+        h('div', { className: 'rss-project-footer' },
+          h('button', { type: 'button', className: 'rss-btn', onClick: cancel, disabled: !!busy || picking }, '取消'),
+          mode === 'remote' && h('button', { type: 'button', className: 'rss-btn rss-primary',
+            onClick: chooseRemote, disabled: !!busy || picking || loading || !listing || !hostId },
+            picking ? '正在打开…' : '使用此远程文件夹')));
+    }
+
     function apply(ctx) {
       ctx.effect(() => {
         const style = document.createElement('style'); style.id = 'dsh-remote-ssh-style'; style.textContent = CSS;
@@ -418,10 +536,25 @@ window.__ModuleLoader__.load({
         id: 'remote-ssh',
         order: 40,
         label: () => 'Remote SSH',
+        inject: () => ({ createWorkspace: (localPath) => ctx.workspaces.create(localPath) }),
       }, RemoteSSHSettings));
+      // DSH's own project creation and workspace selector consume these slots.
+      // Priority -2 beats the stock picker (-0) and @dsh-ssh/dsh-ssh (-1).
+      // Keeping both slots consistent avoids selecting the remote folder in
+      // one flow only to fall back to a local folder in the other.
+      const injectFlow = () => ({ pickDirectory: () => ctx.workspaces.pickDirectory() });
+      ctx.slots.inject('conversation.hero.workspace.directoryFlow', () =>
+        ctx.slots.inject('sidebar.workspaces.directoryFlow', function* () {
+          yield ctx.slots.register({
+            name: 'conversation.hero.workspace.directoryFlow', priority: -2, inject: injectFlow,
+          }, RemoteProjectDirectoryFlow);
+          yield ctx.slots.register({
+            name: 'sidebar.workspaces.directoryFlow', priority: -2, inject: injectFlow,
+          }, RemoteProjectDirectoryFlow);
+        }));
     }
     exports.apply = apply;
-    exports.inject = ['slots'];
+    exports.inject = ['slots', 'workspaces'];
     return module.exports;
   }
 });

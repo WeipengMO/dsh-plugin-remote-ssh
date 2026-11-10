@@ -22,7 +22,7 @@ test('official DSH package publishes built native web bundle and profile patch',
   assert.match(patch, /name: dsh-plugin-remote-ssh/);
 });
 
-test('client registers exactly one native settings section without sidebar or shell overlay', () => {
+test('client registers settings plus native remote project directory flows', () => {
   let result;
   const registrations = [];
   const fakeReact = {
@@ -42,15 +42,20 @@ test('client registers exactly one native settings section without sidebar or sh
   };
   const source = fs.readFileSync(path.join(root, 'lib', 'client.js'), 'utf8');
   vm.runInNewContext(source, sandbox);
-  assert.deepEqual([...result.inject], ['slots']);
+  assert.deepEqual([...result.inject], ['slots', 'workspaces']);
   result.apply({
     effect(callback) { callback(); },
     slots: {
-      inject(slot, callback) { assert.equal(slot, 'settings.section'); callback(); },
+      inject(slot, callback) { assert.ok(['settings.section', 'conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow'].includes(slot)); const result = callback(); if (result && result[Symbol.iterator]) for (const _ of result) { /* Cordis effect iterator */ } },
       register(record, component) { registrations.push({ record, component }); return () => {}; },
     },
   });
-  assert.equal(registrations.length, 1);
+  assert.equal(registrations.length, 3);
+  assert.deepEqual(registrations.slice(1).map(x => x.record.name), ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow']);
+  assert.ok(registrations.slice(1).every(x => x.record.priority === -2));
+  assert.ok(registrations.slice(1).every(x => typeof x.record.inject === 'function'));
+  assert.ok(registrations.slice(1).every(x => typeof x.component === 'function'));
+  assert.ok(!source.includes("h('section', { className: 'rss-session' }"));
   assert.equal(registrations[0].record.name, 'settings.section');
   assert.equal(registrations[0].record.id, 'remote-ssh');
   assert.equal(registrations[0].record.label(), 'Remote SSH');
@@ -200,10 +205,11 @@ test('compact Settings UI keeps a single-column, theme-safe, accessible structur
   assert.doesNotMatch(source, /rss-topbar-sub|rss-layout|rss-hero-kicker|rss-session-bar/);
   assert.match(source, /role: 'tablist'/);
   assert.match(source, /'aria-pressed': selected === item.id/);
-  assert.match(source, /'aria-label': '选择 DSH Agent 会话'/);
+  assert.doesNotMatch(source, /'aria-label': '选择 DSH Agent 会话'/);
+  assert.match(source, /'aria-label': '远程源目录'/);
   assert.match(source, /'aria-live': 'polite'/);
-  assert.match(source, /'切换所选会话的工作区'/);
-  assert.match(source, /'rss-no-session'/);
+  assert.match(source, /'添加为 DSH 工作区'/);
+  assert.match(source, /'rss-project-flow'/);
   assert.doesNotMatch(source, /来自 SSH Config/);
   assert.match(source, /'主机地址 \/ HostName'/);
 });
