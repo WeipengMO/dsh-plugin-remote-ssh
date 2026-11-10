@@ -1,5 +1,18 @@
 # DSH Remote SSH · 设置页原生 SSH 工作区
 
+## v1.1.0：DSH 原生远程项目（不再依赖活动 Agent 下拉框）
+
+**现在的推荐流程：** 在 DSH 客户端选择 **创建项目 → 源文件夹 → 远程 SSH → SSH 主机 → 远程目录 → 使用此远程文件夹**。随后正常创建项目，在 DSH 左侧项目/工作区列表打开该项目并新建会话。远程 bash、文件读写和搜索工具通过 SSH 执行，无需复制整个项目到本地。
+
+在 **设置 → Remote SSH** 也可以先添加主机、测试连接、浏览远程目录，再点击 **添加此文件夹**。这一操作登记真正的 DSH 项目工作区，而不是修改正在运行的任意 Agent。
+
+**工作原理：** 对每个选中的远程根目录，在运行 DSH 的电脑上建立一个稳定的空目录 `~/.dsh/remote-ssh-workspaces/<token>`，这是 DSH 项目注册/目录验证使用的占位符；插件将该目录映射到已验证的 SSH 根目录，远程文件本身不复制到本地。不要在占位目录下手动保存本地源码。注册过的工作区映射保存在插件数据中，重启后继续有效。
+
+**与 VS Code / Codex Remote SSH 的差异：** VS Code Remote SSH 在服务器运行 VS Code Server/远程扩展宿主；本插件采用本机 DSH + SSH 文件/命令路由，不会自动把本机技能、MCP 或所有 DSH 服务迁到远程服务器。只有已明确路由的 bash、文件与搜索能力能保证远程执行。桌面客户端 + 实际服务器的完整端到端验证仍需执行。
+
+**避免插件冲突：** 如同时安装 `@dsh-ssh/dsh-ssh` 等也覆盖 `conversation.hero.workspace.directoryFlow` / `sidebar.workspaces.directoryFlow` 的插件，请先禁用冲突插件，避免同一工作区被两套 SSH 路由机制接管。
+
+
 > **v1.0.6 · 修复 Agent 列表与 SSH Config 表单，增加 GitHub Actions 自动构建。** 设置中选择 SSH 别名时，直接填入 HostName、User、Port、IdentityFile，原始别名单独保存以继续匹配 ProxyCommand。
 
 > **v1.0.5 · SSH Config 自动解析与导入 + 版本错配自检**。面向 DeepSeek Harness（DSH）的原生客户端插件体系（Web profile 已做模拟验证，Desktop 待真机验证）。**在 DSH 设置页注册「Remote SSH」独立设置项**，以单列浅色响应式布局展示 SSH 主机和远程工作区；不再添加主侧边栏入口，也不再使用全屏浮层。无须修改 DSH 源码，也不依赖原版 8788 端口。
