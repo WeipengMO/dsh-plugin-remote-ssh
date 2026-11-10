@@ -116,7 +116,7 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
     );
     const restoreWorkingDirectory = guardWorkingDirectory(ctx);
     registerManagementTools(ctx as unknown as Parameters<typeof registerManagementTools>[0], manager, remoteFs);
-    const workspaceRegistry = ctx.get('workspaceRegistry') as WorkspaceRegistry | undefined;
+    const workspaceRegistry = (): WorkspaceRegistry | undefined => ctx.get('workspaceRegistry') as WorkspaceRegistry | undefined;
     const unregisterHttp = webServer.register({
       kind: 'prefix',
       path: '/api/remote-ssh',
