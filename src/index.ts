@@ -8,7 +8,7 @@ import { expandUserPath } from './ssh-config.js';
 import { installRemoteSearchShadow } from './remote-search.js';
 import { installShellRouter } from './shell-router.js';
 import { registerManagementTools } from './tools.js';
-import { createNativeHttpHandler, type AgentRef } from './http-api.js';
+import { agentFromCreatedEvent, createNativeHttpHandler, type AgentRef } from './http-api.js';
 
 export const name = 'remote-ssh';
 
@@ -92,7 +92,7 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
   const agents = new Map<string, AgentRef>();
   const previousCwd = new Map<string, string>();
   ctx.on('agent/created', (event: unknown) => {
-    const agent = event as AgentRef;
+    const agent = agentFromCreatedEvent(event);
     const id = agent?.session?.id ?? agent?.session?.header?.id;
     if (typeof id === 'string' && id.length > 0) {
       agents.delete(id);

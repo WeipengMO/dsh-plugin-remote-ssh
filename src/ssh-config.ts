@@ -161,6 +161,7 @@ function parseConfigFile(file: string, seen: Set<string>, depth: number): Block[
 
 export interface HostRecordForConfig {
   host: string;
+  sshAlias?: string;
   port?: number;
   user?: string;
   identityFile?: string;
@@ -177,7 +178,8 @@ export interface HostRecordForConfig {
  * an alias resolves HostName/User/Port from the config.
  */
 export function resolveSshConfig(stored: HostRecordForConfig): EffectiveSshConfig {
-  let alias = stored.host.trim();
+  // Resolve OpenSSH options against the original Host alias, not the visible HostName.
+  let alias = (stored.sshAlias?.trim() || stored.host.trim());
   if (alias.length === 0) throw new RemoteSshError('SSH_CONFIG_INVALID', 'host must not be empty');
   let explicitUser: string | undefined = stored.user;
   if (alias.includes('@')) {
@@ -186,7 +188,7 @@ export function resolveSshConfig(stored: HostRecordForConfig): EffectiveSshConfi
     alias = alias.slice(at + 1);
   }
   if (alias.length === 0) throw new RemoteSshError('SSH_CONFIG_INVALID', 'host must not be empty');
-  if (alias.startsWith('-')) throw new RemoteSshError('SSH_CONFIG_INVALID', 'host must not start with "-"');
+  if (alias.startsWith('-') || /[\s\0]/.test(alias)) throw new RemoteSshError('SSH_CONFIG_INVALID', 'invalid SSH alias');
 
   const useSshConfig = stored.useSshConfig !== false;
   const configFile = stored.configFile !== undefined ? expandUserPath(stored.configFile) : path.join(HOME, '.ssh', 'config');
@@ -211,7 +213,8 @@ export function resolveSshConfig(stored: HostRecordForConfig): EffectiveSshConfi
   }
 
   const rawHostName = collected.get('hostname') ?? alias;
-  const hostName = rawHostName.replace(/%h/g, alias);
+  // The form may explicitly override HostName while retaining alias-specific ProxyCommand.
+  const hostName = (stored.sshAlias ? stored.host.trim() : rawHostName).replace(/%h/g, alias);
   const user = explicitUser ?? collected.get('user') ?? process.env.USER ?? process.env.USERNAME ?? os.userInfo().username;
   const portText = stored.port !== undefined ? String(stored.port) : collected.get('port') ?? '22';
   const port = Number(portText);

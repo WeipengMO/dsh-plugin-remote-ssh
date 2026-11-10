@@ -140,6 +140,7 @@ export class RemoteSshManager {
       id: `h-${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`,
       label: (input.label ?? input.host).trim() || input.host,
       host: sanitizeHost(input.host),
+      ...(input.sshAlias !== undefined ? { sshAlias: sanitizeHost(input.sshAlias) } : {}),
       ...(input.port !== undefined ? { port: input.port } : {}),
       ...(input.user !== undefined ? { user: input.user } : {}),
       ...(input.identityFile !== undefined ? { identityFile: input.identityFile } : {}),
@@ -170,6 +171,7 @@ export class RemoteSshManager {
       if (value === null && key !== 'host' && key !== 'label') delete (next as unknown as Record<string, unknown>)[key];
     }
     next.host = sanitizeHost(next.host);
+    if (next.sshAlias !== undefined) next.sshAlias = sanitizeHost(next.sshAlias);
     this.validateHost(next);
     this.hostsValue = this.hosts().map((entry) => (entry.id === id ? next : entry));
     this.saveHosts();
