@@ -1,5 +1,7 @@
 # DSH Remote SSH · 设置页原生 SSH 工作区
 
+> **v1.0.6 · 修复 Agent 列表与 SSH Config 表单，增加 GitHub Actions 自动构建。** 设置中选择 SSH 别名时，直接填入 HostName、User、Port、IdentityFile，原始别名单独保存以继续匹配 ProxyCommand。
+
 > **v1.0.5 · SSH Config 自动解析与导入 + 版本错配自检**。面向 DeepSeek Harness（DSH）的原生客户端插件体系（Web profile 已做模拟验证，Desktop 待真机验证）。**在 DSH 设置页注册「Remote SSH」独立设置项**，以单列浅色响应式布局展示 SSH 主机和远程工作区；不再添加主侧边栏入口，也不再使用全屏浮层。无须修改 DSH 源码，也不依赖原版 8788 端口。
 
 ## 安装（推荐）
@@ -156,3 +158,21 @@ Web profile 与 Desktop profile 相互独立，分别安装才能在对应运行
 - 客户端遇到 405 / `method not allowed` 时给出可直接照做的中文提示。
 
 **升级到本版仍需完全重启 DSH 进程一次**，之后错配即可消除；以后再出现同类问题会直接显示可操作提示。
+
+
+## 自动构建 / 下载插件安装包
+
+仓库的 [Build DSH Remote SSH plugin](.github/workflows/build.yml) 工作流在以下情况下运行：
+
+- 向 `main` push、提交 Pull Request、或在 Actions 中手动运行：安装依赖、编译 TypeScript 和客户端、运行测试、生成 npm 格式 `.tgz` 安装包，并上传为 **Actions artifact**（默认保留 30 天）。
+- 推送 `v*` Git 标签：完成上述测试后，自动创建 GitHub Release，并附上 `.tgz` 安装包。
+
+下载方式：GitHub 仓库 → **Actions** → 选择成功的 **Build DSH Remote SSH plugin** run → **Artifacts** → 下载 ZIP，解压得到 `.tgz`。随后完全退出 DSH，在 Windows 上执行：
+
+```powershell
+dsh plugin --profile desktop add .\dsh-plugin-remote-ssh-1.0.6.tgz
+```
+
+注意：设置页的 **DSH 会话工作区** 不是 SSH 服务器会话列表。它用于把选定的远程目录绑定到 DSH 的 Agent 会话（对话）。DSH 在 Agent 创建后才会触发 `agent/created`；因此尚未发送任何消息的新对话不会出现在列表中。先在目标 DSH 对话中发送一条消息，再打开设置页并刷新。此版本修正了对 `{ agent }` 事件负载的解析；若仍然没有会话，请在 GitHub issue 中提供 DSH 版本和脱敏日志。**已创建 Agent 的会话**不等于插件能主动为没有 Agent 的对话创建工作区；更原生的「新建远程工作区」流程尚需后续开发。
+
+SSH Config 导入采用**一次性表单填充**，而不是之前的「字段继承」UI。选中 Host 别名后，HostName、用户名、端口及第一个 IdentityFile 会填写为普通可编辑字段；保存的是当时确认的值。原始 SSH 别名还会留作 ProxyCommand、keepalive 等高级连接参数的匹配依据。若之后修改本地 `~/.ssh/config`，请重新选择别名并保存以更新字段。
