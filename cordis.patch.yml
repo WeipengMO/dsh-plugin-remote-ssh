@@ -1,0 +1,7 @@
+# Installed automatically by the DSH plugin manager via package.json#dsh.bundle.patch
+- insert:
+    - id: remote-ssh
+      name: dsh-plugin-remote-ssh
+      config:
+        storageDir: ~/.dsh/remote-ssh
+        maxRecent: 20

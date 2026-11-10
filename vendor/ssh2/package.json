@@ -1,0 +1,9 @@
+{
+  "name": "ssh2-pure-js-vendor",
+  "version": "1.17.0",
+  "private": true,
+  "type": "commonjs",
+  "license": "MIT",
+  "main": "./lib/index.js",
+  "description": "Unmodified ssh2 1.17.0 runtime JS with optional native compilation files omitted."
+}

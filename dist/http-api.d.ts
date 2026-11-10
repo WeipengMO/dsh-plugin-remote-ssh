@@ -1,0 +1,27 @@
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { RemoteSshManager } from './manager.js';
+export interface AgentRef {
+    id: string;
+    session: {
+        id?: string;
+        header?: {
+            id?: string;
+            cwd?: string;
+        };
+    };
+}
+export interface WorkingDirectoryService {
+    get(session: AgentRef['session']): string;
+    set(agent: AgentRef, value: string, signal?: AbortSignal): Promise<string>;
+}
+export interface NativeApiDeps {
+    manager: RemoteSshManager;
+    workingDirectory: WorkingDirectoryService;
+    /** Active agent instances, populated via the global agent/created hook. */
+    agents: Map<string, AgentRef>;
+    /** Local directory from before the first remote activation per session. */
+    previousCwd: Map<string, string>;
+    /** DSH Connection's signed-cookie and Host/Origin admission, fail closed. */
+    requestRejection(req: IncomingMessage): number | undefined;
+}
+export declare function createNativeHttpHandler(deps: NativeApiDeps): (req: IncomingMessage, res: ServerResponse) => Promise<void>;
