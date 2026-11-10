@@ -9,6 +9,7 @@ import { installRemoteSearchShadow } from './remote-search.js';
 import { installShellRouter } from './shell-router.js';
 import { registerManagementTools } from './tools.js';
 import { agentFromCreatedEvent, createNativeHttpHandler, type AgentRef } from './http-api.js';
+import type { WorkspaceRegistry } from './workspace-registration.js';
 
 export const name = 'remote-ssh';
 
@@ -115,10 +116,11 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
     );
     const restoreWorkingDirectory = guardWorkingDirectory(ctx);
     registerManagementTools(ctx as unknown as Parameters<typeof registerManagementTools>[0], manager, remoteFs);
+    const workspaceRegistry = ctx.get('workspaceRegistry') as WorkspaceRegistry | undefined;
     const unregisterHttp = webServer.register({
       kind: 'prefix',
       path: '/api/remote-ssh',
-      handler: createNativeHttpHandler({ manager, workingDirectory: ctx.workingDirectory, agents, previousCwd, requestRejection: request => connection.requestRejection(request) }) as (req: unknown, res: unknown) => Promise<void>,
+      handler: createNativeHttpHandler({ manager, workingDirectory: ctx.workingDirectory, agents, previousCwd, workspaceRegistry, requestRejection: request => connection.requestRejection(request) }) as (req: unknown, res: unknown) => Promise<void>,
     });
     ctx.logger.info(`remote-ssh: ready (storage ${storageDir})`);
     return () => {
