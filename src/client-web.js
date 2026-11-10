@@ -391,6 +391,138 @@ window.__ModuleLoader__.load({
             if (result) { setTrust(false); refresh(); loadDir(selected, '~'); }
           } }));
     }
+
+    /**
+     * Native DSH new-project source-folder flow. The parent owns the modal
+     * and project creation: we only return a validated REAL local placeholder
+     * to onPicked. DSH then creates/selects the project as usual.
+     *
+     * Both official slots are covered; no direct Agent mutation is needed.
+     */
+    function RemoteProjectDirectoryFlow(props) {
+      const { open, busy, onPicked, onCancel, onError, pickDirectory } = props;
+      const [mode, setMode] = useState('local');
+      const [hosts, setHosts] = useState([]);
+      const [hostId, setHostId] = useState('');
+      const [currentPath, setCurrentPath] = useState('~');
+      const [listing, setListing] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [picking, setPicking] = useState(false);
+      const [error, setError] = useState('');
+      const requestId = React.useRef(0);
+      const reported = React.useRef(false);
+      const hostChosen = React.useRef(false);
+      useEffect(() => {
+        if (!open) return;
+        let disposed = false;
+        reported.current = false;
+        hostChosen.current = false;
+        setError(''); setListing(null); setHostId(''); setLoading(true);
+        api('/state').then(state => {
+          if (disposed) return;
+          const list = state.hosts || [];
+          setHosts(list); setLoading(false);
+          // Keep local project creation as the default; select Remote explicitly.
+          setMode('local');
+        }).catch(e => {
+          if (disposed) return;
+          setError(e.message || String(e)); setLoading(false);
+        });
+        return () => { disposed = true; ++requestId.current; };
+      }, [open]);
+      async function browse(host, remotePath) {
+        if (!host) return;
+        const id = ++requestId.current;
+        setError(''); setLoading(true); setCurrentPath(remotePath);
+        try {
+          const result = await api('/browse?host=' + encodeURIComponent(host) + '&path=' + encodeURIComponent(remotePath));
+          if (requestId.current !== id) return;
+          setListing(result); setCurrentPath(result.path);
+        } catch (e) {
+          if (requestId.current !== id) return;
+          setListing(null);
+          setError((e.message || String(e)) + '。若是首次连接，请先在「设置 → Remote SSH」确认服务器指纹。');
+        } finally { if (requestId.current === id) setLoading(false); }
+      }
+      function chooseHost(id) {
+        setHostId(id); setListing(null); setCurrentPath('~');
+        if (id) { hostChosen.current = true; browse(id, '~'); }
+      }
+      async function chooseRemote() {
+        if (reported.current || busy || picking || !hostId || !listing) return;
+        setPicking(true); setError('');
+        try {
+          const result = await api('/workspace/prepare', { host: hostId, path: listing.path });
+          if (!result.localPath) throw Error('无法生成 DSH 本地工作区占位目录');
+          if (reported.current) return;
+          reported.current = true;
+          onPicked(result.localPath);
+        } catch (e) {
+          setError(e.message || String(e));
+        } finally { setPicking(false); }
+      }
+      async function chooseLocal() {
+        if (reported.current || busy || picking) return;
+        setPicking(true); setError('');
+        try {
+          const picked = await pickDirectory();
+          if (reported.current) return;
+          reported.current = true;
+          if (picked == null) onCancel();
+          else onPicked(picked);
+        } catch (e) {
+          if (typeof onError === 'function') {
+            reported.current = true; onError(e.message || String(e));
+          } else setError(e.message || String(e));
+        } finally { setPicking(false); }
+      }
+      function cancel() {
+        if (busy || picking || reported.current) return;
+        reported.current = true; onCancel();
+      }
+      if (!open) return null;
+      return h('div', { className: 'rss-project-flow', role: 'region', 'aria-label': '选择项目源文件夹' },
+        h('div', { className: 'rss-project-modes' },
+          h('button', { type: 'button', className: mode === 'local' ? 'rss-project-active' : '', onClick: () => setMode('local') }, '本地电脑'),
+          h('button', { type: 'button', className: mode === 'remote' ? 'rss-project-active' : '', onClick: () => setMode('remote') }, '远程 SSH')),
+        mode === 'local' ? h('div', { className: 'rss-project-local' },
+          h('p', null, '使用本机文件夹创建 DSH 项目。'),
+          h('button', { type: 'button', className: 'rss-btn rss-primary', disabled: !!busy || picking, onClick: chooseLocal }, '选择本地文件夹…')) :
+          h('div', { className: 'rss-project-remote' },
+            h('label', { className: 'rss-project-label' }, 'SSH 主机',
+              h('select', { value: hostId, disabled: !!busy || picking, onChange: e => chooseHost(e.target.value) },
+                h('option', { value: '' }, '选择远程服务器…'),
+                hosts.map(host => h('option', { key: host.id, value: host.id }, host.label || host.host)))),
+            !hosts.length && !loading && h('p', { className: 'rss-project-hint' }, '还没有服务器。请先在设置 → Remote SSH 添加主机。'),
+            hostId && h('div', { className: 'rss-project-path-row' },
+              h('button', { type: 'button', title: '上级目录', disabled: loading, onClick: () => browse(hostId, parentOf(listing?.path || currentPath)) }, '↑'),
+              h('form', { onSubmit: e => { e.preventDefault(); browse(hostId, currentPath); } },
+                h('input', { 'aria-label': '远程源目录', spellCheck: false, value: currentPath,
+                  onChange: e => setCurrentPath(e.target.value), placeholder: '/home/user/project' }),
+                h('button', { type: 'submit', title: '打开路径', disabled: loading }, '前往')),
+              h('button', { type: 'button', title: '刷新目录', disabled: loading,
+                onClick: () => browse(hostId, listing?.path || currentPath) }, '↻')),
+            hostId && h('div', { className: 'rss-project-dir-list', role: 'list' },
+              loading ? h('p', { className: 'rss-project-hint' }, '读取目录中…') :
+              !listing ? h('p', { className: 'rss-project-hint' }, '选择服务器以浏览远程文件夹。') :
+              listing.entries.filter(entry => entry.type === 'directory').length === 0 ?
+                h('p', { className: 'rss-project-hint' }, '这是一个空文件夹，可以直接选用。') :
+                listing.entries.filter(entry => entry.type === 'directory').map(entry =>
+                  h('button', { type: 'button', key: entry.name,
+                    title: entry.name, onClick: () => browse(hostId, joinRemote(listing.path, entry.name)) },
+                    h(Icon, { name: 'folder', size: 15 }), h('span', null, entry.name),
+                    h(Icon, { name: 'chevron', size: 14 })))),
+            hostId && listing && h('div', { className: 'rss-project-selected' },
+              '选中的远程目录：', h('code', null, listing.path)),
+          ),
+        error && h('p', { className: 'rss-project-error', role: 'alert' }, error),
+        h('div', { className: 'rss-project-footer' },
+          h('button', { type: 'button', className: 'rss-btn', onClick: cancel, disabled: !!busy || picking }, '取消'),
+          mode === 'remote' && h('button', { type: 'button', className: 'rss-btn rss-primary',
+            onClick: chooseRemote, disabled: !!busy || picking || loading || !listing || !hostId },
+            picking ? '正在打开…' : '使用此远程文件夹')));
+    }
+
     function apply(ctx) {
       ctx.effect(() => {
         const style = document.createElement('style'); style.id = 'dsh-remote-ssh-style'; style.textContent = CSS;
@@ -404,10 +536,25 @@ window.__ModuleLoader__.load({
         id: 'remote-ssh',
         order: 40,
         label: () => 'Remote SSH',
+        inject: () => ({ createWorkspace: (localPath) => ctx.workspaces.create(localPath) }),
       }, RemoteSSHSettings));
+      // DSH's own project creation and workspace selector consume these slots.
+      // Priority -2 beats the stock picker (-0) and @dsh-ssh/dsh-ssh (-1).
+      // Keeping both slots consistent avoids selecting the remote folder in
+      // one flow only to fall back to a local folder in the other.
+      const injectFlow = () => ({ pickDirectory: () => ctx.workspaces.pickDirectory() });
+      ctx.slots.inject('conversation.hero.workspace.directoryFlow', () =>
+        ctx.slots.inject('sidebar.workspaces.directoryFlow', function* () {
+          yield ctx.slots.register({
+            name: 'conversation.hero.workspace.directoryFlow', priority: -2, inject: injectFlow,
+          }, RemoteProjectDirectoryFlow);
+          yield ctx.slots.register({
+            name: 'sidebar.workspaces.directoryFlow', priority: -2, inject: injectFlow,
+          }, RemoteProjectDirectoryFlow);
+        }));
     }
     exports.apply = apply;
-    exports.inject = ['slots'];
+    exports.inject = ['slots', 'workspaces'];
     return module.exports;
   }
 });
