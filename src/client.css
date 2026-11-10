@@ -242,3 +242,10 @@
 .rss-project-footer button:disabled{opacity:.45;cursor:not-allowed}
 .rss-project-error{padding:10px;border-radius:8px;background:rgba(210,45,45,.08);color:#b63636;font-size:12px}
 @media(max-width:440px){.rss-project-path-row{flex-wrap:wrap}.rss-project-path-row form{flex-basis:75%}.rss-project-footer button{min-height:36px}}
+
+/* Match DSH light/dark host automatically instead of applying Settings light vars. */
+.rss-project-flow{--rss-bg:transparent;--rss-surface:color-mix(in srgb,currentColor 6%,transparent);--rss-line:color-mix(in srgb,currentColor 18%,transparent);--rss-secondary:color-mix(in srgb,currentColor 70%,transparent)}
+.rss-project-flow .rss-btn{padding:8px 14px;border:1px solid var(--rss-line);border-radius:8px;background:var(--rss-bg);color:inherit;cursor:pointer;font:inherit;font-size:13px;font-weight:550;min-height:35px}
+.rss-project-flow .rss-btn.rss-primary{border-color:transparent;background:#3768db;color:white}
+.rss-project-flow .rss-btn.rss-primary:hover:not(:disabled){background:#285ac6}
+.rss-project-flow :is(button,input,select):focus-visible{outline:2px solid #5486ee;outline-offset:2px}
