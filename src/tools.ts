@@ -456,7 +456,7 @@ export function registerManagementTools(
     name: 'plugin:remote-ssh',
     order: 900,
     text:
-      'Remote SSH workspaces: use remote_ssh_hosts to configure a host, remote_ssh_test / remote_ssh_trust_host for strict host-key setup, and remote_workspace_open to make a remote directory the session cwd. Native read/write/edit/glob/grep/bash then operate on the remote host with no local mirror. Use remote_workspace_close to return to local work. Never assume a failed remote path is local.',
+      'Remote SSH workspaces: use remote_ssh_hosts to configure a host, remote_ssh_test / remote_ssh_trust_host for strict host-key setup, and remote_workspace_open to make a remote directory the session cwd. Native read/write/edit/glob/grep and shell then operate on the remote Linux host with no local mirror. DSH may call its shell tool pwsh, but in a remote SSH project the commands execute via bash on the Linux server: use POSIX shell commands, not PowerShell cmdlets. File write/edit do not create missing parent directories; create directories explicitly before writing. The remote grep tool accepts a directory or a single file and excludes hidden entries in recursive directory searches by default. Use remote_workspace_close to return to local work. Never assume a failed remote path is local.',
   });
 
   ctx.on?.('agent/disposed', (payload) => {
