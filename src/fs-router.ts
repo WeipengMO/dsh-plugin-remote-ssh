@@ -35,8 +35,13 @@ function targetFromKey(target: unknown): RemoteTarget | null {
  * the SFTP resolver, which rejects Windows paths and makes a remote session
  * impossible to leave.
  */
-function isAbsoluteLocalPath(value: string): boolean {
-  return !looksVirtual(value) && path.isAbsolute(value);
+export function isAbsoluteLocalPath(value: string, cwd?: string, platform: string = process.platform): boolean {
+  if (looksVirtual(value)) return false;
+  // On Windows, a POSIX '/data/project' absolute path from a remote Linux
+  // Agent is not '\\data\\project' on the local Windows drive. Keep drive
+  // letters and UNC host paths explicitly local so "return to local" works.
+  if (platform === 'win32' && looksVirtual(cwd) && /^\/(?!\/)/.test(value)) return false;
+  return path.isAbsolute(value);
 }
 
 /** Resolve a target object to its remote coordinates, or null for local targets. */
@@ -95,7 +100,7 @@ export function installFsRouter(ctx: { fs: AnyRecord; effect?: (fn: () => () => 
     // virtual) cwd. A virtual path itself is remote; an absolute local path
     // must stay local; only a relative path follows a virtual cwd.
     if (looksVirtual(value)) return await remoteFs.resolve(value, opts);
-    if (isAbsoluteLocalPath(value)) return await originalResolve(pathValue, opts);
+    if (isAbsoluteLocalPath(value, opts?.cwd)) return await originalResolve(pathValue, opts);
     if (looksVirtual(opts?.cwd)) return await remoteFs.resolve(value, opts);
     return await originalResolve(pathValue, opts);
   };
@@ -109,7 +114,7 @@ export function installFsRouter(ctx: { fs: AnyRecord; effect?: (fn: () => () => 
   fs.lstat = async (pathValue: unknown, opts?: { cwd?: string; signal?: AbortSignal }, signal?: AbortSignal) => {
     const value = typeof pathValue === 'string' ? pathValue : String(pathValue);
     if (looksVirtual(value)) return await remoteFs.lstat(value, opts, signal);
-    if (isAbsoluteLocalPath(value)) return await originalLstat(pathValue, opts, signal);
+    if (isAbsoluteLocalPath(value, opts?.cwd)) return await originalLstat(pathValue, opts, signal);
     if (looksVirtual(opts?.cwd)) return await remoteFs.lstat(value, opts, signal);
     return await originalLstat(pathValue, opts, signal);
   };
