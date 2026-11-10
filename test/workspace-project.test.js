@@ -6,6 +6,7 @@ import path from 'node:path';
 import { RemoteSshManager } from '../dist/manager.js';
 import { workspaceToken, workspacePlaceholderPath, parseVirtualPath, looksVirtual } from '../dist/paths.js';
 import { prepareRemoteWorkspace } from '../dist/workspace-registration.js';
+import { isAbsoluteLocalPath } from '../dist/fs-router.js';
 
 test('native DSH workspace registration returns real placeholder, never mirrors source files', async t => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'remote-native-workspace-'));
@@ -65,4 +66,12 @@ test('native workspace preparation works without registry for DSH directoryFlow 
   const result = await prepareRemoteWorkspace(manager, 'h2', '/home/ubuntu/project');
   assert.equal(result.registered, false);
   assert.equal(result.localPath, localPath);
+});
+
+test('Windows native DSH routes POSIX absolute SSH paths but preserves Windows local paths', () => {
+  const remoteCwd = workspacePlaceholderPath(workspaceToken('hw', '/data/code'));
+  assert.equal(isAbsoluteLocalPath('/data/code/main.py', remoteCwd, 'win32'), false);
+  assert.equal(isAbsoluteLocalPath('C:\\\\Users\\\\windz\\\\file.txt', remoteCwd, 'win32'), true);
+  assert.equal(isAbsoluteLocalPath('\\\\\\\\host\\\\share', remoteCwd, 'win32'), true);
+  assert.equal(isAbsoluteLocalPath('/data/code/main.py', 'C:\\\\Users\\\\windz', 'win32'), true);
 });
