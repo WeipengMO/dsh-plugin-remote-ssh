@@ -42,9 +42,100 @@ jobs:
           pnpm pack --pack-destination artifacts
           file="$(find artifacts -maxdepth 1 -name '*.tgz' -type f -print -quit)"
           test -n "$file"
-          tar -tzf "$file" | grep -q '^package/dist/index.js$'
-          tar -tzf "$file" | grep -q '^package/lib/client.js$'
-          tar -tzf "$file" | grep -q '^package/cordis.patch.yml$'
+          tar -tzf "$file" > "$RUNNER_TEMP/plugin-files.txt"
+          grep -q '^package/dist/index.js
+          echo "Validated: $file"
+
+      - name: Upload plugin install package
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-remote-ssh-${{ github.sha }}
+          path: artifacts/*.tgz
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish tagged release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Retrieve install package
+        uses: actions/download-artifact@v4
+        with:
+          name: dsh-remote-ssh-${{ github.sha }}
+          path: artifacts
+
+      - name: Attach .tgz to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.tgz
+          generate_release_notes: true
+ "$RUNNER_TEMP/plugin-files.txt"
+          grep -q '^package/lib/client.js
+          echo "Validated: $file"
+
+      - name: Upload plugin install package
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-remote-ssh-${{ github.sha }}
+          path: artifacts/*.tgz
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish tagged release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Retrieve install package
+        uses: actions/download-artifact@v4
+        with:
+          name: dsh-remote-ssh-${{ github.sha }}
+          path: artifacts
+
+      - name: Attach .tgz to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.tgz
+          generate_release_notes: true
+ "$RUNNER_TEMP/plugin-files.txt"
+          grep -q '^package/cordis.patch.yml
+          echo "Validated: $file"
+
+      - name: Upload plugin install package
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-remote-ssh-${{ github.sha }}
+          path: artifacts/*.tgz
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish tagged release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Retrieve install package
+        uses: actions/download-artifact@v4
+        with:
+          name: dsh-remote-ssh-${{ github.sha }}
+          path: artifacts
+
+      - name: Attach .tgz to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.tgz
+          generate_release_notes: true
+ "$RUNNER_TEMP/plugin-files.txt"
           echo "Validated: $file"
 
       - name: Upload plugin install package
