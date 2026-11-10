@@ -78,7 +78,12 @@ window.__ModuleLoader__.load({
       const request = React.useRef(0);
       function set(name, data) { setForm(old => ({ ...old, [name]: data })); }
       async function selectAlias(alias) {
-        if (!alias) return;
+        if (!alias) {
+          ++request.current;
+          setResolving(false); setConfigError(''); setMissingKey('');
+          setForm(old => ({ ...old, sshAlias: '' }));
+          return;
+        }
         const id = ++request.current;
         setConfigError(''); setMissingKey(''); setResolving(true);
         setForm(old => ({ ...old, sshAlias: alias, label: old.label && old.label !== old.sshAlias ? old.label : alias }));
