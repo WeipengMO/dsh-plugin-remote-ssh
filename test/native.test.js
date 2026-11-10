@@ -46,7 +46,7 @@ test('client registers settings plus native remote project directory flows', () 
   result.apply({
     effect(callback) { callback(); },
     slots: {
-      inject(slot, callback) { assert.ok(['settings.section', 'conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow'].includes(slot)); callback(); },
+      inject(slot, callback) { assert.ok(['settings.section', 'conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow'].includes(slot)); const result = callback(); if (result && result[Symbol.iterator]) for (const _ of result) { /* Cordis effect iterator */ } },
       register(record, component) { registrations.push({ record, component }); return () => {}; },
     },
   });
@@ -205,10 +205,11 @@ test('compact Settings UI keeps a single-column, theme-safe, accessible structur
   assert.doesNotMatch(source, /rss-topbar-sub|rss-layout|rss-hero-kicker|rss-session-bar/);
   assert.match(source, /role: 'tablist'/);
   assert.match(source, /'aria-pressed': selected === item.id/);
-  assert.match(source, /'aria-label': '选择 DSH Agent 会话'/);
+  assert.doesNotMatch(source, /'aria-label': '选择 DSH Agent 会话'/);
+  assert.match(source, /'aria-label': '远程源目录'/);
   assert.match(source, /'aria-live': 'polite'/);
-  assert.match(source, /'切换所选会话的工作区'/);
-  assert.match(source, /'rss-no-session'/);
+  assert.match(source, /'添加为 DSH 工作区'/);
+  assert.match(source, /'rss-project-flow'/);
   assert.doesNotMatch(source, /来自 SSH Config/);
   assert.match(source, /'主机地址 \/ HostName'/);
 });
