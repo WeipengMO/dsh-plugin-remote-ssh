@@ -34,7 +34,7 @@ export function parseWorkspacePlaceholder(value: string | undefined | null): Par
   const rel = path.relative(workspacePlaceholderRoot(), path.resolve(value));
   if (!rel || rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) return null;
   const [token, ...rest] = rel.split(path.sep);
-  if (!TOKEN_RE.test(token)) return null;
+  if (!token || !TOKEN_RE.test(token)) return null;
   return { workspaceToken: token, remotePath: path.posix.normalize('/' + rest.join('/')), placeholder: true };
 }
 
