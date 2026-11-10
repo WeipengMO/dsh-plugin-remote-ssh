@@ -41,7 +41,7 @@ export function isAbsoluteLocalPath(value: string, cwd?: string, platform: strin
   // Agent is not '\\data\\project' on the local Windows drive. Keep drive
   // letters and UNC host paths explicitly local so "return to local" works.
   if (platform === 'win32' && looksVirtual(cwd) && /^\/(?!\/)/.test(value)) return false;
-  return path.isAbsolute(value);
+  return platform === 'win32' ? path.win32.isAbsolute(value) : path.posix.isAbsolute(value);
 }
 
 /** Resolve a target object to its remote coordinates, or null for local targets. */
