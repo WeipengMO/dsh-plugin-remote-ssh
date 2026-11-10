@@ -189,3 +189,19 @@ dsh plugin --profile desktop add .\dsh-plugin-remote-ssh-1.0.6.tgz
 注意：设置页的 **DSH 会话工作区** 不是 SSH 服务器会话列表。它用于把选定的远程目录绑定到 DSH 的 Agent 会话（对话）。DSH 在 Agent 创建后才会触发 `agent/created`；因此尚未发送任何消息的新对话不会出现在列表中。先在目标 DSH 对话中发送一条消息，再打开设置页并刷新。此版本修正了对 `{ agent }` 事件负载的解析；若仍然没有会话，请在 GitHub issue 中提供 DSH 版本和脱敏日志。**已创建 Agent 的会话**不等于插件能主动为没有 Agent 的对话创建工作区；更原生的「新建远程工作区」流程尚需后续开发。
 
 SSH Config 导入采用**一次性表单填充**，而不是之前的「字段继承」UI。选中 Host 别名后，HostName、用户名、端口及第一个 IdentityFile 会填写为普通可编辑字段；保存的是当时确认的值。原始 SSH 别名还会留作 ProxyCommand、keepalive 等高级连接参数的匹配依据。若之后修改本地 `~/.ssh/config`，请重新选择别名并保存以更新字段。
+
+
+## v1.1.1 · 远程搜索与 Shell 使用提示
+
+本次根据 Windows DSH Desktop + Linux SSH 实测修复搜索细节，不改变已经验证通过的工作区注册与 SSH 文件读写：
+
+- `grep` 的 `path` 既可以是远程**目录**，也可以是具体**文件**（如 `/data/project/main.py` 或 `../main.py`）；对明确指定的隐藏文件也可搜索。
+- 对目录的递归 `grep` 默认继续跳过隐藏条目和 VCS 管理目录；如需要搜索隐藏文件，请明确指定该文件或隐藏目录作为 `path`。
+- 远程 `glob` / `grep` 的结果相对路径以 **Linux 远程 cwd** 为基准，不再使用 Windows `~/.dsh/remote-ssh-workspaces/` 占位目录。
+- 名为 `pwsh` 的 DSH 工具在 Linux SSH 工作区中通过 **bash** 执行，不支持 PowerShell 的 `New-Item` 等 cmdlet。请用 `mkdir -p` 等 POSIX 命令。
+- 文件 `write` / `edit` 不会创建不存在的父目录；必要时请先显式创建目录。这是正常的文件操作语义，未改成自动创建。
+- `git status` 在非 Git 仓库报错是 Git 的正常行为。
+
+**验收建议：** 在真实远程项目中分别运行 `grep("def ", path="具体.py")` 与 `grep("def ", path="该文件所在目录", include="*.py")`，确认文件级和目录级搜索结果一致，再运行一次 `glob("**/*.py")` 确认返回路径以远程 cwd 为基准。使用文件编辑工具创建/修改测试文件后，通过 SSH Shell 验证内容一致。
+
+**安全边界：** 当前版本允许 DSH Agent 访问其 SSH 身份有权限访问的项目外路径，例如 `../file.py`。不要把本地占位目录理解成强制的远程路径沙盒。若要将访问限制在工作区根目录内，还需要独立设计并测试权限/审批策略。
