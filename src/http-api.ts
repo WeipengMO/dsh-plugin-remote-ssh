@@ -28,7 +28,7 @@ export interface NativeApiDeps {
   /** Local directory from before the first remote activation per session. */
   previousCwd: Map<string, string>;
   /** Native DSH project registry; optional when only the built-in project picker is available. */
-  workspaceRegistry?: WorkspaceRegistry;
+  workspaceRegistry?: WorkspaceRegistry | (() => WorkspaceRegistry | undefined);
   /** DSH Connection's signed-cookie and Host/Origin admission, fail closed. */
   requestRejection(req: IncomingMessage): number | undefined;
 }
@@ -261,7 +261,8 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
       if (route === '/workspace/prepare') {
         const hostId = text(body.host, 'host');
         const remote = text(body.path ?? '~', 'path');
-        const prepared = await prepareRemoteWorkspace(manager, hostId, remote, deps.workspaceRegistry);
+        const registry = typeof deps.workspaceRegistry === 'function' ? deps.workspaceRegistry() : deps.workspaceRegistry;
+        const prepared = await prepareRemoteWorkspace(manager, hostId, remote, registry);
         return send(res, 200, { ok: true, ...prepared });
       }
       if (route === '/workspace/open') {
