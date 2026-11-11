@@ -401,7 +401,7 @@ window.__ModuleLoader__.load({
      */
     function RemoteProjectDirectoryFlow(props) {
       const { open, busy, onPicked, onCancel, onError, pickDirectory } = props;
-      const [mode, setMode] = useState('local');
+      const [mode, setMode] = useState('remote');
       const [hosts, setHosts] = useState([]);
       const [hostId, setHostId] = useState('');
       const [currentPath, setCurrentPath] = useState('~');
@@ -411,19 +411,17 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState('');
       const requestId = React.useRef(0);
       const reported = React.useRef(false);
-      const hostChosen = React.useRef(false);
       useEffect(() => {
         if (!open) return;
         let disposed = false;
         reported.current = false;
-        hostChosen.current = false;
         setError(''); setListing(null); setHostId(''); setLoading(true);
         api('/state').then(state => {
           if (disposed) return;
           const list = state.hosts || [];
           setHosts(list); setLoading(false);
-          // Keep local project creation as the default; select Remote explicitly.
-          setMode('local');
+          // The SSH plugin's picker is opened for remote workspaces; local remains one click away.
+          setMode('remote');
         }).catch(e => {
           if (disposed) return;
           setError(e.message || String(e)); setLoading(false);
@@ -446,7 +444,7 @@ window.__ModuleLoader__.load({
       }
       function chooseHost(id) {
         setHostId(id); setListing(null); setCurrentPath('~');
-        if (id) { hostChosen.current = true; browse(id, '~'); }
+        if (id) browse(id, '~');
       }
       async function chooseRemote() {
         if (reported.current || busy || picking || !hostId || !listing) return;
@@ -480,8 +478,17 @@ window.__ModuleLoader__.load({
         if (busy || picking || reported.current) return;
         reported.current = true; onCancel();
       }
-      if (!open) return null;
-      return h('div', { className: 'rss-project-flow', role: 'region', 'aria-label': '选择项目源文件夹' },
+      if (open === false) return null;
+      return h('div', { className: 'rss-directory-backdrop', role: 'presentation',
+        onMouseDown: e => { if (e.target === e.currentTarget) cancel(); } },
+        h('div', { className: 'rss-directory-dialog', role: 'dialog', 'aria-modal': true,
+          'aria-label': '选择工作区源文件夹', onKeyDown: e => { if (e.key === 'Escape') { e.stopPropagation(); cancel(); } } },
+          h('div', { className: 'rss-directory-head' },
+            h('div', null, h('h2', null, '选择工作区源文件夹'),
+              h('p', null, '选择本地目录，或直接打开 SSH 服务器上的项目。')),
+            h('button', { type: 'button', className: 'rss-directory-close', title: '关闭',
+              disabled: !!busy || picking, onClick: cancel }, '×')),
+          h('div', { className: 'rss-project-flow', role: 'region', 'aria-label': '选择项目源文件夹' },
         h('div', { className: 'rss-project-modes' },
           h('button', { type: 'button', className: mode === 'local' ? 'rss-project-active' : '', onClick: () => setMode('local') }, '本地电脑'),
           h('button', { type: 'button', className: mode === 'remote' ? 'rss-project-active' : '', onClick: () => setMode('remote') }, '远程 SSH')),
@@ -520,7 +527,7 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'rss-btn', onClick: cancel, disabled: !!busy || picking }, '取消'),
           mode === 'remote' && h('button', { type: 'button', className: 'rss-btn rss-primary',
             onClick: chooseRemote, disabled: !!busy || picking || loading || !listing || !hostId },
-            picking ? '正在打开…' : '使用此远程文件夹')));
+            picking ? '正在打开…' : '使用此远程文件夹')))));
     }
 
     function apply(ctx) {
