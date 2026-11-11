@@ -387,7 +387,7 @@ window.__ModuleLoader__.load({
                     disabled: !!busy || state.recent.length === 0,
                     title: '仅清空最近使用记录，不会删除工作区或服务器文件',
                     onClick: async () => {
-                      if (!window.confirm('清空全部最近使用的远程目录记录？\\n不会删除已经创建的 DSH 工作区或服务器文件。')) return;
+                      if (!window.confirm('清空全部最近使用的远程目录记录？\n不会删除已经创建的 DSH 工作区或服务器文件。')) return;
                       const result = await run('recent-clear', () => api('/recent/clear', { confirmed: true }), '最近使用记录已清空');
                       if (result) await refresh();
                     } },
