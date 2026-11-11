@@ -37,6 +37,15 @@ export interface RuntimeInfo {
   arch: string;
   verified: true;
 }
+export interface WebHostStatus {
+  phase: 'starting' | 'ready';
+  cwd: string;
+  port: number;
+  /** Sensitive single-use browser handoff. Do not log or persist this value. */
+  url?: string;
+  installation?: string;
+}
+
 export interface RemoteGitInfo {
   cwd: string;
   git: { available: boolean; message?: string; root?: string; branch?: string | null;
@@ -191,6 +200,30 @@ export class RemoteHostRuntimePool {
     const runtime = await this.connect(host);
     return await this.invoke(host, runtime.helperPath, 'inspect', { cwd: remoteRoot }) as RemoteGitInfo;
   }
+  async ensureWeb(host: string, remoteRoot: string, installIfMissing = true): Promise<WebHostStatus> {
+    if (!remoteRoot.startsWith('/') || remoteRoot.includes('\0')) {
+      throw new RemoteSshError('SSH_PATH_INVALID', 'remote Web workspace must be absolute');
+    }
+    const runtime = await this.connect(host);
+    const result = await this.invoke(host, runtime.helperPath, 'web.ensure',
+      { cwd:remoteRoot, installIfMissing }) as WebHostStatus;
+    if (!result || !['starting','ready'].includes(result.phase)
+      || !Number.isSafeInteger(result.port) || result.port < 1024 || result.port > 65535
+      || result.cwd !== remoteRoot) {
+      throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED', 'malformed Web Host status from SSH helper');
+    }
+    if (result.phase === 'ready') {
+      let url: URL;
+      try { url = new URL(result.url ?? ''); }
+      catch { throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED', 'missing authenticated remote Web URL'); }
+      if (url.protocol !== 'http:' || !['127.0.0.1','localhost'].includes(url.hostname)
+          || Number(url.port) !== result.port || !url.searchParams.has('token')) {
+        throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED', 'remote Web URL authority or token is untrusted');
+      }
+    }
+    return result;
+  }
+
   async dshVersion(host: string): Promise<{ installed: boolean; version?: string }> {
     const runtime = await this.connect(host);
     return await this.invoke(host, runtime.helperPath, 'dsh.version', {}) as { installed: boolean; version?: string };
