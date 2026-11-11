@@ -249,3 +249,46 @@
 .rss-project-flow .rss-btn.rss-primary{border-color:transparent;background:#3768db;color:white}
 .rss-project-flow .rss-btn.rss-primary:hover:not(:disabled){background:#285ac6}
 .rss-project-flow :is(button,input,select):focus-visible{outline:2px solid #5486ee;outline-offset:2px}
+
+
+/* Workspace picker is a viewport modal, not inline content inside the home or
+   sidebar directoryFlow holes. This also prevents the "DSH 项目" narrow column
+   from clipping the entire picker when initiated via Add Workspace. */
+.rss-directory-backdrop {
+  position: fixed !important; inset: 0 !important; z-index: 2147482500 !important;
+  display: flex !important; align-items: center; justify-content: center;
+  background: rgba(10, 18, 32, .48) !important;
+  backdrop-filter: blur(2px); padding: 20px;
+}
+.rss-directory-dialog {
+  box-sizing: border-box; width: min(560px, calc(100vw - 32px));
+  max-height: min(82vh, 780px); overflow-y: auto; overscroll-behavior: contain;
+  padding: 23px 24px 20px; border-radius: 14px;
+  background: #fff !important; color: #202733 !important;
+  box-shadow: 0 24px 72px rgba(0, 0, 0, .25);
+  border: 1px solid rgba(0,0,0,.07);
+}
+.rss-directory-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 19px; }
+.rss-directory-head h2 { margin: 0 0 5px; font-size: 18px; font-weight: 700; line-height: 1.3; color: inherit; }
+.rss-directory-head p { margin: 0; font-size: 12px; line-height: 1.5; color: #677284; }
+.rss-directory-close {
+  border: 1px solid #dce2eb; color: #4c5869; background: #fff;
+  border-radius: 8px; width: 32px; height: 32px; font-size: 20px;
+  cursor: pointer; flex: 0 0 auto;
+}
+.rss-directory-dialog .rss-project-flow { display: flex; width: 100%; }
+.rss-directory-dialog .rss-project-dir-list { min-height: 150px; max-height: min(34vh, 290px); }
+.rss-directory-dialog .rss-project-footer { margin-top: 2px; padding-top: 14px; }
+.rss-directory-dialog .rss-project-label select,
+.rss-directory-dialog .rss-project-path-row input { color: #202733 !important; background: #fff !important; }
+@media (prefers-color-scheme: dark) {
+  .rss-directory-dialog { background: #24262b !important; color: #f0f1f5 !important; border-color: #454951; }
+  .rss-directory-head p { color: #a7adbb; }
+  .rss-directory-close { background: #32353c; color: #f0f1f5; border-color: #51545e; }
+  .rss-directory-dialog .rss-project-label select,
+  .rss-directory-dialog .rss-project-path-row input { background: #2f3239 !important; color: #f0f1f5 !important; }
+}
+@media(max-width: 540px) {
+  .rss-directory-backdrop { padding: 10px; }
+  .rss-directory-dialog { width: calc(100vw - 20px); max-height: 92vh; padding: 16px; }
+}
