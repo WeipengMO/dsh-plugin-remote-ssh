@@ -318,7 +318,7 @@ export class SshConnection {
     await this.ensure();
     const client = this.client;
     if (!client) throw new RemoteSshError('SSH_CONNECTION_LOST', 'SSH channel is not connected');
-    if (!remoteCwd.startsWith('/') || remoteCwd.includes('\\0')) {
+    if (!remoteCwd.startsWith('/') || remoteCwd.includes(String.fromCharCode(0))) {
       throw new RemoteSshError('SSH_PATH_INVALID', 'terminal cwd must be an absolute Linux path');
     }
     const command = 'cd -- ' + shellQuote(remoteCwd) + ' && exec "${SHELL:-/bin/sh}" -i';
