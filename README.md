@@ -92,8 +92,10 @@ Host nansha
 进入已添加的远程 SSH 项目，点击 DSH 右侧栏 **新建终端（+）**。插件在宿主侧识别当前终端创建请求的工作目录：
 
 - **远程工作区**：`subprocess.spawnTerminal` 会改由已校验指纹的 SSH 连接创建远程 Linux PTY，首次 Shell 直接位于所选远程目录；输出原样交给 DSH 内置 **xterm** 标签渲染，支持 ANSI 颜色、光标移动、实时输入和窗口尺寸调整。
-- **本地工作区**：完整委托给 DSH 自带的本地 Windows/WSL subprocess 提供者，不会意外连接上次使用的 SSH 主机。
+- **本地工作区**：完整委托给 DSH 自带的 Windows/WSL subprocess，保留原始 Shell 启动参数（例如 PowerShell、bash）。即使旧 SSH 工作目录残留于终端请求，本地会话也不会被误连到服务器。
 - **远程映射丢失或 SSH 失败**：报错并拒绝回退到本地终端，以免误在 Windows 本地执行你以为是服务器上的命令。
+
+**PowerShell 可用性：** DSH 的 Shell 菜单由 Host subprocess 发现。如果 DSH Host 在 WSL 中运行，可能只找到 Linux Shell；本插件不覆盖全局 Shell 候选项，也不能把 WSL 伪装为 Windows PowerShell。
 
 **验证方法：** 在 DSH 右侧新建终端后执行 `pwd; uname -s; hostname`，期待 `pwd` 返回远程 Linux 项目目录、`uname -s` 返回 `Linux`。若仍显示 `/mnt/c/Users/...`，说明当前 DSH 版本没有通过该插件所包装的 subprocess 提供者，需保留原始日志反馈，不要假定终端已远程化。
 

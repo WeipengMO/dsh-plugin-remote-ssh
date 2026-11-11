@@ -3,6 +3,19 @@ import ssh2 from '../vendor/ssh2/lib/index.js';
 
 const { Server, utils } = ssh2;
 
+/**
+ * Vendored ssh2's Ed25519 generator occasionally emits a key rejected by
+ * its own OpenSSH parser. Only use a round-trip-verified test key. This keeps
+ * CI deterministic without weakening production host-key verification.
+ */
+function validTestKeyPair() {
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const pair = utils.generateKeyPairSync('ed25519');
+    if (!(utils.parseKey(pair.private) instanceof Error)) return pair;
+  }
+  throw new Error('Unable to generate valid SSH mock-server Ed25519 key');
+}
+
 const STATUS = { OK: 0, EOF: 1, NO_SUCH_FILE: 2, PERMISSION_DENIED: 3, FAILURE: 4 };
 const OPEN = { READ: 0x1, WRITE: 0x2, APPEND: 0x4, CREAT: 0x8, TRUNC: 0x10, EXCL: 0x20 };
 const S_IFDIR = 0o040000;
@@ -101,9 +114,9 @@ export class MockSshServer {
    */
   constructor(options = {}) {
     this.fs = new MemoryFs();
-    this.hostKey = utils.generateKeyPairSync('ed25519');
+    this.hostKey = validTestKeyPair();
     this.clientKey = {
-      private: options.clientPrivateKey ?? utils.generateKeyPairSync('ed25519').private,
+      private: options.clientPrivateKey ?? validTestKeyPair().private,
     };
     this.clientPublic = utils.parseKey(this.clientKey.private).getPublicSSH();
     this.handles = new Map();

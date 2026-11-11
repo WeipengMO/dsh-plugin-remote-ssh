@@ -498,18 +498,28 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'rss-btn rss-primary', disabled: !!busy || picking, onClick: chooseLocal }, '选择本地文件夹…')) :
           h('div', { className: 'rss-project-remote' },
             h('label', { className: 'rss-project-label' }, 'SSH 主机',
-              h('select', { value: hostId, disabled: !!busy || picking, onChange: e => chooseHost(e.target.value) },
-                h('option', { value: '' }, '选择远程服务器…'),
-                hosts.map(host => h('option', { key: host.id, value: host.id }, host.label || host.host)))),
+              h('span', { className: 'rss-project-select-wrap' },
+                h('select', { value: hostId, disabled: !!busy || picking, onChange: e => chooseHost(e.target.value) },
+                  h('option', { value: '' }, '选择远程服务器…'),
+                  hosts.map(host => h('option', { key: host.id, value: host.id }, host.label || host.host))),
+                h('span', { className: 'rss-project-select-chevron', 'aria-hidden': true },
+                  h(Icon, { name: 'chevron', size: 15 })))),
             !hosts.length && !loading && h('p', { className: 'rss-project-hint' }, '还没有服务器。请先在设置 → Remote SSH 添加主机。'),
             hostId && h('div', { className: 'rss-project-path-row' },
-              h('button', { type: 'button', title: '上级目录', disabled: loading, onClick: () => browse(hostId, parentOf(listing?.path || currentPath)) }, '↑'),
+              h('button', { type: 'button', className: 'rss-project-nav-button',
+                title: '上级目录', 'aria-label': '上级目录', disabled: loading,
+                onClick: () => browse(hostId, parentOf(listing?.path || currentPath)) },
+                h(Icon, { name: 'back', size: 17 })),
               h('form', { onSubmit: e => { e.preventDefault(); browse(hostId, currentPath); } },
                 h('input', { 'aria-label': '远程源目录', spellCheck: false, value: currentPath,
                   onChange: e => setCurrentPath(e.target.value), placeholder: '/home/user/project' }),
-                h('button', { type: 'submit', title: '打开路径', disabled: loading }, '前往')),
-              h('button', { type: 'button', title: '刷新目录', disabled: loading,
-                onClick: () => browse(hostId, listing?.path || currentPath) }, '↻')),
+                h('button', { type: 'submit', className: 'rss-project-nav-button',
+                  'aria-label': '跳转目录', title: '跳转目录', disabled: loading },
+                  h(Icon, { name: 'arrow', size: 16 }))),
+              h('button', { type: 'button', className: 'rss-project-nav-button',
+                title: '刷新目录', 'aria-label': '刷新目录', disabled: loading,
+                onClick: () => browse(hostId, listing?.path || currentPath) },
+                h(Icon, { name: 'refresh', size: 17 }))),
             hostId && h('div', { className: 'rss-project-dir-list', role: 'list' },
               loading ? h('p', { className: 'rss-project-hint' }, '读取目录中…') :
               !listing ? h('p', { className: 'rss-project-hint' }, '选择服务器以浏览远程文件夹。') :
@@ -556,7 +566,15 @@ window.__ModuleLoader__.load({
       // Priority -2 beats the stock picker (-0) and @dsh-ssh/dsh-ssh (-1).
       // Keeping both slots consistent avoids selecting the remote folder in
       // one flow only to fall back to a local folder in the other.
-      const injectFlow = () => ({ pickDirectory: () => ctx.workspaces.pickDirectory() });
+      // DSH's native local chooser lives on uiWorkspace, NOT workspaces.
+      // On Windows/Electron prefer the desktop bridge as the official
+      // ui-directory-picker-native plugin does; never call the absent
+      // former workspace-service picker API.
+      const injectFlow = () => ({ pickDirectory: () => {
+        const desktop = window.__DSH_DIRECTORY_PICKER__;
+        if (desktop && typeof desktop.pick === 'function') return desktop.pick();
+        return ctx.uiWorkspace.pickDirectory();
+      } });
       ctx.slots.inject('conversation.hero.workspace.directoryFlow', () =>
         ctx.slots.inject('sidebar.workspaces.directoryFlow', function* () {
           yield ctx.slots.register({
@@ -568,7 +586,7 @@ window.__ModuleLoader__.load({
         }));
     }
     exports.apply = apply;
-    exports.inject = ['slots', 'workspaces'];
+    exports.inject = ['slots', 'workspaces', 'uiWorkspace'];
     return module.exports;
   }
 });

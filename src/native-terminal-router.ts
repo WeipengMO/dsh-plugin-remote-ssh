@@ -1,7 +1,7 @@
 import type { ClientChannel } from 'ssh2';
 import type { Readable } from 'node:stream';
 import type { RemoteSshManager } from './manager.js';
-import { looksVirtual } from './paths.js';
+import { looksVirtual, parseVirtualPath } from './paths.js';
 import { RemoteSshError } from './errors.js';
 
 /** The subset of DSH SubprocessTerminalSpawnSpec used by its native xterm UI. */
@@ -13,6 +13,7 @@ export interface NativeTerminalSpec {
   graceMs?: number;
   signal?: AbortSignal;
   argv: readonly string[];
+  env?: Record<string, string | undefined>;
 }
 
 type TerminalSignal = 'SIGINT' | 'SIGTERM' | 'SIGKILL' | 'SIGTSTP' | 'SIGHUP';
@@ -146,20 +147,54 @@ export class SshNativeTerminal implements NativeTerminalHandle {
  * selected host or a global toggle. Native Windows and WSL projects are
  * byte-for-byte delegated to the original subprocess provider.
  */
+/**
+ * The DSH terminal controller supplies `env.DSH_SESSION_ID` from the Agent.
+ * Session ownership is independent of the *current* working directory:
+ * a local session may retain an SSH placeholder cwd after a workspace switch.
+ * Never start a remote shell merely because that cwd looks like our placeholder.
+ */
 export function installNativeTerminalRouter(
   runtime: SubprocessProvider,
   manager: Pick<RemoteSshManager, 'routeFor' | 'connection'>,
-  logger?: { info(message: string): void },
+  logger?: { info(message: string): void; warn?(message: string): void },
+  sessionOrigin?: (sessionId: string) => string | undefined,
 ): { dispose(): void } {
   const original = runtime.spawnTerminal;
   if (typeof original !== 'function') throw new Error('DSH subprocess.spawnTerminal is unavailable');
   const routed = async (spec: NativeTerminalSpec): Promise<NativeTerminalHandle> => {
+    // A local (including WSL) cwd MUST always use the original provider, with
+    // the full original argv. Do not change its default shell or candidates.
     if (!looksVirtual(spec.cwd)) return await original.call(runtime, spec);
+
+    const id = spec.env?.DSH_SESSION_ID;
+    const origin = typeof id === 'string' && id.length > 0 ? sessionOrigin?.(id) : undefined;
+    const requested = parseVirtualPath(spec.cwd);
+    const actualOrigin = parseVirtualPath(origin);
+    if (!requested) return await original.call(runtime, spec);
+
+    // The terminal process can have a stale placeholder after switching a
+    // LOCAL session back from SSH. Restore its original LOCAL cwd and delegate
+    // instead of allowing the SSH plugin to hijack the native terminal.
+    if (typeof origin === 'string' && origin.length > 0 && !looksVirtual(origin)) {
+      logger?.warn?.('remote-ssh: refused SSH terminal for local session ' + id +
+        '; restoring local cwd=' + origin);
+      return await original.call(runtime, { ...spec, cwd: origin });
+    }
+    // Unknown session ownership is ambiguous and cannot authorize a remote
+    // process. Fail closed rather than unpredictably launching SSH or WSL.
+    if (!actualOrigin) {
+      throw new RemoteSshError('SSH_WORKSPACE_UNKNOWN',
+        'Cannot verify terminal session ownership for SSH workspace; open a new DSH session in this remote project and retry');
+    }
+    if (actualOrigin.workspaceToken !== requested.workspaceToken) {
+      throw new RemoteSshError('SSH_WORKSPACE_UNKNOWN',
+        'Terminal session and requested SSH workspace belong to different hosts; refusing cross-workspace terminal');
+    }
     spec.signal?.throwIfAborted();
     const route = manager.routeFor(spec.cwd, spec.cwd);
-    if (!route) {
+    if (!route || route.workspace.token !== requested.workspaceToken) {
       throw new RemoteSshError('SSH_WORKSPACE_UNKNOWN',
-        'Remote terminal cannot map this DSH workspace to an SSH host; refusing local fallback');
+        'Remote terminal cannot map this session to a registered SSH workspace; refusing local fallback');
     }
     logger?.info('remote-ssh: native DSH terminal routed to SSH host ' +
       route.workspace.connectionId + ' cwd=' + route.remotePath);
@@ -174,7 +209,5 @@ export function installNativeTerminalRouter(
     return new SshNativeTerminal(channel, spec);
   };
   runtime.spawnTerminal = routed;
-  // Cordis can wrap service methods with traced proxies; comparing a later
-  // read to 'routed' is not reliable. Restore the saved original unconditionally.
   return { dispose() { runtime.spawnTerminal = original; } };
 }
