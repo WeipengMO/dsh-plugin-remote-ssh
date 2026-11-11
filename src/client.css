@@ -360,3 +360,86 @@
     flex-basis: 34px; width: 34px; min-width: 34px;
   }
 }
+
+
+/*
+ * Native Settings integration — the Settings modal already supplies its own
+ * surface. Never paint a second, full-width rectangle inside settings.section.
+ * Use separators and subtle hover states like the built-in General tab.
+ * Scoped exclusively to Settings; the SSH source-folder dialog keeps its
+ * own separate opaque modal surface.
+ */
+.rss-settings-container,
+.rss-settings-container .rss-app,
+.rss-settings-container .rss-topbar,
+.rss-settings-container .rss-hosts,
+.rss-settings-container .rss-main {
+  background: transparent !important;
+}
+.rss-settings-container .rss-app {
+  color: inherit;
+}
+.rss-settings-container .rss-topbar {
+  min-height: 52px;
+  border-bottom: 1px solid var(--rss-line);
+  padding: 4px 0 13px;
+}
+.rss-settings-container .rss-hosts {
+  padding: 16px 0 13px;
+}
+.rss-settings-container .rss-main {
+  padding-top: 17px;
+}
+.rss-settings-container .rss-app .rss-host {
+  background: transparent !important;
+  border-color: transparent;
+  border-radius: 8px;
+}
+.rss-settings-container .rss-app .rss-host:hover {
+  background: var(--rss-hover) !important;
+}
+.rss-settings-container .rss-app .rss-host.rss-selected {
+  background: var(--rss-tint) !important;
+  border-color: var(--rss-line);
+}
+.rss-settings-container .rss-host-icon {
+  background: transparent !important;
+  border-color: var(--rss-line);
+  color: var(--rss-secondary);
+}
+.rss-settings-container .rss-filelist,
+.rss-settings-container .rss-app .rss-file-row {
+  background: transparent !important;
+}
+.rss-settings-container .rss-workspace-actions {
+  background: transparent !important;
+  border: 0;
+  border-top: 1px solid var(--rss-line);
+  border-bottom: 1px solid var(--rss-line);
+  border-radius: 0;
+  padding: 13px 0;
+}
+.rss-settings-container .rss-path-form,
+.rss-settings-container .rss-command-row {
+  background: var(--rss-subtle) !important;
+}
+.rss-settings-container .rss-app .rss-btn:not(.rss-primary) {
+  background: transparent !important;
+  border-color: var(--rss-line);
+}
+.rss-settings-container .rss-app .rss-btn:not(.rss-primary):hover:not(:disabled) {
+  background: var(--rss-hover) !important;
+}
+@media (prefers-color-scheme: dark) {
+  .rss-settings-container {
+    --rss-bg: #29292d;
+    --rss-subtle: rgba(255,255,255,.035);
+    --rss-hover: rgba(255,255,255,.075);
+    --rss-tint: rgba(255,255,255,.055);
+    --rss-tint-border: rgba(255,255,255,.13);
+    --rss-line: rgba(255,255,255,.14);
+    --rss-text: #eeeeef;
+    --rss-secondary: #b1b1b6;
+    --rss-muted: #97979f;
+  }
+}
