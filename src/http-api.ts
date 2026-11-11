@@ -9,6 +9,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { RemoteSshManager } from './manager.js';
 import { prepareRemoteWorkspace, type WorkspaceRegistry } from './workspace-registration.js';
 import type { RemoteTerminalPool } from './remote-terminal.js';
+import { DEFAULT_DSH_WEB_PORT, type RemoteDshWebTunnelPool } from './dsh-web-tunnel.js';
 import { looksVirtual, shellQuote } from './paths.js';
 import type { HostRecord } from './types.js';
 import { listSshConfigAliases, resolveSshConfig } from './ssh-config.js';
@@ -31,6 +32,9 @@ export interface NativeApiDeps {
   /** Native DSH project registry; optional when only the built-in project picker is available. */
   workspaceRegistry?: WorkspaceRegistry | (() => WorkspaceRegistry | undefined);
   remoteTerminals?: RemoteTerminalPool;
+  dshWebTunnels?: RemoteDshWebTunnelPool;
+  /** Loopback tunnels can only be opened by the desktop Host on the browser machine. */
+  desktopProfile?: boolean;
   /** DSH Connection's signed-cookie and Host/Origin admission, fail closed. */
   requestRejection(req: IncomingMessage): number | undefined;
 }
@@ -186,7 +190,8 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
           latest: index === agentEntries.length - 1,
         }));
         return send(res, 200, { ok: true, version: PACKAGE_VERSION, hosts, effective, statuses: manager.statuses(),
-          recent: manager.recent(), sessions, aliases: listSshConfigAliases() });
+          recent: manager.recent(), sessions, aliases: listSshConfigAliases(),
+          remoteDsh: { desktopProfile: deps.desktopProfile === true, tunnels: deps.dshWebTunnels?.list() ?? [] } });
       }
       // Accept GET (current client) and POST (older clients) so a stale UI never
       // turns config preview into an opaque 405 while the host build catches up.
@@ -223,6 +228,33 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
         throw error(405, `method not allowed: ${req.method} ${route.slice(0, 120)} — the running DSH host plugin build is older than this UI; fully restart the DSH client to reload it`);
       }
       const body = await readBody(req);
+      if (route === '/dsh/check') {
+        const host = text(body.host, 'host');
+        const connection = await manager.connection(host);
+        // All fields are fixed literals, never model/user-supplied code.
+        const script = "printf 'DSH_ENV_START\\n'; uname -s; node --version 2>&1 || true; command -v dsh || true; git --version 2>&1 || true; command -v gh || true; printf 'DSH_ENV_END\\n'";
+        const result = await connection.exec(script, { timeoutMs: 12000, maxBytes: 12000 });
+        return send(res, 200, { ok: true, code: result.code,
+          output: result.stdout.slice(0, 10000), stderr: result.stderr.slice(0, 1000),
+          truncated: result.truncated });
+      }
+      if (route.startsWith('/dsh/tunnel/')) {
+        if (deps.desktopProfile !== true || !deps.dshWebTunnels) {
+          throw error(409, 'Managed local tunnels require DSH Desktop on the same computer as the browser; use manual ssh -L for remote Web profiles');
+        }
+        const host = text(body.host, 'host');
+        manager.getHost(host);
+        const tunnels = deps.dshWebTunnels;
+        if (route === '/dsh/tunnel/open') {
+          const port = body.port === undefined ? DEFAULT_DSH_WEB_PORT : Number(body.port);
+          if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) throw error(400, 'invalid DSH Web remote port');
+          return send(res, 200, { ok: true, tunnel: await tunnels.open(host, port) });
+        }
+        if (route === '/dsh/tunnel/close') {
+          return send(res, 200, { ok: true, closed: tunnels.close(host) });
+        }
+        throw error(404, 'unknown DSH Web tunnel operation');
+      }
       if (route === '/recent/clear') {
         // Deleting history is an explicit action, independent of deleting any
         // DSH workspace or its server-side folder. Use the authenticated
@@ -238,10 +270,12 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
       }
       if (route === '/host/update') {
         const id = text(body.id, 'id');
+        deps.dshWebTunnels?.close(id);
         return send(res, 200, { ok: true, host: manager.updateHost(id, hostPatch(body)) });
       }
       if (route === '/host/remove') {
         const id = text(body.id, 'id');
+        deps.dshWebTunnels?.close(id);
         manager.removeHost(id);
         return send(res, 200, { ok: true });
       }
