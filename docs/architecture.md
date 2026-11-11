@@ -31,3 +31,7 @@ Host Cordis 插件通过 `dist/index.js` 装载，与 DSH Agent 共享 `ctx.fs`�
 新增 `/dsh/check`、`/dsh/tunnel/open`、`/dsh/tunnel/close` API，沿用 DSH 登录认证、Origin/Host 与专用请求头验证。连接状态通过 `/state.remoteDsh` 返回。关闭主机/退出插件立即释放 listener 与套接字。新模式**不修改现有 `ctx.fs`、`ctx.shell`、`subprocess.spawn()` 路由**，也不把 Windows Session 迁移到远端 DSH，远端的 Git/Forge/Shell 直接由完整 Linux DSH Web 服务提供。旧工作区模式保留。
 
 查看 [远端 DSH Host 使用说明](remote-dsh-host.md)。
+
+## v1.4.1 原生 Windows SSH 工作区
+
+Windows Desktop 的工作区选择器默认使用 SSH 目录，直接展示已登记主机和 `~/.ssh/config` 别名。`/host/quick-add` 只允许精确匹配的 Host 别名，不代替独立的 Host Key 指纹确认。Web Host 标签保留为可选功能，不再推荐。技术边界和后续工作见 [desktop-ssh-runtime.md](desktop-ssh-runtime.md)。

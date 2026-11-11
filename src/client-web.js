@@ -53,7 +53,9 @@ window.__ModuleLoader__.load({
             if (response.status === 405 || /method not allowed/i.test(message)) {
               throw Error('服务端 Remote SSH 插件版本过旧，无法读取 SSH Config。请完全退出并重启 DSH 客户端（不是仅刷新页面），再硬刷新本页后重试。原始错误：' + message);
             }
-            throw Error(message);
+            const error = Error(message);
+            error.code = data.code || 'SSH_API_ERROR';
+            throw error;
           }
           return data;
         });
@@ -212,7 +214,7 @@ window.__ModuleLoader__.load({
       const [filter, setFilter] = useState('');
       const [browse, setBrowse] = useState(null);
       const [dir, setDir] = useState('~');
-      const [tab, setTab] = useState('dsh');
+      const [tab, setTab] = useState('files');
       const [modal, setModal] = useState(null);
       const [probe, setProbe] = useState(null);
       const [trust, setTrust] = useState(false);
@@ -332,7 +334,7 @@ window.__ModuleLoader__.load({
           h('header', { className: 'rss-topbar' },
             h('div', { className: 'rss-topbar-title' },
               h('h2', null, 'Remote SSH'),
-              h('p', null, '远端 DSH Host 优先；保留 SSH 工作区兼容模式')),
+              h('p', null, '在 Windows Desktop 内直接打开 SSH 工作区')),
             h(Button, { icon: 'refresh', small: true, onClick: refresh, title: '刷新连接状态', className: 'rss-refresh' })),
           (error || success || buildWarning) && h('div', { className: 'rss-feedback', role: 'status', 'aria-live': 'polite' },
             buildWarning && h('div', { className: 'rss-notice rss-warn' }, h(Icon, { name: 'alert', size: 16 }),
@@ -353,7 +355,7 @@ window.__ModuleLoader__.load({
                 const stat = state.statuses.find(it => it.id === item.id);
                 return h('button', { key: item.id, type: 'button', className: 'rss-host ' + (selected === item.id ? 'rss-selected' : ''),
                     'aria-pressed': selected === item.id,
-                    onClick: () => { if (selected !== item.id) { setSelected(item.id); setBrowse(null); setDir('~'); setProbe(null); setRemoteDshProbe(null); setRemoteDshAccess(''); setTab('dsh'); } } },
+                    onClick: () => { if (selected !== item.id) { setSelected(item.id); setBrowse(null); setDir('~'); setProbe(null); setRemoteDshProbe(null); setRemoteDshAccess(''); setTab('files'); } } },
                   h('span', { className: 'rss-host-icon' }, h(Icon, { name: 'server', size: 16 })),
                   h('span', { className: 'rss-host-text' }, h('strong', null, item.label || item.host),
                     h('small', null, (stat?.user || item.user || 'ssh') + '@' + (stat?.hostName || item.host) + ':' + (stat?.port || item.port || 22))),
@@ -389,7 +391,7 @@ window.__ModuleLoader__.load({
             h('div', { className: 'rss-host-address' },
               (status?.user || currentHost.user || 'ssh') + '@' + (status?.hostName || currentHost.host) + ':' + (status?.port || currentHost.port || 22)),
             h('div', { className: 'rss-tabs', role: 'tablist', 'aria-label': '远程 SSH 工具' },
-              [['dsh', '远端 DSH', 'cloud'], ['files', '文件浏览（兼容）', 'folder'], ['terminal', '快速命令', 'terminal'], ['info', '连接信息', 'shield']].map(([id, label, glyph]) =>
+              [['files', 'SSH 工作区', 'folder'], ['terminal', '快速命令', 'terminal'], ['info', '连接信息', 'shield'], ['dsh', 'Web（可选）', 'cloud']].map(([id, label, glyph]) =>
                 h('button', { key: id, role: 'tab', type: 'button', 'aria-selected': tab === id,
                     className: 'rss-tab ' + (tab === id ? 'rss-tab-active' : ''), onClick: () => setTab(id) },
                   h(Icon, { name: glyph, size: 15 }), label))),
@@ -472,7 +474,7 @@ window.__ModuleLoader__.load({
                   browse.truncated && h('p', { className: 'rss-hint rss-truncated' }, '目录过大，只显示前 1000 项'))),
               h('div', { className: 'rss-workspace-actions' },
                 h('div', null, h('strong', null, '添加为 DSH 工作区'),
-                  h('p', null, '兼容模式：创建 Windows 本地占位目录，部分原生 Git/工作树功能仍有限制。推荐使用「远端 DSH」模式。')),
+                  h('p', null, '添加到当前 Windows DSH Desktop；Agent 文件工具、Shell 和终端通过 SSH 执行。原生 Git/工作树仍有兼容性限制。')),
                 h(Button, { variant: 'primary', icon: 'arrow', disabled: !!busy || loading || !browse,
                   onClick: openWorkspace }, busy === 'prepare' ? '正在添加…' : '添加此文件夹'))),
             tab === 'terminal' && h('div', { className: 'rss-terminal-tab', role: 'tabpanel' },
@@ -538,7 +540,10 @@ window.__ModuleLoader__.load({
       const { open, busy, onPicked, onCancel, onError, pickDirectory } = props;
       const [mode, setMode] = useState('remote');
       const [hosts, setHosts] = useState([]);
+      const [aliases, setAliases] = useState([]);
       const [hostId, setHostId] = useState('');
+      const [hostProbe, setHostProbe] = useState(null);
+      const [trustBusy, setTrustBusy] = useState(false);
       const [currentPath, setCurrentPath] = useState('~');
       const [listing, setListing] = useState(null);
       const [loading, setLoading] = useState(false);
@@ -550,13 +555,15 @@ window.__ModuleLoader__.load({
         if (!open) return;
         let disposed = false;
         reported.current = false;
-        setError(''); setListing(null); setHostId(''); setLoading(true);
+        setError(''); setListing(null); setHostProbe(null); setHostId(''); setLoading(true);
         api('/state').then(state => {
           if (disposed) return;
           const list = state.hosts || [];
-          setHosts(list); setLoading(false);
-          // The SSH plugin's picker is opened for remote workspaces; local remains one click away.
+          const available = (state.aliases || []).filter(alias => !list.some(host => host.host === alias || host.sshAlias === alias));
+          setHosts(list); setAliases(available); setLoading(false);
           setMode('remote');
+          if (list.length === 1) { setHostId(list[0].id); void browse(list[0].id, '~'); }
+          else if (list.length === 0 && available.length === 1) { void chooseHost('alias:' + available[0]); }
         }).catch(e => {
           if (disposed) return;
           setError(e.message || String(e)); setLoading(false);
@@ -574,12 +581,42 @@ window.__ModuleLoader__.load({
         } catch (e) {
           if (requestId.current !== id) return;
           setListing(null);
-          setError((e.message || String(e)) + '。若是首次连接，请先在「设置 → Remote SSH」确认服务器指纹。');
+          if (e.code === 'SSH_HOST_KEY_UNKNOWN' || /host.key|fingerprint|host key/i.test(e.message || '')) {
+            const response = await api('/test', { host }).catch(() => null);
+            if (response?.probe?.code === 'SSH_HOST_KEY_UNKNOWN' && response.probe.details?.fingerprint) {
+              setHostProbe({ ...response.probe, host });
+              setError('首次连接：请从可信渠道核对服务器指纹，并在当前窗口确认。');
+            } else setError(e.message || String(e));
+          } else setError(e.message || String(e));
         } finally { if (requestId.current === id) setLoading(false); }
       }
-      function chooseHost(id) {
-        setHostId(id); setListing(null); setCurrentPath('~');
-        if (id) browse(id, '~');
+      async function chooseHost(value) {
+        if (!value) { setHostId(''); setListing(null); setHostProbe(null); return; }
+        setError(''); setListing(null); setHostProbe(null); setCurrentPath('~');
+        let id = value;
+        if (value.startsWith('alias:')) {
+          setLoading(true);
+          try {
+            const alias = value.slice(6);
+            const added = await api('/host/quick-add', { alias });
+            id = added.host.id;
+            setHosts(old => old.some(host => host.id === id) ? old : [...old, added.host]);
+            setAliases(old => old.filter(item => item !== alias));
+          } catch (e) { setError(e.message || String(e)); setLoading(false); return; }
+        }
+        setHostId(id);
+        await browse(id, '~');
+      }
+      async function verifyHostFingerprint(fingerprint) {
+        if (!hostProbe || !hostId) return;
+        setTrustBusy(true); setError('');
+        try {
+          const result = await api('/trust', { host: hostId, fingerprint, confirmed: true });
+          if (!result.connected) throw Error('已信任服务器，但连接未就绪');
+          setHostProbe(null);
+          await browse(hostId, currentPath);
+        } catch (e) { setError(e.message || String(e)); }
+        finally { setTrustBusy(false); }
       }
       async function chooseRemote() {
         if (reported.current || busy || picking || !hostId || !listing) return;
@@ -620,13 +657,13 @@ window.__ModuleLoader__.load({
           'aria-label': '选择工作区源文件夹', onKeyDown: e => { if (e.key === 'Escape') { e.stopPropagation(); cancel(); } } },
           h('div', { className: 'rss-directory-head' },
             h('div', null, h('h2', null, '选择工作区源文件夹'),
-              h('p', null, '选择本地目录，或直接打开 SSH 服务器上的项目。')),
+              h('p', null, '直接在 Desktop 使用远程目录，无需安装第二套 DSH 或打开浏览器。')),
             h('button', { type: 'button', className: 'rss-directory-close', title: '关闭',
               disabled: !!busy || picking, onClick: cancel }, '×')),
           h('div', { className: 'rss-project-flow', role: 'region', 'aria-label': '选择项目源文件夹' },
         h('div', { className: 'rss-project-modes' },
           h('button', { type: 'button', className: mode === 'local' ? 'rss-project-active' : '', onClick: () => setMode('local') }, '本地电脑'),
-          h('button', { type: 'button', className: mode === 'remote' ? 'rss-project-active' : '', onClick: () => setMode('remote') }, '远程 SSH（兼容）')),
+          h('button', { type: 'button', className: mode === 'remote' ? 'rss-project-active' : '', onClick: () => setMode('remote') }, 'SSH 服务器')),
         mode === 'local' ? h('div', { className: 'rss-project-local' },
           h('p', null, '使用本机文件夹创建 DSH 项目。'),
           h('button', { type: 'button', className: 'rss-btn rss-primary', disabled: !!busy || picking, onClick: chooseLocal }, '选择本地文件夹…')) :
@@ -635,10 +672,12 @@ window.__ModuleLoader__.load({
               h('span', { className: 'rss-project-select-wrap' },
                 h('select', { value: hostId, disabled: !!busy || picking, onChange: e => chooseHost(e.target.value) },
                   h('option', { value: '' }, '选择远程服务器…'),
-                  hosts.map(host => h('option', { key: host.id, value: host.id }, host.label || host.host))),
+                  hosts.map(host => h('option', { key: host.id, value: host.id }, host.label || host.host)),
+                  aliases.length > 0 && h('optgroup', { label: '从 ~/.ssh/config 自动导入' },
+                    aliases.map(alias => h('option', { key: 'alias:' + alias, value: 'alias:' + alias }, alias)))),
                 h('span', { className: 'rss-project-select-chevron', 'aria-hidden': true },
                   h(Icon, { name: 'chevron', size: 15 })))),
-            !hosts.length && !loading && h('p', { className: 'rss-project-hint' }, '还没有服务器。请先在设置 → Remote SSH 添加主机。'),
+            !hosts.length && !aliases.length && !loading && h('p', { className: 'rss-project-hint' }, '没有 SSH 主机：请配置 Windows ~/.ssh/config 或在设置中添加主机。'),
             hostId && h('div', { className: 'rss-project-path-row' },
               h('button', { type: 'button', className: 'rss-project-nav-button',
                 title: '上级目录', 'aria-label': '上级目录', disabled: loading,
@@ -672,7 +711,9 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'rss-btn', onClick: cancel, disabled: !!busy || picking }, '取消'),
           mode === 'remote' && h('button', { type: 'button', className: 'rss-btn rss-primary',
             onClick: chooseRemote, disabled: !!busy || picking || loading || !listing || !hostId },
-            picking ? '正在打开…' : '使用此远程文件夹')))));
+            picking ? '正在打开…' : '在 Desktop 打开工作区')))),
+        hostProbe && h(TrustModal, { probe: hostProbe, busy: trustBusy,
+          onClose: () => setHostProbe(null), onConfirm: verifyHostFingerprint }));
     }
 
 

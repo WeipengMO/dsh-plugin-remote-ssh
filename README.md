@@ -1,70 +1,66 @@
-# DSH Remote SSH
+# DSH Remote SSH — Windows Desktop 原生 SSH 工作区
 
 [![Build](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml/badge.svg)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml)
 
-在 Windows [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 中管理 Linux SSH 主机。**v1.4 开始推荐「远端 DSH Host」模式**：在 Linux 上运行完整 DSH Web，让 Git、Agent、Shell 和文件系统都运行在服务器；Windows DSH Desktop 负责管理 SSH 连接及建立访问通道。旧 SSH 工作区 / SFTP / 原生终端功能保留为兼容模式。
+## 目标
 
-## 两种工作方式
+**在 Windows DSH Desktop 的现有项目列表里打开 Linux 服务器上的源代码目录。** 不需要另外打开浏览器，也不需要在服务器安装第二套 DSH、手动创建 SSH 隧道或复制代码。
 
-| | 远端 DSH Host（推荐） | SSH 工作区（兼容） |
-|---|---|---|
-| Agent 执行 | Linux DSH Host 原生执行 | Windows DSH 的 Agent 通过 SSH 发送命令 |
-| Git / Forge | 远端 DSH 直接读取真实 Linux checkout | Windows 占位目录 + 只读 Git 查询桥接，兼容性有限 |
-| 文件与终端 | 远端 DSH 原生文件工具和终端 | SFTP、Shell、SSH PTY 转发 |
-| 界面 | Windows 浏览器中的独立 Linux DSH Web | Windows DSH Desktop 本身 |
-| 会话/模型配置 | 独立的 Linux DSH 实例 | 原 Windows DSH 实例 |
+### 当前已经支持
 
-> **重点：**「远端 DSH Host」不是把现有 Windows Agent/Session 切换到另一台电脑，而是打开一个独立的 Linux DSH Web 实例。未连接前不要期待原 Windows DSH 的右侧 Git 面板能够显示服务器 Git 状态。
+- **DSH 原生工作区选择器**：新建项目 / 添加工作区 → 源文件夹 → SSH 服务器 → 远端目录 → 在 Desktop 打开工作区。
+- **自动发现 SSH 主机**：下拉菜单合并已保存主机及 Windows `~/.ssh/config` 的 Host 别名；选中一个已存在的 Host 别名时自动登记，不需逐项输入 IP、用户、端口或密钥路径。
+- **最少必要验证**：已信任的主机不再提示；未知 SSH Host Key 时在同一项目选择器中要求从独立渠道核对完整 SHA256 指纹，不会悄悄信任未知主机。
+- **远程文件/Agent/终端**：Agent 的文件工具、Shell 以及右侧原生终端沿现有桥接在服务器执行；本地项目保持 Windows/WSL 行为。
+- **SSH Config、历史目录和断线重连能力**：复用现有连接配置与工作区登记。
 
-## 安装插件
+### 仍有限制：尚未达到完整 Codex SSH 运行时
 
-在 [GitHub Releases](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases) 下载带 \`dsh-plugin-remote-ssh-X.Y.Z.tgz\` 的构建包，完全退出 DSH Desktop（含托盘）后在 Windows PowerShell 运行：
+这是通过插件对 DSH Desktop 本地 Host 的文件和进程接口进行桥接，**仍需要一个 Windows 本地工作区占位目录**。它不是完整的 Linux 远端 Extension Host。DSH Forge 的原生 Git/变更请求、worktree、沙箱、LSP、文件监听等并未全部完成跨平台适配。远端 Git 本身可在 Agent Shell / SSH 终端使用；原生 Git 面板可能仍显示错误。
 
-\`\`\`powershell
-dsh plugin --profile desktop add "C:\path\to\dsh-plugin-remote-ssh-X.Y.Z.tgz"
-\`\`\`
+**不能把 Git 面板标为已修复，也不能因为工作区可添加就说已经实现了 Codex SSH 全部能力。** 具体差距和后续架构方案见 [Desktop 原生 SSH 运行时设计](docs/desktop-ssh-runtime.md)。
 
-重启 DSH Desktop。Web Profile 需使用 \`--profile web\` 分别安装；两个 profile 不共享插件或会话状态。
+## 安装
 
-## 快速开始：远端 DSH Host
+从 [Releases](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases) 下载安装包，完整退出 DSH Desktop（含托盘）后在 Windows PowerShell 中安装：
 
-1. 在 **设置 → Remote SSH** 导入 \`~/.ssh/config\` 或添加主机，**独立核对** SSH Host Key SHA256 指纹并确认。
-2. 选中主机 → **远端 DSH** → **检查环境**。远端 Linux 推荐 Node.js ≥24.9、Git。原生 PR 功能需 \`gh\`。
-3. 在独立 SSH 终端运行：
-   \`\`\`bash
-   npx -y @deepseek-ai/dsh --profile web --no-open --port 3080
-   \`\`\`
-   终端会打印含访问令牌的 \`dsh web:\` URL；令牌不应分享到任何聊天、Git 或公开日志。
-4. 插件页面点击 **建立本机隧道**。此按钮只在 Windows DSH Desktop 同机浏览器模式可用，通道仅监听本机 \`127.0.0.1\`。远端 DSH 必须已启动并允许 SSH TCP forwarding。
-5. 粘贴远端 DSH 启动时打印的完整 URL，点击 **在浏览器打开远端 DSH**。在新页面中打开真实 Linux 项目并在 Official 插件中启用 **Change requests & worktrees**。
+```powershell
+dsh plugin --profile desktop add "C:\path\to\dsh-plugin-remote-ssh-1.4.1.tgz"
+```
 
-[完整部署指南、手动 SSH 转发、安全边界与故障排查](docs/remote-dsh-host.md)
+完整重启 DSH Desktop。只刷新页面不能重载已在 Node ESM 缓存中的 Host 模块。
 
-## 保留的 SSH 工作区兼容功能
+## 使用
 
-**文件浏览（兼容）**：浏览远端文件并将目录登记为 Windows DSH 的工作区。Agent 文件工具/Shell、原生终端在现有实现中通过 SSH 路由；远程 Git 查询有只读桥接，但 Windows 占位路径与 Linux 真实 Git 路径跨系统映射不保证完整的 Forge 功能。可用来编辑文件、运行命令，不建议用它承载复杂 Git worktrees。
+1. Windows 电脑已有一个可以通过 SSH 公钥连接的主机，如 `ssh nansha`，主机信息可写在 `~/.ssh/config`。不需要提前在插件中手工填写这些字段。
+2. DSH Desktop → **新建项目 / 添加工作区 → 源文件夹 → SSH 服务器**。自动出现 `~/.ssh/config` 中的别名和已经登记的 SSH 主机。如果只有一台主机，选择器会直接尝试读取其 Home。
+3. 首次连接时，从服务器控制台或管理员处独立核对并输入 SHA256 Host Key 指纹；已有信任记录则跳过。
+4. 选择远端文件夹，点击 **在 Desktop 打开工作区**，然后在左侧工作区中打开会话。
 
-**快速命令**：在选定 Linux 目录执行一次性命令；不等同于远端 DSH Web 的完整 Agent。SSH 主机支持严格指纹校验、密钥/ssh-agent、SSH Config 和受限 ProxyCommand；最近目录历史可以单独清理，不会删除远程文件。
+核对远端 Git：
 
-## 安全和限制
+```bash
+pwd
+git rev-parse --show-toplevel
+git status --short --branch
+```
 
-- Windows Desktop 托管的 DSH Web TCP 隧道**仅绑定 127.0.0.1 的随机端口**；不会公开监听、不会自动启动 DSH、不会持久化 Web token。浏览器 URL token 只在 UI 内存中转换。
-- 本地隧道关闭或插件退出不会结束远端 DSH。远端 DSH Web 保持 loopback 监听，并应使用 SSH 转发而不是开放公网端口。
-- 对于非同机浏览器（DSH Web/WSL 等），必须在浏览器所在的机器建立手动 \`ssh -L\` 转发；插件不会错把 Host 的 loopback 当作浏览器的 loopback。
-- Windows 与 Linux 的 DSH Host 之间**不共享**模型配置、会话、插件和 Agent 状态。
-- 推荐的 Linux Web 路线不依赖旧占位目录，但并未移除老功能；不应把占位目录内的空内容当作远端真实源码。
+如果这些命令成功而 DSH「变更请求」面板仍报错，属于 DSH 原生 Git 与插件桥接的兼容性问题，并非服务器没有 Git。
 
-## 开发
+## 其他工作方式
 
-\`\`\`bash
+v1.4.0 增加的 **Web（可选）** 功能仍保留，但不再是默认或推荐的 SSH 工作区流程。它会打开另一套 DSH，**不是**用户希望的 Desktop 工作区。
+
+## 开发与安全
+
+```bash
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm test
 pnpm pack
-\`\`\`
+```
 
-发布包必须包含最新 \`dist/\`、\`lib/client.js\` 和 \`cordis.patch.yml\`。GitHub Actions 构建并运行测试，main 提交成功后发布开发预览包。
+发布包必须含新编译的 `dist/`、`lib/client.js`、`cordis.patch.yml`。SSH Host Key 验证不会因为一键操作而被关闭。
 
-- [远端 DSH Host 详细指南](docs/remote-dsh-host.md)
-- [架构](docs/architecture.md)
-- [排障](docs/troubleshooting.md)
-- [许可证](LICENSE)
+- [Desktop SSH 运行时设计与限制](docs/desktop-ssh-runtime.md)
+- [插件架构](docs/architecture.md)
+- [故障排查](docs/troubleshooting.md)
