@@ -13,6 +13,7 @@ import type { WorkspaceRegistry } from './workspace-registration.js';
 import { installWorkspaceCleanup } from './workspace-cleanup.js';
 import { RemoteTerminalPool } from './remote-terminal.js';
 import { installNativeTerminalRouter } from './native-terminal-router.js';
+import { installNativeGitRouter } from './native-git-router.js';
 
 export const name = 'remote-ssh';
 
@@ -148,7 +149,7 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
     // subprocess.spawnTerminal(). Route only when its cwd is an SSH placeholder,
     // preserving ordinary local/WSL terminals without a second UI surface.
     const subprocess = ctx.get('subprocess') as
-      | Parameters<typeof installNativeTerminalRouter>[0]
+      | (Parameters<typeof installNativeTerminalRouter>[0] & Parameters<typeof installNativeGitRouter>[0])
       | undefined;
     const nativeTerminal = subprocess && typeof subprocess.spawnTerminal === 'function'
       ? installNativeTerminalRouter(subprocess, manager, ctx.logger,
@@ -157,6 +158,9 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
     if (!nativeTerminal) ctx.logger.warn(
       'remote-ssh: native DSH terminal router unavailable (subprocess service missing)',
     );
+    const nativeGit = subprocess && typeof subprocess.spawn === 'function'
+      ? installNativeGitRouter(subprocess, manager, ctx.logger) : undefined;
+    if (!nativeGit) ctx.logger.warn('remote-ssh: native Git subprocess router unavailable');
     const remoteTerminals = new RemoteTerminalPool(manager);
     const workspaceRegistry = (): WorkspaceRegistry | undefined => ctx.get('workspaceRegistry') as WorkspaceRegistry | undefined;
     const unregisterHttp = webServer.register({
@@ -166,6 +170,7 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
     });
     ctx.logger.info(`remote-ssh: ready (storage ${storageDir})`);
     return () => {
+      nativeGit?.dispose();
       nativeTerminal?.dispose();
       remoteTerminals.closeAll();
       workspaceCleanup.dispose();

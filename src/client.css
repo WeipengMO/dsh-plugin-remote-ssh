@@ -507,7 +507,7 @@
 
 /*
  * DSH's sidebar xterm explicitly creates a DOM-rendered block cursor and its
- * own CSS gives it an opaque background, overriding DECSCUSR 6 when zsh/themes
+ * own CSS gives it an opaque background, overriding DECSCUSR 5 when zsh/themes
  * reset the cursor. Render that block marker visually as a thin bar instead,
  * without modifying the SSH PTY, keyboard handling or local terminal routing.
  * Scope to DSH sidebar terminals, never the Settings panel or other inputs.
@@ -517,12 +517,12 @@ body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block
   color: inherit !important;
   border: 0 !important;
   outline: 0 !important;
-  box-shadow: inset 2px 0 0 var(--terminal-cursor, currentColor) !important;
+  box-shadow: inset 2px 0 0 var(--terminal-cursor, currentColor);
 }
 @keyframes rss-terminal-bar-blink {
   0%, 49% { box-shadow: inset 2px 0 0 var(--terminal-cursor, currentColor); }
   50%, 100% { box-shadow: none; }
 }
-body [data-sidebar-terminal] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-block.xterm-cursor-blink {
+body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block.xterm-cursor-blink {
   animation: rss-terminal-bar-blink 1s step-end infinite !important;
 }

@@ -321,10 +321,10 @@ export class SshConnection {
     if (!remoteCwd.startsWith('/') || remoteCwd.includes(String.fromCharCode(0))) {
       throw new RemoteSshError('SSH_PATH_INVALID', 'terminal cwd must be an absolute Linux path');
     }
-    // DECSCUSR 6: steady vertical bar cursor in DSH's native xterm.
+    // DECSCUSR 5: steady vertical bar cursor in DSH's native xterm.
     // Emit it from the remote PTY before the interactive shell starts.
     const command = 'cd -- ' + shellQuote(remoteCwd) +
-      ' && printf \'\\033[6 q\' && exec "${SHELL:-/bin/sh}" -i';
+      ' && printf \'\\033[5 q\' && exec "${SHELL:-/bin/sh}" -i';
     return await new Promise((resolve, reject) => {
       client.exec(command, {
         pty: { term: terminalType, cols: Math.max(20, Math.min(500, columns)),

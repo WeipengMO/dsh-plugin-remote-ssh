@@ -13,7 +13,7 @@ interface ToolContext {
     set(agent: unknown, path: string, signal?: AbortSignal): Promise<string>;
     ensure(agent: unknown, signal?: AbortSignal): Promise<string>;
   };
-  systemPrompt?: { section(definition: { name: string; order: number; text: string }): unknown };
+  systemPrompt?: { section(definition: { name: string; order: number; text: string | ((context: { agent?: { session?: unknown } }) => string) }): unknown };
   logger?: { warn(message: string): void };
   get?(name: string): unknown;
   on?(event: string, listener: (payload: unknown) => unknown, options?: { global?: boolean }): unknown;
@@ -455,12 +455,21 @@ export function registerManagementTools(
   ctx.systemPrompt?.section({
     name: 'plugin:remote-ssh',
     order: 900,
-    text:
-      'Remote SSH workspaces: use remote_ssh_hosts to configure a host, remote_ssh_test / remote_ssh_trust_host for strict host-key setup, and remote_workspace_open to make a remote directory the session cwd. Native read/write/edit/glob/grep and shell then operate on the remote Linux host with no local mirror. DSH may call its shell tool pwsh, but in a remote SSH project the commands execute via bash on the Linux server: use POSIX shell commands, not PowerShell cmdlets. File write/edit do not create missing parent directories; create directories explicitly before writing. The remote grep tool accepts a directory or a single file and excludes hidden entries in recursive directory searches by default. Use remote_workspace_close to return to local work. Never assume a failed remote path is local.',
+    text: ({ agent }) => {
+      if (!agent?.session) return '';
+      try { return remoteWorkspaceShellGuidance(ctx.workingDirectory.get(agent.session)); }
+      catch { return ''; }
+    },
   });
 
   ctx.on?.('agent/disposed', (payload) => {
     const agent = (payload as { agent?: { id?: string } }).agent;
     if (typeof agent?.id === 'string') previousCwd.delete(agent.id);
   }, { global: true });
+}
+
+/** A remote-only shell hint avoids wasting tokens on local DSH sessions. */
+export function remoteWorkspaceShellGuidance(cwd: string): string {
+  if (!looksVirtual(cwd)) return '';
+  return 'ACTIVE WORKSPACE: remote Linux via SSH. The shell executor is POSIX (bash by default), even on Windows or when DSH names the tool pwsh. Use Linux/POSIX commands from the FIRST call; do not probe with PowerShell cmdlets or Windows paths. For Git run git rev-parse --show-toplevel and git status --short --branch in the remote workdir, not the local DSH placeholder. Native file tools and shell target the remote host. Create directories before writing files. Never run local Git against the placeholder.';
 }
