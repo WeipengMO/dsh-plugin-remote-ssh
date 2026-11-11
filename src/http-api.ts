@@ -263,6 +263,10 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
         // official CLI with npx if there is no existing dsh executable.
         const remote = await deps.remoteRuntime.ensureWeb(host, opened.workspace.remoteRoot,
           body.installIfMissing !== false);
+        if (remote.phase === 'failed') {
+          return send(res, 200, {ok:true, phase:'failed', host,
+            message:remote.message || 'remote DSH failed to start'});
+        }
         if (remote.phase !== 'ready' || !remote.url) {
           return send(res, 200, { ok:true, phase:'starting', host,
             path:opened.workspace.remoteRoot, installation:remote.installation || 'unknown' });

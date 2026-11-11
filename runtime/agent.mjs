@@ -170,13 +170,29 @@ async function webEnsure(cwdValue, installIfMissing) {
       const meta = await lstat(logPath);
       if (!meta.isFile() || meta.isSymbolicLink() || (meta.mode & 0o077) !== 0)
         throw new Error('remote DSH log has unsafe permissions');
-      log = await readFile(logPath,'utf8');
+      // Only the startup prefix contains the token; never read unbounded
+      // long-running DSH logs into each one-shot helper invocation.
+      const file = await open(logPath,'r');
+      try {
+        const head = Buffer.alloc(256 * 1024);
+        const { bytesRead } = await file.read(head,0,head.length,0);
+        log = head.subarray(0, bytesRead).toString('utf8');
+      } finally { await file.close(); }
     } catch(e) { if(e.code !== 'ENOENT') throw e; }
     const remoteUrl = fromLog(log, previous.port);
     if (remoteUrl && await accepting(previous.port)) {
       return { phase:'ready', cwd, port:previous.port, url:remoteUrl, managed:true, installation: previous.installation };
     }
+    if (Number.isFinite(previous.startedAt) && Date.now() - previous.startedAt > 5 * 60_000) {
+      return {phase:'failed', cwd, port:previous.port,
+        message:'Remote DSH did not publish its ready URL within five minutes; check server npm/DSH logs'};
+    }
     return { phase:'starting', cwd, port:previous.port, installation: previous.installation };
+  }
+  if (previous?.cwd === cwd && !isAlive(previous.pid)
+      && Number.isFinite(previous.startedAt) && Date.now() - previous.startedAt < 45_000) {
+    return { phase:'failed', cwd, port:previous.port,
+      message:'Remote DSH exited during startup; check Node.js/npm and restart after the cooldown' };
   }
   // Never spawn two Web hosts for the same directory simultaneously.
   const lock = join(root, 'launch.lock');

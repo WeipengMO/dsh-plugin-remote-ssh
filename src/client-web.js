@@ -237,6 +237,9 @@ window.__ModuleLoader__.load({
             const result = await api('/runtime/web/open',
               { host:selection.host, path:selection.path, installIfMissing:true });
             if (cancelled) return;
+            if (result.phase === 'failed') {
+              throw Error(result.message || '远端 DSH 启动失败');
+            }
             if (result.phase === 'ready') {
               setView({phase:'ready', url:result.url, path:result.path,
                 installation:result.installation});

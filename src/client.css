@@ -566,7 +566,7 @@ body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block
 .rss-remote-title strong{white-space:nowrap;max-width:180px;text-overflow:ellipsis;overflow:hidden;font-size:13px}
 .rss-remote-title code{font:11px ui-monospace,Consolas,monospace;color:#697586;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rss-remote-controls{display:flex;align-items:center;gap:8px;flex:none}
-.rss-remote-main .rss-btn{display:flex;gap:6px;align-items:center;padding:7px 11px;border:1px solid #d5dce7;border-radius:7px;background:#fff;color:#222;cursor:pointer;font:12px inherit}
+.rss-remote-main .rss-btn{display:flex;gap:6px;align-items:center;padding:7px 11px;border:1px solid #d5dce7;border-radius:7px;background:#fff;color:#222;cursor:pointer;font-size:12px;font-family:inherit}
 .rss-remote-status{font-size:11px;color:#37744c;white-space:nowrap}
 .rss-remote-viewport{flex:1;min-height:0;min-width:0;position:relative;overflow:hidden}
 .rss-remote-webview{display:block;width:100%;height:100%;min-height:0;border:0;background:#fff}

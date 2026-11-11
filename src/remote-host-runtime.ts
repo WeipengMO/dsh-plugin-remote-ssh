@@ -38,12 +38,13 @@ export interface RuntimeInfo {
   verified: true;
 }
 export interface WebHostStatus {
-  phase: 'starting' | 'ready';
+  phase: 'starting' | 'ready' | 'failed';
   cwd: string;
   port: number;
   /** Sensitive single-use browser handoff. Do not log or persist this value. */
   url?: string;
   installation?: string;
+  message?: string;
 }
 
 export interface RemoteGitInfo {
@@ -207,7 +208,7 @@ export class RemoteHostRuntimePool {
     const runtime = await this.connect(host);
     const result = await this.invoke(host, runtime.helperPath, 'web.ensure',
       { cwd:remoteRoot, installIfMissing }) as WebHostStatus;
-    if (!result || !['starting','ready'].includes(result.phase)
+    if (!result || !['starting','ready','failed'].includes(result.phase)
       || !Number.isSafeInteger(result.port) || result.port < 1024 || result.port > 65535
       || result.cwd !== remoteRoot) {
       throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED', 'malformed Web Host status from SSH helper');
