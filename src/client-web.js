@@ -359,7 +359,8 @@ window.__ModuleLoader__.load({
                 h(Button, { variant: 'primary', icon: 'arrow', disabled: !!busy || loading || !browse,
                   onClick: openWorkspace }, busy === 'prepare' ? '正在添加…' : '添加此文件夹'))),
             tab === 'terminal' && h('div', { className: 'rss-terminal-tab', role: 'tabpanel' },
-              h('p', { className: 'rss-hint' }, '在服务器执行非交互式命令（30 秒超时）。不是完整 SSH 终端。'),
+              h('p', { className: 'rss-hint' }, '在服务器执行非交互式命令（30 秒超时）；需要持续交互时使用下方的 SSH 终端。'),
+              h(RemoteTerminalAction, {}),
               h('div', { className: 'rss-console', 'aria-live': 'polite' },
                 log.length === 0 ? h('span', { className: 'rss-console-muted' }, '命令输出将显示在这里。') :
                 log.map((entry, i) => h('pre', { key: i, className: entry.kind === 'command' ? 'rss-console-cmd' : '' }, entry.text))),
@@ -544,6 +545,9 @@ window.__ModuleLoader__.load({
       const cursorRef = React.useRef(0);
       const outputRef = React.useRef(null);
       const terminalIdRef = React.useRef(null);
+      useEffect(() => () => {
+        if (terminalIdRef.current) api('/terminal/close', { id: terminalIdRef.current }).catch(() => {});
+      }, []);
       useEffect(() => {
         if (!visible) return;
         let alive = true;
