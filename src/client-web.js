@@ -195,6 +195,7 @@ window.__ModuleLoader__.load({
       const [command, setCommand] = useState('pwd && git status --short');
       const [log, setLog] = useState([]);
       const [loading, setLoading] = useState(false);
+      const [recentExpanded, setRecentExpanded] = useState(false);
       const currentHost = state.hosts.find(host => host.id === selected);
       const status = state.statuses.find(item => item.id === selected);
       const refresh = useCallback(async () => {
@@ -376,13 +377,30 @@ window.__ModuleLoader__.load({
                 ['已验证指纹', status?.trustedFingerprint || '尚未连接或未知'],
                 ['重连次数', status?.reconnectCount || 0]].map(([key, value]) =>
                 h('div', { key, className: 'rss-info-row' }, h('span', null, key), h('code', null, String(value))))),
-            state.recent.length > 0 && h('details', { className: 'rss-disclosure rss-recent-wrap' },
-              h('summary', null, '最近使用的远程目录', h(Icon, { name: 'chevron', size: 14 })),
-              state.recent.slice(0, 7).map((entry, i) =>
-                h('button', { type: 'button', key: i, className: 'rss-recent', title: entry.remoteRoot,
-                  onClick: () => { setSelected(entry.connectionId); setDir(entry.remoteRoot);
-                    loadDir(entry.connectionId, entry.remoteRoot); setTab('files'); } },
-                  h(Icon, { name: 'folder', size: 14 }), h('span', null, entry.remoteRoot))))),
+            h('section', { className: 'rss-recent-wrap', 'aria-label': '最近使用的远程目录' },
+              h('div', { className: 'rss-recent-heading' },
+                h('button', { type: 'button', className: 'rss-recent-toggle',
+                    'aria-expanded': recentExpanded, onClick: () => setRecentExpanded(value => !value) },
+                  h('span', null, '最近使用的远程目录'),
+                  h(Icon, { name: 'chevron', size: 14, className: recentExpanded ? 'rss-chevron-open' : '' })),
+                h('button', { type: 'button', className: 'rss-recent-clear',
+                    disabled: !!busy || state.recent.length === 0,
+                    title: '仅清空最近使用记录，不会删除工作区或服务器文件',
+                    onClick: async () => {
+                      if (!window.confirm('清空全部最近使用的远程目录记录？\\n不会删除已经创建的 DSH 工作区或服务器文件。')) return;
+                      const result = await run('recent-clear', () => api('/recent/clear', { confirmed: true }), '最近使用记录已清空');
+                      if (result) await refresh();
+                    } },
+                  h(Icon, { name: 'trash', size: 13 }), '清空历史')),
+              recentExpanded && h('div', { className: 'rss-recent-items' },
+                state.recent.length === 0
+                  ? h('p', { className: 'rss-recent-empty' }, '暂无最近使用记录')
+                  : state.recent.slice(0, 7).map((entry, i) =>
+                    h('button', { type: 'button', key: entry.connectionId + ':' + entry.remoteRoot,
+                        className: 'rss-recent', title: entry.remoteRoot,
+                        onClick: () => { setSelected(entry.connectionId); setDir(entry.remoteRoot);
+                          loadDir(entry.connectionId, entry.remoteRoot); setTab('files'); } },
+                      h(Icon, { name: 'folder', size: 14 }), h('span', null, entry.remoteRoot)))))),
         ),
         modal && h(HostModal, { key: modal === 'new' ? 'new' : modal.id || 'alias', value: modal === 'new' ? null : modal,
           busy: busy === 'save', aliases: state.aliases, onClose: () => setModal(null), onSave: saveHost }),
