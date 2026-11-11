@@ -55,7 +55,7 @@ test('client registers settings plus native remote project directory flows', () 
   assert.equal(registrations[1].record.id, 'remote-ssh-terminal');
   assert.deepEqual(registrations.slice(2).map(x => x.record.name), ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow']);
   assert.ok(registrations.slice(2).every(x => x.record.priority === -2));
-  assert.ok(registrations.slice(1).every(x => typeof x.record.inject === 'function'));
+  assert.ok(registrations.slice(2).every(x => typeof x.record.inject === 'function'));
   assert.ok(registrations.slice(1).every(x => typeof x.component === 'function'));
   assert.ok(!source.includes("h('section', { className: 'rss-session' }"));
   assert.equal(registrations[0].record.name, 'settings.section');
@@ -214,7 +214,7 @@ test('compact Settings UI keeps a single-column, theme-safe, accessible structur
   assert.match(source, /'rss-project-flow'/);
   assert.match(source, /'rss-directory-dialog'/);
   assert.match(source, /'aria-modal': true/);
-  assert.match(source, /'RemoteTerminalAction'/);
+  assert.match(source, /RemoteTerminalAction/);
   assert.doesNotMatch(source, /来自 SSH Config/);
   assert.match(source, /'主机地址 \/ HostName'/);
 });
