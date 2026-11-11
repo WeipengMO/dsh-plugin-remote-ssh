@@ -70,3 +70,9 @@ v1.0.7 修复：
 - Web Profile 无法使用托管隧道属于预期：本地 127.0.0.1 与浏览器不一定同机。改在浏览器所在的 Windows 使用 `ssh -N -L 13080:127.0.0.1:3080 host`。
 - 不要直接打开隧道的根 URL。登录必须保留远端 DSH 启动输出中完整的带令牌 URL；不要粘贴令牌到 Agent 聊天中。
 - 详细操作参见 [remote-dsh-host.md](remote-dsh-host.md)。
+
+## v1.4.1 Windows DSH Desktop SSH 项目
+
+- 新建项目中的「SSH 服务器」直接列出 Windows `~/.ssh/config`；只有一台主机时自动尝试连接。如果该列表为空，检查 Windows 账号与实际运行 DSH 的用户环境是否一致。
+- 首次连接出现未知 Host Key 时，在当前窗口独立核对并输入 SHA256 指纹，不需要去设置页再操作。
+- 如果原生 Git/变更请求仍读取失败，不代表远端 Git 仓库不存在：请在 SSH 终端运行 `git status --short --branch`。完整 Forge 工作树支持需要 DSH Core 远端运行时，参见 [desktop-ssh-runtime.md](desktop-ssh-runtime.md)。
