@@ -1,207 +1,162 @@
-# DSH Remote SSH · 设置页原生 SSH 工作区
+# DSH Remote SSH
 
-## v1.1.0：DSH 原生远程项目（不再依赖活动 Agent 下拉框）
+[![Build](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml/badge.svg)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**现在的推荐流程：** 在 DSH 客户端选择 **创建项目 → 源文件夹 → 远程 SSH → SSH 主机 → 远程目录 → 使用此远程文件夹**。随后正常创建项目，在 DSH 左侧项目/工作区列表打开该项目并新建会话。远程 bash、文件读写和搜索工具通过 SSH 执行，无需复制整个项目到本地。
+让 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 直接打开 SSH 服务器上的项目。支持在 **DSH 桌面客户端和 Web 客户端**内管理 SSH 主机、浏览远程目录，并在创建项目时选择远程源文件夹；Agent 的受支持文件、搜索与 Shell 工具通过 SSH 操作服务器，无需同步整份源码到本机。
 
-在 **设置 → Remote SSH** 也可以先添加主机、测试连接、浏览远程目录，再点击 **添加此文件夹**。这一操作登记真正的 DSH 项目工作区，而不是修改正在运行的任意 Agent。
+> **推荐入口：** 在 DSH「新建项目 → 源文件夹 → 远程 SSH」选择服务器与目录。**设置 → Remote SSH** 主要用于添加主机和检查连接，不需要手动选择活动 Agent 会话。
 
-**工作原理：** 对每个选中的远程根目录，在运行 DSH 的电脑上建立一个稳定的空目录 `~/.dsh/remote-ssh-workspaces/<token>`，这是 DSH 项目注册/目录验证使用的占位符；插件将该目录映射到已验证的 SSH 根目录，远程文件本身不复制到本地。不要在占位目录下手动保存本地源码。注册过的工作区映射保存在插件数据中，重启后继续有效。
+## 功能
 
-**与 VS Code / Codex Remote SSH 的差异：** VS Code Remote SSH 在服务器运行 VS Code Server/远程扩展宿主；本插件采用本机 DSH + SSH 文件/命令路由，不会自动把本机技能、MCP 或所有 DSH 服务迁到远程服务器。只有已明确路由的 bash、文件与搜索能力能保证远程执行。桌面客户端 + 实际服务器的完整端到端验证仍需执行。
+- **原生 DSH 集成**：在设置页提供主机管理，在新建项目的源文件夹选择器中提供「本地电脑 / 远程 SSH」选项。
+- **远程工作区**：选择远程文件夹即可登记为 DSH 项目；已登记的项目可从 DSH 工作区列表重新打开。
+- **SSH Config**：读取本机 `~/.ssh/config` 的主机别名，并填充 `HostName`、`User`、`Port` 和 `IdentityFile`；保留原始别名以匹配已支持的高级选项。
+- **SSH / SFTP**：公钥、ssh-agent、服务器主机密钥指纹验证、远程文件浏览与文件操作。
+- **Agent 远程工具**：通过 SSH 路由 `read`、`write`、`edit`、`glob`、`grep` 和 Shell 命令；本地项目仍由 DSH 原生工具处理。
+- **受限代理支持**：支持特定形式的 `cloudflared access ssh --hostname %h`；不执行任意 `ProxyCommand` Shell 脚本。
+- **本地/远程隔离**：不同 SSH 项目使用各自的工作区映射，而非把远程文件复制到 Windows 目录。
 
-**避免插件冲突：** 如同时安装 `@dsh-ssh/dsh-ssh` 等也覆盖 `conversation.hero.workspace.directoryFlow` / `sidebar.workspaces.directoryFlow` 的插件，请先禁用冲突插件，避免同一工作区被两套 SSH 路由机制接管。
+## 安装
 
+### 前提条件
 
-> **v1.0.6 · 修复 Agent 列表与 SSH Config 表单，增加 GitHub Actions 自动构建。** 设置中选择 SSH 别名时，直接填入 HostName、User、Port、IdentityFile，原始别名单独保存以继续匹配 ProxyCommand。
+1. 已安装 DSH，并可使用 `dsh` 命令。
+2. 运行 DSH 的电脑可以通过 SSH 连接目标服务器，已准备公钥/私钥或 ssh-agent。
+3. 本机可调用 **OpenSSH 客户端**（`ssh -V`）。如使用 Cloudflare Access，还需在本机安装并配置 `cloudflared`。
 
-> **v1.0.5 · SSH Config 自动解析与导入 + 版本错配自检**。面向 DeepSeek Harness（DSH）的原生客户端插件体系（Web profile 已做模拟验证，Desktop 待真机验证）。**在 DSH 设置页注册「Remote SSH」独立设置项**，以单列浅色响应式布局展示 SSH 主机和远程工作区；不再添加主侧边栏入口，也不再使用全屏浮层。无须修改 DSH 源码，也不依赖原版 8788 端口。
+### 桌面客户端（Windows）
 
-## 安装（推荐）
+1. 在 [GitHub Releases](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases) 下载 `dsh-plugin-remote-ssh-<version>.tgz`。如果尚无 Release，可到 [Actions 构建记录](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml) 下载成功运行中的 **Artifacts** ZIP，解压得到 `.tgz`。
+2. 完全退出 DSH 桌面客户端（包括系统托盘）。
+3. 在 PowerShell 中安装下载的文件：
 
-下载构建好的 `dsh-plugin-remote-ssh-1.0.5.tgz` 后，在 DSH 所在的机器运行：
+   ```powershell
+   dsh plugin --profile desktop add "C:\path\to\dsh-plugin-remote-ssh-X.Y.Z.tgz"
+   ```
+
+4. 重新打开 DSH，在 **设置 → Remote SSH** 中检查插件入口。
+
+### Web 客户端
 
 ```bash
-dsh plugin --profile web add /absolute/path/to/dsh-plugin-remote-ssh-1.0.5.tgz
+dsh plugin --profile web add /path/to/dsh-plugin-remote-ssh-X.Y.Z.tgz
 dsh web
 ```
 
-**Windows PowerShell** 示例（把路径改成实际下载位置）：
+`desktop` 和 `web` 是不同的插件 profile，安装到其中一个不会自动安装到另一个。**更新插件后也必须完全重启对应 DSH 进程**，以免界面和后端加载了不同版本。
 
-```powershell
-dsh plugin --profile web add "C:\Users\YOUR_USER\Downloads\dsh-plugin-remote-ssh-1.0.5.tgz"
-dsh web
+### GitHub Packages
+
+构建工作流会将相同的插件代码另外发布到 [GitHub Packages](https://github.com/WeipengMO?tab=packages) 的 npm Registry，名称为 `@weipengmo/dsh-plugin-remote-ssh`。GitHub npm Registry 要求作用域包名，因此它与上述 **DSH 原生安装包**使用不同的 npm 包名：
+
+| 发布渠道 | 包名 | 用途 |
+| --- | --- | --- |
+| Releases / Actions Artifacts | `dsh-plugin-remote-ssh-<version>.tgz` | **推荐：直接通过 `dsh plugin add` 安装** |
+| GitHub Packages (npm) | `@weipengmo/dsh-plugin-remote-ssh` | npm Registry 分发；独立的作用域元数据与 DSH 插件补丁 |
+
+`main` 每次成功构建后发布带唯一 `-dev.*` 后缀的包，使用 `next` dist-tag；推送与 `package.json` 版本匹配的 `vX.Y.Z` 标签时发布正式版本（`latest`），并将原生 `.tgz` 附到 GitHub Release。通过 GitHub Packages 安装通常需要配置对应 npm registry 和访问凭据；**直接安装 DSH 时建议仍使用 Releases 的 `.tgz`**。
+
+## 使用
+
+### 1. 添加 SSH 主机
+
+进入 **设置 → Remote SSH → 添加主机**，选择 `~/.ssh/config` 中已有的 `Host` 别名，或直接填写服务器地址、用户名、端口和私钥路径。导入别名后，参数会填入普通、可编辑的输入框。
+
+例如：
+
+```sshconfig
+Host nansha
+  HostName 192.0.2.10
+  User researcher
+  IdentityFile ~/.ssh/id_ed25519
 ```
 
-**升级插件后必须完全退出并重启 DSH 进程，再硬刷新页面。** `dsh plugin add` 只替换磁盘文件，正在运行的进程会继续持有旧的 host 插件模块（Node ESM 缓存）；只刷新页面会得到「新前端 + 旧后端」的错配，读取 SSH Config 时报 `method not allowed`。v1.0.5 起面板会直接显示版本不一致的重启提示。进入 **设置 → Remote SSH**，出现主机管理和远程目录面板表示前端插件已加载；此时还需实际测试 SSH 连接和工作区切换。
+点击 **测试连接**。首次连接时，应先通过独立可信渠道核对服务器 SHA256 主机密钥指纹，再在插件中确认。不要仅凭弹窗提示就直接信任未知密钥。
 
-**桌面客户端说明：** 本版 `settings.section` UI 使用与 DSH Web 相同的原生插件 Slot；然而 SSH 管理接口仍使用 Web Host 的同源 `/api/remote-ssh` 与 `webServer`/`connection` 会话认证。Electron 端的 Host 通道和路由尚未实测，**安装或显示设置项不代表桌面 SSH 已能使用**。在桌面客户端先退出进程，可尝试 `--profile desktop` 安装；若接口不可用，需要后续针对官方 Desktop API/IPC 适配。建议 Node.js 22+。Agent Shell 路由依赖系统 OpenSSH 客户端。
+**Windows 提醒：** `IdentityFile` 指向的私钥必须真实存在于运行 DSH 的 Windows 电脑上；服务器或 WSL 中的 Linux 路径不一定适用于 Windows 桌面客户端。
 
-## 使用方法
+### 2. 将远程文件夹添加到 DSH 工作区
 
-1. 进入「设置」→「**Remote SSH**」，点击「添加主机」。填写主机别名/IP、端口、用户名、可选 `IdentityFile`；或使用页面中自动读取的 `~/.ssh/config` 别名。
-2. 点击「测试连接」。**首次连接**会显示服务器 SHA256 host key 指纹；从服务器控制台或管理员独立核实后，完整抄写指纹并勾选确认。不得直接盲信本面板的值。
-3. 在「文件浏览」中打开远程目录（支持 `~` 和绝对路径），可进入各级文件夹。
-4. **先在 DSH 中创建/启动一个 Agent 会话**，刷新设置页 Remote SSH 面板；在「Agent 工作区」下拉框选中该会话。若列表为空，请在所需 DSH 会话先发一条消息，使 Agent 实例创建，然后刷新。
-5. 点击「**使用此目录**」。这是对 DSH `workingDirectory.set(agent, virtualPath)` 的**真实调用**。成功后，此 Agent 的 `read/write/edit/glob/grep/bash/pwsh` 等受支持原生工具通过远程 FS/Shell Router 操作服务器目录，**无需复制整个项目到本地**。
-6. 点击「**返回本地**」可恢复该会话此前的本地工作目录。最近工作区会保存在用户目录的插件状态文件中。
+1. 在 DSH 中点击 **新建项目**。
+2. 在 **源文件夹**中切换为 **远程 SSH**。
+3. 选择已配置的 SSH 主机，浏览或输入远程路径（例如 `/home/researcher/project`）。
+4. 点击 **使用此远程文件夹**，正常完成 DSH 项目创建。
+5. 从 DSH 项目/工作区列表打开项目，并创建对话。Agent 的受支持操作会通过 SSH 访问这个目录。
 
-内置的「快速命令」页能通过同一连接执行 `pwd`、`git status`、`nvidia-smi` 等一条条命令，每条最多 30 秒、200 KB 输出。这**不是**完整交互式 PTY/xterm 终端；需要 `vim`、`tmux`、交互 REPL 时使用外部 SSH 终端。不要把它误认为已实现 Codex SSH 的全部功能。
+也可以在 **设置 → Remote SSH** 浏览目录后，选择 **添加此文件夹** 以登记项目。**无需先启动 Agent、再手动切换它的 cwd**。
 
-## 与旧版的差异
+### 3. 验证是否真正远程执行
 
-| 维度 | 旧版 | 重构版 |
-|---|---|---|
-| 入口 | 独立 `127.0.0.1:8788` 网页 | **DSH 设置页 `settings.section`** |
-| 主要界面 | 单独浏览器页面 | DSH 设置页内嵌 React 主机管理 / 远程目录工作台 |
-| UI 工作区切换 | 仅记录 Local/Remote 意图 | **调用真正的 Agent workingDirectory 服务**，失败即显示失败 |
-| Host 管理与 Agent 工具 | 两套不同数据入口 | 共用 **同一个 RemoteSshManager / SSH 连接池** |
-| SSH Config | 需手动填 | **自动解析 `~/.ssh/config` 的 HostName / User / Port / IdentityFile / 保活 / cloudflared ProxyCommand，并在表单实时预览；不必再手动补全** |
-| 文件目录 | 浏览器 UI 与 Agent 分离 | 实际 SFTP 列表 / 项目切换一致 |
-| 安全性 | 独立 loopback API | **DSH 已登录会话认证** + Origin/CSRF 校验 + SSH 主机指纹校验 |
-| 安装 | 手工 profile 改写脚本 | **`dsh plugin --profile web add <tgz>`** |
+在已创建的远程项目对话中，请 Agent 运行：
 
-## 技术架构
+```bash
+pwd
+uname -s
+hostname
+ls -la
+```
+
+`pwd` 应显示**服务器上的 Linux 路径**，而不是 `C:\Users\...` 或本地占位目录。再用 Agent 的 `read` / `write` / `edit` 工具操作专用测试文件，并从远程 Shell 读取验证，即可确认文件工具与 Shell 是否访问同一份远程数据。
+
+## 工作原理
 
 ```text
-DSH Client / Web Settings
- └── settings.section ─────> Remote SSH 设置区 (React)
-                                 │  同源 fetch + DSH 认证会话（Web）
-                                 ▼
-DSH Web Host
- ├── connection.requestRejection(req)   【先认证】
- ├── webServer.register('/api/remote-ssh')
- └── RemoteSshManager (单一注册表、连接池)
-       ├── ssh2 + SFTP：主机探测、真实目录列表、文件操作
-       ├── system OpenSSH：DSH 原生远程 bash/pwsh
-       ├── FS/Shell Router：根据虚拟 cwd 自动路由
-       ├── agent/created：维护可切换 Agent 会话引用
-       └── workingDirectory.set(agent, virtualPath)：真正切换
+DSH 客户端
+├── 设置 → Remote SSH（主机管理 / 测试连接）
+└── 新建项目 → 源文件夹 → 远程 SSH
+                        │
+                        ▼
+         DSH 本地项目登记目录（占位符）
+         ~/.dsh/remote-ssh-workspaces/<token>
+                        │
+                        ▼
+           RemoteSshManager / SSH 路由
+             ├── ssh2 + SFTP：文件操作、目录浏览
+             ├── 搜索路由：glob / grep
+             └── OpenSSH：远程 Shell 命令
+                        │
+                        ▼
+                 远程 Linux 项目目录
 ```
 
-主要实现：
-- `src/index.ts`：DSH Host/Cordis 插件、真实工作区服务、注册 DSH API。
-- `src/http-api.ts`：带 DSH 认证、输入约束和 CSRF 的同源管理 API。
-- `src/client-web.js` + `src/client.css`：原生设置页 Slot、嵌入式面板、对话框。
-- `src/ssh-config.ts`、`src/proxy-command.ts`：解析 SSH Host / Include 和受限 Cloudflare Access 代理连接。
-- `src/manager.ts`、`src/connection.ts`、`src/{fs,remote-fs,shell}-router.ts`：沿用审阅过的远程文件与 SSH 底层实现。
-- `src/tools.ts` + `src/remote-search.ts`：DSH Agent 的远程管理和搜索工具。
-- `cordis.patch.yml` + `package.json#dsh`：DSH 官方 package/profile 安装元数据。
+占位目录是 DSH 项目注册所需的**真实本地文件夹**，不是源码镜像；远程文件不会自动下载到占位目录。不要手动往占位目录里写业务文件。插件的 SSH 工作区记录用于将该本地目录稳定映射回服务器目录。
 
-## 重新构建与测试
+实现入口：`src/index.ts`（DSH Host 插件）、`src/client-web.js`（设置页和项目选择器）、`src/workspace-registration.ts`（原生工作区登记）、`src/manager.ts`（SSH 连接与工作区映射）、`src/remote-fs.ts`、`src/fs-router.ts`、`src/remote-search.ts` 和 `src/shell-router.ts`（远程工具路由）。
+
+## 限制与安全说明
+
+- 本插件使用**本地 DSH + SSH 路由**，并非在服务器上运行 VS Code Server 或 DSH 完整远程宿主；交互式 PTY、远程扩展宿主、远程调试器和通用端口转发界面不在当前功能范围内。
+- 在远程 Linux 工作区，DSH 可能仍将 Shell 工具显示为 `pwsh`，但命令实际上由服务器上的 **bash** 执行；请使用 POSIX/Linux 命令，而非 PowerShell cmdlet。
+- `write` / `edit` 不会自动创建缺失的父目录；需事先明确创建目录。递归 `grep` 默认跳过隐藏条目，显式指定隐藏文件或目录可以搜索。
+- SSH 身份有权访问的项目**外部路径也可能被 Agent 访问**（如 `../other.py`）。占位目录不是权限沙盒；如需强隔离，请使用专用远程账户与文件系统权限。
+- 仅在受信任环境中授权 Agent 读写远程文件和执行 Shell。服务器指纹改变时先排查原因，不要盲目信任。
+- 如同时安装其他占用 DSH 远程源文件夹选择器的插件（例如 `@dsh-ssh/dsh-ssh`），建议只启用一套远程工作区实现，避免路由冲突。
+
+## 开发与自动构建
+
+需要 Node.js 22 和 pnpm 10。克隆仓库后：
 
 ```bash
-npm install
-npm test
-npm pack
+corepack enable
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm test
+pnpm pack
 ```
 
-**Windows 安装修复（v1.0.1）：** 本插件内置 `ssh2@1.17.0` 的纯 JavaScript 运行时代码（MIT，见 `vendor/ssh2/LICENSE`），不再把 `ssh2` 或 `cpu-features` 作为 npm/pnpm 依赖。原版需要执行的安装脚本只是**可选**原生加速，SSH2 自身具有 JS 兼容回退。因此此版不需要 Windows C++ 构建工具，也不需要执行 `pnpm approve-builds` 或关闭 pnpm 的安装脚本保护。首次安装 v1.0.0 遇到 `ERR_PNPM_IGNORED_BUILDS`，请直接安装 v1.0.5 tarball 完成升级。
+`pnpm test` 包含 TypeScript/客户端构建、单元测试和 SSH/SFTP 模拟集成测试；真实 Windows DSH + 服务器操作仍应进行端到端验收。
 
-**来源与更新责任：** `vendor/ssh2` 是 ssh2 1.17.0 的 JS 运行时代码，未包含本不需要的 C++ 编译源码；将来若 ssh2 存在安全更新，需要同步此内置副本。此版本仍需要原始的 `asn1` / `bcrypt-pbkdf` 纯 JS 依赖。
+工作流位于 [`.github/workflows/build.yml`](.github/workflows/build.yml)：
 
-`npm test` 会先编译 TypeScript，再构建 `lib/client.js` 并执行单元/集成测试。测试覆盖：原生 Slot 注册、Dsh 插件清单、认证/CSRF、主机 CRUD、SSH Host Key 流程、SFTP 浏览、快速命令、真实工作目录修改/恢复、原始 FS/SSH2 协议集成。测试需要 Node.js 20+。如果测试环境没有系统 OpenSSH `ssh`，只有涉及调用系统 `ssh` 的子测试会跳过；若没有 DSH 官方运行时，也会跳过其校验测试。
+- **PR**：构建、测试并检查可安装 `.tgz` 的文件清单；不发布 Packages。
+- **push 到 `main`**：上述检查通过后，上传 Actions Artifact，并同步发布 GitHub Packages 的 `next` 预览版。
+- **推送 `vX.Y.Z` 标签**：校验标签与 `package.json` 版本一致，通过后发布 GitHub Packages 正式版（`latest`）和带原生安装包的 GitHub Release。
+- **手动运行**：默认按开发分发流程生成 Artifact，不在非 `main` 或非版本标签的 ref 上发布。
 
-## 安全边界与限制
+发布脚本位于 [`scripts/prepare-github-package.mjs`](scripts/prepare-github-package.mjs)。`GITHUB_TOKEN` 由 Actions 自动提供，无需在仓库里保存个人 Token。
 
-- 本项目使用 SSH 公钥/ssh-agent 认证，不读取网页输入的密码、不在 UI 存储私钥正文。
-- 认证使用 DSH `connection.requestRejection`：任何未登录/不可信浏览器请求均拒绝；不能用一个独立启动的匿名 Web 服务替代。
-- **安全提醒：** 用户自己授权的 DSH 会话可以修改远程文件、运行远程命令。请只在可信环境使用；首次连接核对主机指纹。
-- 没有远程 VS Code Extension Host、端口转发 UI、交互式 PTY、远程调试器，以及真正的多窗口状态同步；这些与 Codex 原生 SSH 工作区仍有差距。
-- 如果浏览器 DSH 使用反向代理子路径而不是根路径，当前客户端 `/api/remote-ssh` 绝对路径需要部署者在代理层正确映射。
-- 已在隔离环境验证单元/SSH2 模拟服务器；**没有你的 DSH 安装环境、服务器凭据或真实远程机器，不能声称已完成你的实际桌面/SSH 端到端验收**。
+更多信息：[架构说明](docs/architecture.md) · [排障文档](docs/troubleshooting.md) · [第三方组件](docs/THIRD_PARTY.md)
 
-详细说明见 [设计与安全](docs/architecture.md)、[测试与排障](docs/troubleshooting.md)。
+## License
 
-## 参考
-
-- [DeepSeek Harness 的官方 WebServer 路由](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/web-server.md)
-- [DSH Connection 浏览器认证](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/connection/README.md)
-- [dsh-ssh/dsh-ssh](https://github.com/dsh-ssh/dsh-ssh)（`settings.section` 和设置页管理 SSH 主机的原生插件模式）
-- [JesmonX/dsh-web-shell](https://github.com/JesmonX/dsh-web-shell)（交互式终端单独插件的参考）
-
-
-## 桌面安装与迁移说明
-
-首先完全退出 Electron 桌面客户端，再安装：
-
-```powershell
-dsh plugin --profile desktop add .\dsh-plugin-remote-ssh-1.0.5.tgz
-```
-
-重新启动客户端，进入 **设置 → Remote SSH**。如果设置项存在但请求 `/api/remote-ssh` 失败，这是尚未适配完成的 Desktop Host API 问题，不能通过切回 `sidebar.footer.action` 修复。
-
-Web profile 与 Desktop profile 相互独立，分别安装才能在对应运行环境看到入口。
-
-`@dsh-ssh/dsh-ssh` 与本插件管理主机的服务和数据各自独立；若同时安装，设置页会显示两个 SSH 相关设置项，避免混淆建议仅启用其中一个。
-
-## v1.0.3 UI 重设计
-
-- 针对 DSH 设置弹窗内容区设计，不再按独立工作台的双栏宽屏布局绘制。
-- 移除深色面板和多层卡片；使用与设置页相近的浅色表单和轻分隔线。
-- SSH 主机列表默认只展示紧凑条目；超过 4 台才出现搜索框；SSH Config 别名和最近目录按需折叠。
-- 连接状态、操作按钮、Agent 会话、文件浏览按阅读顺序排列；连接反馈显示在顶部。
-- 将原来整页高度的空状态改为小尺寸说明；命令输出仍保留深色等宽终端区。
-- 所有插件样式都限定在 `.rss-settings-container` 中，并处理了编辑主机/指纹确认弹窗的样式变量继承。
-- 在模拟 DSH 设置宽度 551px 和 373px 下使用 Chromium 检查了视觉效果与横向溢出。
-
-**限制：** 这些模拟截图用于 UI 检查，不等于实际 DSH Electron 端 SSH API 的端到端验收。
-
-## v1.0.4：SSH Config 直接导入
-
-在设置页点「添加主机」，在「从 ~/.ssh/config 选择主机」下拉框选 `nansha`、`ipf`、`txcloud` 等别名：
-
-- 立即预览解析出的 `User@HostName:Port`、`IdentityFile` 和受支持的代理配置。自动填充的字段用「来自 SSH Config」标记，未手动改动时不会复制存储，所以后续修改 `~/.ssh/config` 会继续生效。
-- 正确处理 `Host` 通配符、`IdentityFile` 多次出现、`Include`（含部分通配符）、Windows 路径与标准引号。手动覆盖字段仍优先生效；编辑已有主机时可点「清除手动覆盖」恢复继承。
-- `ProxyCommand cloudflared access ssh --hostname %h` 可用于 ssh2/SFTP 和系统 OpenSSH 命令路由，执行方式为**严格限制的可执行文件加参数**，没有任意 shell 执行。其他 ProxyCommand、ProxyJump 仍会明确拒绝，不偷偷尝试直连。
-- DSH 运行的 Windows 机器必须安装 `cloudflared` 且可从 PATH 调用；Cloudflare Access 的登录、授权由用户的 cloudflared 环境负责。
-- **私钥路径必须在运行 DSH 的电脑上真实存在。** 例如配置中的 `/home/windz/.ssh/key/txcloud.pem` 是 Linux 路径，在 Windows DSH 上一般无效，应改为 `C:\Users\windz\.ssh\key\txcloud.pem` 或其他真实 Windows 文件路径。配置解析预览会提示路径不存在。
-
-本版会继承 `HostName` / `User` / `Port` / `IdentityFile` / `ServerAliveInterval` / `ServerAliveCountMax`，但尚未实现 OpenSSH `Match`、任意 ProxyCommand、ProxyJump 全套语义；测试样例覆盖上述三个真实风格的主机配置，未连接用户真实服务器。可用 `ssh -G nansha` 对照系统 OpenSSH 的最终展开结果。
-
-## v1.0.5：版本错配自检（修复 `method not allowed`）
-
-排查发现：DSH 进程启动时把 host 插件模块加载进 ESM 缓存，之后用 `dsh plugin add` 升级只会替换磁盘文件，**不会重载进程内的 handler**。此时浏览器刷新会拿到新的 `lib/client.js`（会请求 `GET /api/remote-ssh/config/resolve`），而进程内仍是旧 handler（没有该 GET 路由），请求落到 `if (req.method !== 'POST')` 返回 405 `method not allowed`。反复重装、刷新页面都不会修好，唯一解法是**完全退出并重启 DSH 客户端**。
-
-本版加入防护与兼容性：
-
-- `/state` 返回插件构建版本（读自 `package.json`）；`lib/client.js` 的版本由构建脚本注入。两者不一致时面板顶部显示「服务端插件版本与界面不一致，请完全退出并重启 DSH 客户端」的警告，而不是让人面对一句裸的 405。
-- `GET/POST /api/remote-ssh/config/resolve` 均可解析 SSH Config，容忍新旧前端的请求方式差异；仍只返回解析后的公开连接参数与密钥**路径**，不返回私钥内容。
-- 405 错误现在带上报错误 method、route 与「重启 DSH」提示，便于定位。
-- 客户端遇到 405 / `method not allowed` 时给出可直接照做的中文提示。
-
-**升级到本版仍需完全重启 DSH 进程一次**，之后错配即可消除；以后再出现同类问题会直接显示可操作提示。
-
-
-## 自动构建 / 下载插件安装包
-
-仓库的 [Build DSH Remote SSH plugin](.github/workflows/build.yml) 工作流在以下情况下运行：
-
-- 向 `main` push、提交 Pull Request、或在 Actions 中手动运行：安装依赖、编译 TypeScript 和客户端、运行测试、生成 npm 格式 `.tgz` 安装包，并上传为 **Actions artifact**（默认保留 30 天）。
-- 推送 `v*` Git 标签：完成上述测试后，自动创建 GitHub Release，并附上 `.tgz` 安装包。
-
-下载方式：GitHub 仓库 → **Actions** → 选择成功的 **Build DSH Remote SSH plugin** run → **Artifacts** → 下载 ZIP，解压得到 `.tgz`。随后完全退出 DSH，在 Windows 上执行：
-
-```powershell
-dsh plugin --profile desktop add .\dsh-plugin-remote-ssh-1.0.6.tgz
-```
-
-注意：设置页的 **DSH 会话工作区** 不是 SSH 服务器会话列表。它用于把选定的远程目录绑定到 DSH 的 Agent 会话（对话）。DSH 在 Agent 创建后才会触发 `agent/created`；因此尚未发送任何消息的新对话不会出现在列表中。先在目标 DSH 对话中发送一条消息，再打开设置页并刷新。此版本修正了对 `{ agent }` 事件负载的解析；若仍然没有会话，请在 GitHub issue 中提供 DSH 版本和脱敏日志。**已创建 Agent 的会话**不等于插件能主动为没有 Agent 的对话创建工作区；更原生的「新建远程工作区」流程尚需后续开发。
-
-SSH Config 导入采用**一次性表单填充**，而不是之前的「字段继承」UI。选中 Host 别名后，HostName、用户名、端口及第一个 IdentityFile 会填写为普通可编辑字段；保存的是当时确认的值。原始 SSH 别名还会留作 ProxyCommand、keepalive 等高级连接参数的匹配依据。若之后修改本地 `~/.ssh/config`，请重新选择别名并保存以更新字段。
-
-
-## v1.1.1 · 远程搜索与 Shell 使用提示
-
-本次根据 Windows DSH Desktop + Linux SSH 实测修复搜索细节，不改变已经验证通过的工作区注册与 SSH 文件读写：
-
-- `grep` 的 `path` 既可以是远程**目录**，也可以是具体**文件**（如 `/data/project/main.py` 或 `../main.py`）；对明确指定的隐藏文件也可搜索。
-- 对目录的递归 `grep` 默认继续跳过隐藏条目和 VCS 管理目录；如需要搜索隐藏文件，请明确指定该文件或隐藏目录作为 `path`。
-- 远程 `glob` / `grep` 的结果相对路径以 **Linux 远程 cwd** 为基准，不再使用 Windows `~/.dsh/remote-ssh-workspaces/` 占位目录。
-- 名为 `pwsh` 的 DSH 工具在 Linux SSH 工作区中通过 **bash** 执行，不支持 PowerShell 的 `New-Item` 等 cmdlet。请用 `mkdir -p` 等 POSIX 命令。
-- 文件 `write` / `edit` 不会创建不存在的父目录；必要时请先显式创建目录。这是正常的文件操作语义，未改成自动创建。
-- `git status` 在非 Git 仓库报错是 Git 的正常行为。
-
-**验收建议：** 在真实远程项目中分别运行 `grep("def ", path="具体.py")` 与 `grep("def ", path="该文件所在目录", include="*.py")`，确认文件级和目录级搜索结果一致，再运行一次 `glob("**/*.py")` 确认返回路径以远程 cwd 为基准。使用文件编辑工具创建/修改测试文件后，通过 SSH Shell 验证内容一致。
-
-**安全边界：** 当前版本允许 DSH Agent 访问其 SSH 身份有权限访问的项目外路径，例如 `../file.py`。不要把本地占位目录理解成强制的远程路径沙盒。若要将访问限制在工作区根目录内，还需要独立设计并测试权限/审批策略。
+[MIT](LICENSE)
