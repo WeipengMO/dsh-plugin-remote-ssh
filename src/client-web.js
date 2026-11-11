@@ -229,6 +229,7 @@ window.__ModuleLoader__.load({
       const [remoteDshPort, setRemoteDshPort] = useState('3080');
       const [remoteDshAccess, setRemoteDshAccess] = useState('');
       const [remoteDshProbe, setRemoteDshProbe] = useState(null);
+      const [remoteRuntimeProbe, setRemoteRuntimeProbe] = useState(null);
       const currentHost = state.hosts.find(host => host.id === selected);
       const status = state.statuses.find(item => item.id === selected);
       const remoteDshTunnel = (state.remoteDsh?.tunnels || []).find(entry => entry.host === selected);
@@ -289,7 +290,11 @@ window.__ModuleLoader__.load({
             if (typeof createWorkspace !== 'function') throw Error('DSH 工作区注册服务不可用；请从「新建项目 → 源文件夹」选择远程目录。');
             await createWorkspace(prepared.localPath);
           }
-          setSuccess('已添加到 DSH 工作区：' + prepared.title + '。现在可从工作区列表中创建或打开会话。');
+          setSuccess('已添加到 DSH 工作区：' + prepared.title + '。' +
+            (prepared.runtime?.state === 'verified-helper'
+              ? 'Linux 远端 helper 已验证，Git 查询在服务器执行。'
+              : '远端 helper 未就绪：' + (prepared.runtime?.message || '未返回检查结果') +
+                '；现有 SSH 文件/Shell 兼容模式仍可使用。'));
           refresh();
         } catch (e) { setError('添加工作区失败：' + (e.message || String(e))); }
       };
@@ -300,6 +305,11 @@ window.__ModuleLoader__.load({
         setLog(lines => [...lines, { kind: 'command', text: '$ ' + cmd }]);
         const result = await run('exec', () => api('/exec', { host: selected, path: dir || '~', command: cmd }));
         if (result) setLog(lines => [...lines, { kind: 'result', text: (result.stdout || '') + (result.stderr || '') + '\n[exit ' + result.code + ']' }]);
+      };
+      const checkRemoteRuntime = async () => {
+        if (!selected) return;
+        const result = await run('runtime-connect', () => api('/runtime/connect', { host: selected }));
+        if (result) { setRemoteRuntimeProbe(result); refresh(); }
       };
       const checkRemoteDsh = async () => {
         const result = await run('dsh-check', () => api('/dsh/check', { host: selected }));
@@ -489,6 +499,15 @@ window.__ModuleLoader__.load({
                 h('button', { disabled: !!busy || !command.trim(), type: 'submit' },
                   busy === 'exec' ? '执行中…' : '运行', h(Icon, { name: 'arrow', size: 15 })))),
             tab === 'info' && h('div', { className: 'rss-info-tab', role: 'tabpanel' },
+              h('section', { className: 'rss-runtime-info' },
+                h('strong', null, 'Linux Remote Helper · 自动部署'),
+                h('p', { className: 'rss-hint' }, '选中远端工作区后自动校验并启动一次性 SSH helper，不使用浏览器、额外端口或 Web Token。当前为远程 Git / 环境查询基础，尚不是完整 DSH Remote Host。'),
+                h(Button, { icon: 'refresh', onClick: checkRemoteRuntime, disabled: !!busy },
+                  busy === 'runtime-connect' ? '检查中…' : '检查远端 Helper'),
+                remoteRuntimeProbe && h('pre', { className: 'rss-dsh-output' },
+                  JSON.stringify({ node: remoteRuntimeProbe.runtime?.node,
+                    hash: remoteRuntimeProbe.runtime?.helperHash?.slice(0, 12),
+                    dsh: remoteRuntimeProbe.remoteDsh }, null, 2))),
               [['主机地址', status?.hostName || currentHost.host], ['用户', status?.user || currentHost.user || 'SSH Config / 默认'],
                 ['SSH 端口', status?.port || currentHost.port || 22], ['身份认证', (state.effective?.[selected]?.identityFiles || [])[0] || 'SSH Agent / 默认密钥'],
                 ['连接代理', state.effective?.[selected]?.proxyCommand ? 'cloudflared (Cloudflare Access)' : '直连'],

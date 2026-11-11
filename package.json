@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-remote-ssh",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "DSH Remote SSH Settings plugin with compact native UI for Desktop and Web; pure-JS SSH transport.",
   "type": "module",
   "main": "dist/index.js",
@@ -16,6 +16,7 @@
     "dist",
     "lib",
     "vendor/ssh2",
+    "runtime",
     "cordis.patch.yml",
     "README.md",
     "docs",

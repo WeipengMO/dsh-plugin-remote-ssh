@@ -35,3 +35,7 @@ Host Cordis 插件通过 `dist/index.js` 装载，与 DSH Agent 共享 `ctx.fs`�
 ## v1.4.1 原生 Windows SSH 工作区
 
 Windows Desktop 的工作区选择器默认使用 SSH 目录，直接展示已登记主机和 `~/.ssh/config` 别名。`/host/quick-add` 只允许精确匹配的 Host 别名，不代替独立的 Host Key 指纹确认。Web Host 标签保留为可选功能，不再推荐。技术边界和后续工作见 [desktop-ssh-runtime.md](desktop-ssh-runtime.md)。
+
+## v1.5 Linux Helper 自动部署 / 控制平面
+
+`RemoteHostRuntimePool` 每个已验证 SSH Host 管理一个版本匹配的 Helper（SFTP 写入并核验内容 sha256 / 文件权限；运行时 Node≥20、Linux），通过纯 JSON one-shot RPC 读取远端 Git root、HEAD、status、worktree 与 diff-stat，并探测 DSH CLI。没有开放端口、自由命令执行、HTTP Web token 或后台服务。新 API `/runtime/connect`、`/runtime/inspect` 都需要现有 DSH 浏览器认证；inspect 只能以已登记 workspace token 获取后端解析的真实 Linux 根路径。`/workspace/prepare` 在工作区添加时自动尝试引导。helper 无法运行时不在 Windows 占位目录回退执行，只明确标记 `runtime.state=unavailable`，原有 SSH 文件/Shell 桥接仍可使用。请参见 [README](../README.md) 和 [remote-runtime-protocol.md](remote-runtime-protocol.md)。

@@ -54,6 +54,8 @@ jobs:
           grep -qx 'package/package.json' "$RUNNER_TEMP/plugin-files.txt"
           grep -qx 'package/dist/index.js' "$RUNNER_TEMP/plugin-files.txt"
           grep -qx 'package/dist/dsh-web-tunnel.js' "$RUNNER_TEMP/plugin-files.txt"
+          grep -qx 'package/dist/remote-host-runtime.js' "$RUNNER_TEMP/plugin-files.txt"
+          grep -qx 'package/runtime/agent.mjs' "$RUNNER_TEMP/plugin-files.txt"
           grep -qx 'package/lib/client.js' "$RUNNER_TEMP/plugin-files.txt"
           grep -qx 'package/cordis.patch.yml' "$RUNNER_TEMP/plugin-files.txt"
           grep -q '^package/vendor/ssh2/' "$RUNNER_TEMP/plugin-files.txt"
