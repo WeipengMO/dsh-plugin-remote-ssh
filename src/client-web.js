@@ -809,7 +809,7 @@ window.__ModuleLoader__.load({
             picking ? '正在打开…' : '兼容：在 Desktop 打开工作区'),
           mode === 'remote' && h('button', { type: 'button', className: 'rss-btn rss-primary',
             onClick: chooseFullRemote, disabled: !!busy || picking || loading || !listing || !hostId },
-            '连接完整远端 DSH'))),
+            '连接完整远端 DSH')))),
         hostProbe && h(TrustModal, { probe: hostProbe, busy: trustBusy,
           onClose: () => setHostProbe(null), onConfirm: verifyHostFingerprint }));
     }
