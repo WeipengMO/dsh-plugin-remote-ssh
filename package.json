@@ -41,6 +41,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/build-client.mjs",
+    "prepack": "pnpm build",
     "test": "npm run build && node --test test/*.test.js && node --check lib/client.js",
     "test:unit": "node test/unit.test.js",
     "test:e2e": "node test/e2e.test.js",
