@@ -10,6 +10,7 @@ import { installShellRouter } from './shell-router.js';
 import { registerManagementTools } from './tools.js';
 import { agentFromCreatedEvent, createNativeHttpHandler, type AgentRef } from './http-api.js';
 import type { WorkspaceRegistry } from './workspace-registration.js';
+import { installWorkspaceCleanup } from './workspace-cleanup.js';
 
 export const name = 'remote-ssh';
 
@@ -106,6 +107,7 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
   }, { global: true });
 
   ctx.effect(() => {
+    const workspaceCleanup = installWorkspaceCleanup(ctx, manager, storageDir, ctx.logger);
     const fsHandle = installFsRouter(ctx as unknown as { fs: Record<string, unknown>; effect?: (fn: () => () => void) => void }, manager);
     const shellHandle = installShellRouter(ctx as unknown as { shell: Record<string, unknown>; effect?: (fn: () => () => void) => void }, manager);
     const remoteFs = fsHandle.remoteFs;
@@ -124,6 +126,7 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
     });
     ctx.logger.info(`remote-ssh: ready (storage ${storageDir})`);
     return () => {
+      workspaceCleanup.dispose();
       unregisterHttp?.();
       restoreSearch();
       restoreWorkingDirectory();
