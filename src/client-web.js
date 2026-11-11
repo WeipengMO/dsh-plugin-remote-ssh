@@ -569,7 +569,7 @@ window.__ModuleLoader__.load({
       // DSH's native local chooser lives on uiWorkspace, NOT workspaces.
       // On Windows/Electron prefer the desktop bridge as the official
       // ui-directory-picker-native plugin does; never call the absent
-      // ctx.workspaces.pickDirectory() API.
+      // former workspace-service picker API.
       const injectFlow = () => ({ pickDirectory: () => {
         const desktop = window.__DSH_DIRECTORY_PICKER__;
         if (desktop && typeof desktop.pick === 'function') return desktop.pick();
