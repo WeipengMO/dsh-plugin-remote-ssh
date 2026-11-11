@@ -6,11 +6,11 @@
  * pretend that a local placeholder directory is the remote Git repository.
  */
 import net, { type Server, type Socket } from 'node:net';
+import type { Duplex } from 'node:stream';
 import { RemoteSshError } from './errors.js';
-import type { RemoteSshManager } from './manager.js';
 
 export const DEFAULT_DSH_WEB_PORT = 3080;
-interface RemoteForward { forwardLoopback(port: number): Promise<NodeJS.ReadWriteStream> }
+interface RemoteForward { forwardLoopback(port: number): Promise<Duplex> }
 interface ManagerLike { connection(host: string): Promise<RemoteForward> }
 interface Tunnel { server: Server; sockets: Set<Socket>; localPort: number; remotePort: number }
 export interface TunnelView {
@@ -24,7 +24,7 @@ export interface TunnelView {
 export class RemoteDshWebTunnelPool {
   private readonly tunnels = new Map<string, Tunnel>();
   private readonly pending = new Map<string, Promise<TunnelView>>();
-  constructor(private readonly manager: Pick<RemoteSshManager, 'connection'> | ManagerLike) {}
+  constructor(private readonly manager: ManagerLike) {}
 
   list(): TunnelView[] {
     return [...this.tunnels.entries()].map(([host, tunnel]) => this.describe(host, tunnel));
@@ -58,7 +58,7 @@ export class RemoteDshWebTunnelPool {
     // No listener unless the verified SSH transport can actually reach the
     // remote loopback Web port. An unavailable Web Host is not a success.
     const connection = await this.manager.connection(host);
-    let probe: NodeJS.ReadWriteStream;
+    let probe: Duplex;
     try { probe = await connection.forwardLoopback(remotePort); }
     catch (cause) {
       throw new RemoteSshError('SSH_CONNECT_FAILED',
@@ -72,7 +72,7 @@ export class RemoteDshWebTunnelPool {
       sockets.add(socket);
       socket.setNoDelay(true);
       socket.pause();
-      let channel: NodeJS.ReadWriteStream | undefined;
+      let channel: Duplex | undefined;
       const cleanup = () => { sockets.delete(socket); channel?.destroy?.(); };
       socket.once('close', cleanup);
       socket.on('error', () => socket.destroy());
@@ -102,7 +102,7 @@ export class RemoteDshWebTunnelPool {
       this.tunnels.set(host, tunnel);
       return this.describe(host, tunnel);
     } catch (cause) {
-      server.close();
+      try { server.close(); } catch { /* listener may have failed before bind */ }
       for (const socket of sockets) socket.destroy();
       throw cause;
     }
