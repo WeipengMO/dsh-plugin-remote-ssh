@@ -92,10 +92,10 @@ async function inspect(cwd) {
  * DSH's own one-time URL line remains in a mode-0600 log file.
  */
 const OFFICIAL_DSH_VERSION = '0.2.2-rc.1';
-async function secureDir(directory) {
+async function secureDir(directory, strict = false) {
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const details = await lstat(directory);
-  if (!details.isDirectory() || details.isSymbolicLink() || (details.mode & 0o077) !== 0) {
+  if (!details.isDirectory() || details.isSymbolicLink() || (details.mode & (strict ? 0o077 : 0o022)) !== 0) {
     throw new Error('remote DSH state directory is not private');
   }
 }
@@ -153,7 +153,7 @@ async function webEnsure(cwdValue, installIfMissing) {
     join(home,'.cache'),join(home,'.cache','dsh-remote-ssh'),
     join(home,'.cache','dsh-remote-ssh','web'),
     join(home,'.cache','dsh-remote-ssh','web','v1'),root
-  ]) await secureDir(directory);
+  ]) await secureDir(directory, directory.includes('/web/'));
   const metadataPath = join(root, 'state.json');
   const logPath = join(root, 'output.log');
   let previous;

@@ -1,136 +1,44 @@
-# DSH Remote SSH
+# DSH Remote SSH — Windows Desktop 内嵌完整 Linux DSH
 
-[![CI](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml/badge.svg)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml)
+此项目由本仓库独立实现 SSH 连接与自动启动逻辑，不依赖第三方远端 SSH 插件。**v1.6.0 引入真正由远端 Linux DSH 执行 Agent / Git / Session 的 Desktop 内嵌模式。**
 
-> **目标：Windows DSH Desktop ⇄ Linux DSH Remote Host。** 像 Codex SSH 一样，在**原 Windows Desktop 的工作区列表、聊天、终端、Git 和 Diff 界面**操作远端项目，而不是打开一个新的浏览器 DSH。**目前仍在分阶段实现；v1.5.0 不是完整的 Codex 式远端运行时。**
+## 推荐用法：一键连接完整远端 DSH
 
-## 架构（目标与当前实现）
+1. 在 Windows DSH Desktop 点击 **新建项目 → SSH 服务器**，选择已有的 SSH 配置别名（例如 nansha）和 Linux 工作目录。
+2. 点击 **连接完整远端 DSH**。插件使用已验证的 SSH 连接自动启动或复用 Linux 服务器上的 DSH Web，并建立仅绑定本地 127.0.0.1 的加密 SSH TCP 转发。
+3. 完整远端 DSH 以 Desktop 主视图的形式加载在同一个窗口中；无需系统浏览器、手动 SSH 隧道、复制 Web token 或修改 DSH Desktop Core。
+4. 点击 **返回本地** 关闭视图，远端 DSH 进程与会话继续运行，下次可重新连接。
+
+现有的 **Windows Desktop 文件桥接工作区**仍保留，按钮标记“兼容”。它的 Git/Forge 不保证完整兼容，与推荐的完整远端 DSH 模式不同。
+
+## 架构与身份隔离
 
 ```mermaid
-flowchart LR
-  subgraph Win["Windows · DSH Desktop（原生 UI）"]
-    UI["工作区 / Agent Chat / Git / Diff"]
-    Local["当前 DSH Host + SSH 插件"]
-    Runtime["Remote Host 管理器"]
-    UI --> Local
-    Local --> Runtime
-  end
-  subgraph SSH["已认证的 SSH 通道"]
-    Link["主机指纹验证 · SSH/SFTP"]
-  end
-  subgraph Linux["Linux 服务器"]
-    Helper["已实现：校验后自动部署的 Node helper"]
-    Git["真实源目录 / Git / Worktree 状态"]
-    Host["目标：完整 DSH Remote Host"]
-    Agent["目标：Agent / Sandbox / Debug / PTY"]
-    Helper --> Git
-    Host --> Agent
-    Host --> Git
-  end
-  Runtime --> Link
-  Link --> Helper
-  Link -. "待 DSH Core 支持" .-> Host
-  UI -. "待会话级 Host 绑定" .-> Host
-  classDef pending stroke-dasharray:5 4
-  class Host,Agent pending
+flowchart TD
+    A["Windows DSH Desktop · 原生窗口"] --> B["Remote SSH 插件 UI / Shell Overlay"]
+    B --> C["Desktop 已授权 Electron WebView"]
+    A --> D["已验证 SSH / SFTP / 自动引导"]
+    D --> E["Linux versioned Helper"]
+    E --> F["Linux DSH Web Host (Agent/Session/Git)"]
+    C <--> G["仅限 Windows 127.0.0.1 · 随机端口"]
+    G <-->|"SSH direct-tcpip"| F
 ```
 
-**关键原则**：Windows 负责界面与 Host 选择，Linux 负责实际执行和文件系统。SSH 只负责安全的连接和启动；跨 Host 的 Session、RPC/stream、权限和 Git 路径语义应由 DSH Core 正式接管。当前版本暂时保留 Windows 本地工作区**占位目录**，不能将其当成真实的 Git checkout。
+- **真正执行位置**：Linux DSH 的工作目录就是在选择器里选中的真实 Linux 路径。新建 Agent 会话、Git、Diff、终端和工作树由那个 Linux DSH 的运行环境负责，不经过 Windows 占位 Git。
+- **客户端呈现**：通过官方 Windows Desktop 的浏览器 Guest Lease API（`window.dshDesktop.browser.acquire/release`）创建受控 Electron WebView，并通过官方 `shell.overlay` 扩展槽显示在主工作区域，避免普通 iframe 中 DSH 严格 SameSite Cookie 的兼容问题。
+- **远端自动启动**：插件内部已有经 SHA-256 校验的 Node Helper 新增 `web.ensure`，先尝试已有 `dsh`；若无 CLI，用户点击“连接完整远端 DSH”即授权通过 `npx -y @deepseek-ai/dsh@0.2.2-rc.1` 下载固定版本官方 CLI。Linux 必须已有 Node.js ≥24.9；Node.js 和系统依赖不被插件擅自升级。
+- **持久性**：每个 Linux 目录一个私有运行记录，`~/.cache/dsh-remote-ssh/web/v1/<SHA256(cwd)>` 保存文件权限限定的 PID、port 和运行日志；访问 token **仅**保留在 mode 0600 日志、经认证的插件 API 应答和 WebView 内存/浏览器历史中，**不写入本地插件配置、Git 或模型对话**。不用人为复制 Web token。
+- **隧道**：插件自动建立 TCP 转发，远端 Web 只监听 127.0.0.1。远端访问需要允许 SSH `direct-tcpip`（`AllowTcpForwarding`）；端口未对局域网公开。
+- **回退策略**：新模式断线或 WebView 失败显示错误及重试，不得把 Agent 静默切换至 Windows 本地执行。用户可以返回本地 DSH。
+- **会话隔离**：Windows 本地 DSH 和 Linux DSH 的会话列表、插件配置、凭据独立；本模式显示一个运行在 Desktop 窗口中的远端 DSH 完整界面，**不是把每条远端 Session 原生合并到本地 Core 的同一个 Session Store**。
 
-## 功能进度（v1.5.0）
+## 已知限制
 
-| 能力 | 当前状态 | 备注 |
-| --- | --- | --- |
-| Windows Desktop 直接选择 SSH 主机和远端工作区 | ✅ 已实现 | 可从 Windows `~/.ssh/config` 自动识别 |
-| 已验证的 SSH/SFTP、Linux 文件读写 | ✅ 已实现 | 首次连接必须核对 SSH Host Key |
-| Agent Shell / 原生终端 SSH 桥接 | ✅ 已实现（桥接模式） | 不是远端 DSH Agent Session |
-| 自动部署 Linux Remote Helper | ✅ **v1.5 新增** | Linux + Node.js ≥20、SFTP、SHA-256 校验 |
-| Helper 协议 / 重连时复用 / 生命周期管理 | ✅ **v1.5 新增基础层** | SSH 请求式调用，无常驻开放端口 |
-| 从远端真实目录查询 Git 状态、worktree、Diff stat | ✅ **v1.5 新增独立查询** | **不等于**原生 Forge 面板已接入 |
-| 识别远端是否安装 DSH | ✅ **v1.5 新增探测** | 不自动安装或升级完整 DSH |
-| Linux 完整 DSH Remote Host 自动启动和升级 | ⬜ 未实现 | 需要版本/认证/进程协议 |
-| Desktop 原生 Session / Agent 绑定远端 Host | ⬜ 未实现 | 需要 DSH Core 提供每工作区 Host 归属 |
-| 原生 Git、Diff、PR、worktree UI 全部使用远端 Host | ⬜ 未实现 | Forge 当前有本地 subprocess/sandbox 假设 |
-| 真正远端调试、LSP 和端口转发 UI | ⬜ 未实现 | 需进程生命周期、PTY、Debug Adapter |
-| Windows Desktop ↔ Linux DSH 实际 E2E 验收 | ⬜ 未完成 | CI 仅覆盖协议/部署模拟和回归测试 |
+- 这是主窗口内嵌模式，不是 DSH Core `Connection` 的真正会话级 Host 复用；本地会话列表与远端会话列表仍分离。
+- 真实 Windows Desktop + Linux SSH 的 Electron/WebView/DSH 交互体验仍需端到端验收。自动化测试只能验证 TypeScript 构建、Helper 令牌识别、启动状态、API 和客户端 UI 注册。
+- 如果 Linux 缺少 Node ≥24.9 或 SSH 服务器禁止 TCP 转发，会显示明确错误；不自动改动系统版本和 SSH 服务器策略。
+- 固定官方包 `@deepseek-ai/dsh@0.2.2-rc.1` 只在首次必要时下载；远端依赖网络访问 npm registry。可先在服务器按官方说明自行安装 dsh，插件会优先复用。
+- 如果远端 DSH 进程重新启动，新的 Web token 会由下一次连接重新读取；不会将过期 token 保存在客户端设置。
+- WebView 使用 Chromium 受控沙箱，不能访问 Windows DSH Host 的私有 cookie 或 Node API。部分需系统浏览器、文件下载或原生弹窗的功能仍受 Electron Guest 策略限制。
 
-**不要将“Helper 已连接”当成“远端 DSH Agent 已连接”。** 该区别会在 Settings → 连接信息中标明。
-
-## Windows Desktop 使用方式
-
-已有的 `ssh nansha` 配置可以复用，不需要每次手动填写 IP、用户或密钥，更不需要手动建 SSH 隧道。
-
-1. 在 Windows DSH Desktop 点击 **新建项目 / 添加工作区 → 源文件夹 → SSH 服务器**。
-2. 选择已有 SSH 主机或 Windows `~/.ssh/config` 中的 Host 别名；首次连接时从可信渠道**独立核实 Host Key SHA256 指纹**。
-3. 选择服务器上的项目目录并点击 **在 Desktop 打开工作区**。项目出现在原 Desktop 工作区列表中。
-4. 插件会**自动尝试**把版本校验过的 Helper 部署到服务器用户目录并做一次远端 Git 查询。若 Node.js 不可用，会给出明确告警，原有 SFTP/Shell 桥接模式仍可使用。
-5. **设置 → Remote SSH → 连接信息 → 检查远端 Helper** 可检查 Node、Helper 哈希和远端 DSH CLI 是否存在。这不是每次连接都要操作的前置步骤。
-
-Helper 安装位置：`~/.cache/dsh-remote-ssh/agents/v1/<SHA256>/agent.mjs`。没有后台进程、HTTP 服务或人工维护的 token。SSH 断开后，下次请求会复用版本一致的 Helper 并尝试恢复连接。不会在用户不知情时运行 `npm install` 或下载不固定版本的远端程序。
-
-### Git 的现状
-
-Agent Shell / SSH 终端中的 Git 命令运行在服务器项目目录：
-
-```bash
-git rev-parse --show-toplevel
-git status --short --branch
-git worktree list --porcelain
-```
-
-v1.5 Helper 可以独立返回真实的 `root`、`HEAD`、`status`、`worktrees`、`diffStat`。但 **DSH 的右侧「变更请求」面板尚未完成 Remote Host 适配**：若面板依旧提示「无法读取 Git」，不要误以为服务器 Git 失败，也不要通过关闭本地沙箱来绕开问题。
-
-## 远端 DSH Host 的后续实现框架
-
-```text
-Windows Desktop                                  Linux Remote Host
-───────────────────                              ──────────────────────────
-[SSH Host/Workspace picker] -- SSH bootstrap --> [versioned helper] ✔
-[Host registry]            -- authenticated  --> [DSH Host process] ⬜
-[Connection / RPC]         -- RPC + streams --> [Session/Agent Controller] ⬜
-[Native Chat / Tool UI]    <-- Agent events  -- [Agent tools + approvals] ⬜
-[Forge Git / Diff UI]      <-- Git RPC       -- [Git + remote sandbox] ⬜
-[Terminal / Debug UI]      <-- PTY / DAP     -- [PTY / debug process] ⬜
-[Lifecycle & reconnect]   <-- health/events -- [Host lifecycle manager] ⬜
-```
-
-必须在 DSH Core/桌面 Shell 补齐的模块：
-
-1. **Per-workspace Host selection**：一个 Desktop 可以同时显示本地项目与多个 SSH Host 的项目，每个 Session/Agent/工作区有稳定的 Host 身份；不能用单一全局 Host 或偷改本地 cwd 实现。
-2. **自动启动版本匹配的 Linux DSH**：用严格验证的 SSH 引导完整 DSH Host，协商协议与版本、重连、更新、停止，不依赖用户手动安装、启动 Web 或复制令牌。
-3. **Host-Scoped RPC transport**：统一的有身份认证的 RPC、事件流、文件上传下载、审批、取消、后台任务和重试，防止跨 Host 会话或凭据混用。
-4. **FS / subprocess / sandbox 原生远程能力**：远端路径规范化、子进程执行、PTY、工作目录、环境、原子文件写入和沙箱策略必须运行在同一个 Linux Host。
-5. **Forge / Git / Debug 完整接线**：Git 工作树、Diff、PR 和调试适配器从远端 Host 获取数据，不经过 Windows 本地占位目录。
-6. **验收矩阵**：Windows Desktop + Linux 真机验证本地/远端项目切换、Agent、Git、worktree、Diff、PTY、Debug、断网恢复和安全沙箱失败场景。
-
-完整接口、限制与阶段性验收参考：[Remote Helper 协议](docs/remote-runtime-protocol.md)、[Desktop/Core 远端运行时方案](docs/desktop-ssh-runtime.md)、[架构](docs/architecture.md)。
-
-## 安装与更新
-
-从 [GitHub Releases](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases) 下载与此版本一致的 `dsh-plugin-remote-ssh-1.5.0.tgz`，完全退出 DSH Desktop（包括托盘），然后在 Windows PowerShell 中执行：
-
-```powershell
-dsh plugin --profile desktop add "C:\path\to\dsh-plugin-remote-ssh-1.5.0.tgz"
-```
-
-重新启动 Desktop。**只有正式发布并在 CI 中验证后才使用此包；不能把 PR 构建当作已发布版本。**
-
-## 开发与测试
-
-```bash
-pnpm install --frozen-lockfile --ignore-scripts
-pnpm test
-pnpm pack
-```
-
-CI 检查编译产物、协议测试与打包内容，包括 `runtime/agent.mjs` 和 `dist/remote-host-runtime.js`。Helper 不依赖远端 npm 包，只要求 Linux Node ≥20；完整 DSH Host 的运行要求应以对应 DSH 版本为准。
-
-## 安全和兼容性
-
-- 所有远端操作使用现有的已验证 SSH 身份；从不自动信任未知服务器密钥。
-- Helper 文件位于用户私有目录、按内容 SHA-256 命名并在执行前校验；拒绝错误平台、无效协议和篡改文件。
-- Helper 没有监听端口、可执行任意 Shell 的 API 或凭据管理功能；Git 查询使用固定只读 argv，限时、限输出；不会自动下载远程软件。
-- 拒绝不属于已登记项目的任意浏览器 cwd。SSH/helper 失败会返回状态，不会悄悄在 Windows 占位目录执行 Git。
-- v1.4 的独立 Linux DSH Web 功能仍作为**可选、与此目标不同**的工作方式保留，不是原生 Desktop 远程连接方案。
-
-[故障排查](docs/troubleshooting.md) · [源代码](https://github.com/WeipengMO/dsh-plugin-remote-ssh) · [完整运行时的跟踪任务 #12](https://github.com/WeipengMO/dsh-plugin-remote-ssh/issues/12)
+[技术架构](docs/architecture.md) · [自动启动与安全](docs/remote-runtime-protocol.md) · [排障](docs/troubleshooting.md)
