@@ -107,3 +107,21 @@ test('Linux and Node prerequisites are checked before attempting helper installa
   await assert.rejects(() => new RemoteHostRuntimePool(tooOld.manager).connect('host1'), /Node.js >=20/);
   assert.equal(linux.commands.length, 0);
 });
+
+test('changing SSH host config while bootstrap is running invalidates its result', async t => {
+  const home = mkdtempSync(path.join(tmpdir(), 'dsh-runtime-race-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const fx = fixture(home, { async remoteHome() { await gate; return home; } });
+  const pool = new RemoteHostRuntimePool(fx.manager);
+  const pending = pool.connect('host1');
+  await new Promise(resolve => setImmediate(resolve));
+  pool.clear('host1');
+  release();
+  await assert.rejects(pending, /configuration changed/);
+  assert.deepEqual(pool.list(), []);
+  const next = await pool.connect('host1');
+  assert.equal(next.verified, true);
+  pool.closeAll();
+});
