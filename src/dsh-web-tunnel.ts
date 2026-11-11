@@ -24,6 +24,7 @@ export interface TunnelView {
 export class RemoteDshWebTunnelPool {
   private readonly tunnels = new Map<string, Tunnel>();
   private readonly pending = new Map<string, Promise<TunnelView>>();
+  private disposed = false;
   constructor(private readonly manager: ManagerLike) {}
 
   list(): TunnelView[] {
@@ -36,6 +37,7 @@ export class RemoteDshWebTunnelPool {
   }
 
   async open(host: string, remotePort = DEFAULT_DSH_WEB_PORT): Promise<TunnelView> {
+    if (this.disposed) throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'DSH Web tunnel pool is disposed');
     if (!Number.isSafeInteger(remotePort) || remotePort < 1024 || remotePort > 65535) {
       throw new RemoteSshError('SSH_PATH_INVALID', 'DSH Web remote port must be in 1024–65535');
     }
@@ -66,7 +68,8 @@ export class RemoteDshWebTunnelPool {
         '; start dsh --profile web on Linux and ensure SSH TCP forwarding is allowed: ' +
         (cause instanceof Error ? cause.message : String(cause)));
     }
-    probe.destroy?.();
+    probe.destroy();
+    if (this.disposed) throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'DSH Web tunnel pool was disposed during connection');
     const sockets = new Set<Socket>();
     const server = net.createServer(socket => {
       sockets.add(socket);
@@ -96,6 +99,7 @@ export class RemoteDshWebTunnelPool {
         // 127.0.0.1 only; kernel chooses a free port. Never bind 0.0.0.0.
         server.listen(0, '127.0.0.1');
       });
+      if (this.disposed) throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'DSH Web tunnel pool was disposed during binding');
       const address = server.address();
       if (!address || typeof address === 'string') throw new Error('local tunnel did not bind a TCP port');
       const tunnel = { server, sockets, localPort: address.port, remotePort };
@@ -118,6 +122,7 @@ export class RemoteDshWebTunnelPool {
   }
 
   closeAll(): void {
+    this.disposed = true;
     for (const host of [...this.tunnels.keys()]) this.close(host);
   }
 }

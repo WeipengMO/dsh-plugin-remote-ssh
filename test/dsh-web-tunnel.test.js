@@ -56,6 +56,8 @@ test('loopback SSH tunnel proxies HTTP to the remote Web port and tears down', a
   assert.equal(pool.list().length, 0);
   assert.equal(pool.close('host1'), false);
   await assert.rejects(fetch(address.localUrl + '/'));
+  pool.closeAll();
+  await assert.rejects(pool.open('host1', remote.port), /disposed/);
 });
 test('tunnel refuses invalid ports and never binds a listener if remote forwarding is disallowed', async () => {
   const pool = new RemoteDshWebTunnelPool({

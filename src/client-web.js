@@ -231,6 +231,7 @@ window.__ModuleLoader__.load({
       const status = state.statuses.find(item => item.id === selected);
       const remoteDshTunnel = (state.remoteDsh?.tunnels || []).find(entry => entry.host === selected);
       const remoteDshDesktop = state.remoteDsh?.desktopProfile === true;
+      useEffect(() => { if (remoteDshTunnel) setRemoteDshPort(String(remoteDshTunnel.remotePort)); }, [selected, remoteDshTunnel?.remotePort]);
       const remoteDshStartCommand = 'npx -y @deepseek-ai/dsh --profile web --no-open --port ' + remoteDshPort;
       const refresh = useCallback(async () => {
         try {
@@ -625,7 +626,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'rss-project-flow', role: 'region', 'aria-label': '选择项目源文件夹' },
         h('div', { className: 'rss-project-modes' },
           h('button', { type: 'button', className: mode === 'local' ? 'rss-project-active' : '', onClick: () => setMode('local') }, '本地电脑'),
-          h('button', { type: 'button', className: mode === 'remote' ? 'rss-project-active' : '', onClick: () => setMode('remote') }, '远程 SSH')),
+          h('button', { type: 'button', className: mode === 'remote' ? 'rss-project-active' : '', onClick: () => setMode('remote') }, '远程 SSH（兼容）')),
         mode === 'local' ? h('div', { className: 'rss-project-local' },
           h('p', null, '使用本机文件夹创建 DSH 项目。'),
           h('button', { type: 'button', className: 'rss-btn rss-primary', disabled: !!busy || picking, onClick: chooseLocal }, '选择本地文件夹…')) :
