@@ -79,7 +79,9 @@ export class SshNativeTerminal implements NativeTerminalHandle {
       });
     });
     void this.done.catch(() => {}); // keep transport loss observable to consumers
-    channel.on('data', () => { this.revision++; });
+    // Do not attach a 'data' listener here: that would switch the Readable
+    // into flowing mode and could discard the remote shell banner before
+    // DSH's native xterm consumer is attached.
     this.abort?.addEventListener('abort', this.abortHandler, { once: true });
     if (this.abort?.aborted) this.abortHandler();
   }
