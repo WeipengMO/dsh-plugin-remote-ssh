@@ -134,7 +134,7 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
       | Parameters<typeof installNativeTerminalRouter>[0]
       | undefined;
     const nativeTerminal = subprocess && typeof subprocess.spawnTerminal === 'function'
-      ? installNativeTerminalRouter(subprocess, manager)
+      ? installNativeTerminalRouter(subprocess, manager, ctx.logger)
       : undefined;
     if (!nativeTerminal) ctx.logger.warn(
       'remote-ssh: native DSH terminal router unavailable (subprocess service missing)',
