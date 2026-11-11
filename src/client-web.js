@@ -596,6 +596,7 @@ window.__ModuleLoader__.load({
         const id = terminalIdRef.current;
         terminalIdRef.current = null;
         setTerm(null); setVisible(false); setOutput(''); setInput(''); setError('');
+        props.onDismiss?.();
         cursorRef.current = 0;
         if (id) api('/terminal/close', { id }).catch(() => {});
       };
@@ -617,7 +618,7 @@ window.__ModuleLoader__.load({
       };
       return h(React.Fragment, null,
         h('button', { type: 'button', className: 'rss-guide-terminal-action',
-          onClick: () => { props.onDismiss?.(); setVisible(true); } },
+          onClick: e => { e.preventDefault(); e.stopPropagation(); setVisible(true); } },
           h(Icon, { name: 'terminal', size: 15 }), '远程 SSH 终端'),
         visible && h('div', { className: 'rss-directory-backdrop', role: 'presentation' },
           h('div', { className: 'rss-directory-dialog rss-pty-dialog', role: 'dialog', 'aria-modal': true,
