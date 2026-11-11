@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { shellQuote } from './paths.js';
 import { createRequire } from 'node:module';
 // The ssh2 1.17.0 pure-JS runtime is vendored to avoid pnpm's strict native build approval.
 // This still provides the full SSH protocol, including SFTP and host-key checking.
@@ -306,6 +307,32 @@ export class SshConnection {
    * Open a real interactive SSH PTY on the already authenticated, host-key-
    * verified connection. This is separate from DSH's local terminalController.
    */
+  /**
+   * Native DSH terminal: open one SSH PTY with the remote working directory
+   * selected *before* the interactive shell starts. Unlike shell(), this does
+   * not expose the initial local cwd nor echo a synthetic 'cd' command.
+   */
+  async terminalInDirectory(
+    remoteCwd: string, columns = 90, rows = 25, terminalType = 'xterm-256color',
+  ): Promise<import('ssh2').ClientChannel> {
+    await this.ensure();
+    const client = this.client;
+    if (!client) throw new RemoteSshError('SSH_CONNECTION_LOST', 'SSH channel is not connected');
+    if (!remoteCwd.startsWith('/') || remoteCwd.includes(String.fromCharCode(0))) {
+      throw new RemoteSshError('SSH_PATH_INVALID', 'terminal cwd must be an absolute Linux path');
+    }
+    const command = 'cd -- ' + shellQuote(remoteCwd) + ' && exec "${SHELL:-/bin/sh}" -i';
+    return await new Promise((resolve, reject) => {
+      client.exec(command, {
+        pty: { term: terminalType, cols: Math.max(20, Math.min(500, columns)),
+          rows: Math.max(5, Math.min(200, rows)) },
+      }, (err, channel) => {
+        if (err) reject(new RemoteSshError('SSH_CHANNEL_FAILED', 'cannot start SSH terminal: ' + err.message));
+        else resolve(channel);
+      });
+    });
+  }
+
   async shell(columns = 90, rows = 25): Promise<import('ssh2').ClientChannel> {
     await this.ensure();
     const client = this.client;
