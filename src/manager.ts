@@ -362,6 +362,18 @@ export class RemoteSshManager {
     return [...this.loadWorkspaces().recent];
   }
 
+  /**
+   * Clear only the recent-folder navigation history. Registered SSH/DSH
+   * workspaces, their placeholder directories and remote files stay intact.
+   */
+  clearRecentHistory(): number {
+    const state = this.loadWorkspaces();
+    const removed = state.recent.length;
+    if (removed === 0) return 0;
+    this.saveWorkspaces({ ...state, recent: [] });
+    return removed;
+  }
+
   workspaceByToken(token: string): WorkspaceRecord {
     const workspace = this.loadWorkspaces().workspaces.find((entry) => entry.token === token);
     if (workspace === undefined) {

@@ -443,3 +443,86 @@
     --rss-muted: #97979f;
   }
 }
+
+
+/* One divider between "添加为 DSH 工作区" and the recent directories:
+   the workspace actions already draw the lower separator. */
+.rss-settings-container .rss-recent-wrap {
+  border-top: 0 !important;
+  margin: 8px 0 8px;
+  padding-top: 0;
+  min-width: 0;
+}
+.rss-settings-container .rss-recent-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 34px;
+}
+.rss-settings-container .rss-recent-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 7px 2px;
+  color: var(--rss-secondary);
+  font-size: 11.5px;
+  background: transparent !important;
+  border: 0;
+  text-align: left;
+}
+.rss-settings-container .rss-recent-toggle svg {
+  transition: transform .15s ease;
+  flex: none;
+}
+.rss-settings-container .rss-recent-toggle[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+.rss-settings-container .rss-recent-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent !important;
+  border-radius: 6px;
+  padding: 6px 7px;
+  font-size: 11px;
+  color: var(--rss-secondary);
+  white-space: nowrap;
+}
+.rss-settings-container .rss-recent-clear:hover:not(:disabled) {
+  background: var(--rss-hover) !important;
+  color: var(--rss-text);
+}
+.rss-settings-container .rss-recent-empty {
+  font-size: 11px;
+  color: var(--rss-muted);
+  margin: 6px 7px 11px;
+}
+.rss-settings-container .rss-recent-items { padding-bottom: 7px; }
+
+/*
+ * DSH's sidebar xterm explicitly creates a DOM-rendered block cursor and its
+ * own CSS gives it an opaque background, overriding DECSCUSR 6 when zsh/themes
+ * reset the cursor. Render that block marker visually as a thin bar instead,
+ * without modifying the SSH PTY, keyboard handling or local terminal routing.
+ * Scope to DSH sidebar terminals, never the Settings panel or other inputs.
+ */
+body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block {
+  background-color: transparent !important;
+  color: inherit !important;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: inset 2px 0 0 var(--terminal-cursor, currentColor) !important;
+}
+@keyframes rss-terminal-bar-blink {
+  0%, 49% { box-shadow: inset 2px 0 0 var(--terminal-cursor, currentColor); }
+  50%, 100% { box-shadow: none; }
+}
+body [data-sidebar-terminal] .xterm .xterm-rows.xterm-focus .xterm-cursor.xterm-cursor-block.xterm-cursor-blink {
+  animation: rss-terminal-bar-blink 1s step-end infinite !important;
+}
