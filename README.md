@@ -46,16 +46,15 @@ dsh web
 
 `desktop` 和 `web` 是不同的插件 profile，安装到其中一个不会自动安装到另一个。**更新插件后也必须完全重启对应 DSH 进程**，以免界面和后端加载了不同版本。
 
-### GitHub Packages
+### GitHub Releases 自动发布
 
-构建工作流会将相同的插件代码另外发布到 [GitHub Packages](https://github.com/WeipengMO?tab=packages) 的 npm Registry，名称为 `@weipengmo/dsh-plugin-remote-ssh`。GitHub npm Registry 要求作用域包名，因此它与上述 **DSH 原生安装包**使用不同的 npm 包名：
+安装包统一发布在 [GitHub Releases](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases)，文件名为 `dsh-plugin-remote-ssh-X.Y.Z.tgz`，可直接通过 `dsh plugin --profile desktop add <tgz>`（或 `--profile web`）安装。
 
-| 发布渠道 | 包名 | 用途 |
-| --- | --- | --- |
-| Releases / Actions Artifacts | `dsh-plugin-remote-ssh-<version>.tgz` | **推荐：直接通过 `dsh plugin add` 安装** |
-| GitHub Packages (npm) | `@weipengmo/dsh-plugin-remote-ssh` | npm Registry 分发；独立的作用域元数据与 DSH 插件补丁 |
+- **每次推送到 `main`**：自动编译、运行测试、生成 `.tgz`，并创建带安装包的 **Development prerelease**（标签如 `dev-23-1`）。预览版不会被标记为最新正式版。
+- **推送 `vX.Y.Z` 标签**：检查标签必须与 `package.json` 版本一致，测试通过后创建**正式 GitHub Release**，附件为同一格式的 `.tgz` 安装包。
+- **Pull Request 和手动运行**：只编译、测试、上传 Actions Artifact，不创建 Release。
 
-`main` 每次成功构建后发布带唯一 `-dev.*` 后缀的包，使用 `next` dist-tag；推送与 `package.json` 版本匹配的 `vX.Y.Z` 标签时发布正式版本（`latest`），并将原生 `.tgz` 附到 GitHub Release。通过 GitHub Packages 安装通常需要配置对应 npm registry 和访问凭据；**直接安装 DSH 时建议仍使用 Releases 的 `.tgz`**。
+该项目**不再通过 GitHub Packages/npm Registry 发布**。开发预览版与正式版共用原始 DSH 插件包名；安装时不需要 npm Registry 权限或 Token。
 
 ## 使用
 
@@ -148,12 +147,11 @@ pnpm pack
 
 工作流位于 [`.github/workflows/build.yml`](.github/workflows/build.yml)：
 
-- **PR**：构建、测试并检查可安装 `.tgz` 的文件清单；不发布 Packages。
-- **push 到 `main`**：上述检查通过后，上传 Actions Artifact，并同步发布 GitHub Packages 的 `next` 预览版。
-- **推送 `vX.Y.Z` 标签**：校验标签与 `package.json` 版本一致，通过后发布 GitHub Packages 正式版（`latest`）和带原生安装包的 GitHub Release。
-- **手动运行**：默认按开发分发流程生成 Artifact，不在非 `main` 或非版本标签的 ref 上发布。
+- **PR / 手动运行**：编译、测试并上传 `.tgz` Actions Artifact。
+- **推送到 `main`**：通过全部检查后自动创建 GitHub Releases 的预览版，并附上 `.tgz`。
+- **推送 `vX.Y.Z` 标签**：版本检查通过后自动创建正式 GitHub Release，并附上 `.tgz`。
 
-发布脚本位于 [`scripts/prepare-github-package.mjs`](scripts/prepare-github-package.mjs)。`GITHUB_TOKEN` 由 Actions 自动提供，无需在仓库里保存个人 Token。
+下载入口：[Releases](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases)；构建记录：[Actions](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml)。发布使用 Actions 自动提供的 `GITHUB_TOKEN`，无需配置个人 Token。
 
 更多信息：[架构说明](docs/architecture.md) · [排障文档](docs/troubleshooting.md) · [第三方组件](docs/THIRD_PARTY.md)
 
