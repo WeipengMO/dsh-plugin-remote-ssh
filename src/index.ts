@@ -11,6 +11,7 @@ import { registerManagementTools } from './tools.js';
 import { agentFromCreatedEvent, createNativeHttpHandler, type AgentRef } from './http-api.js';
 import type { WorkspaceRegistry } from './workspace-registration.js';
 import { installWorkspaceCleanup } from './workspace-cleanup.js';
+import { RemoteTerminalPool } from './remote-terminal.js';
 
 export const name = 'remote-ssh';
 
@@ -125,14 +126,16 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
     );
     const restoreWorkingDirectory = guardWorkingDirectory(ctx);
     registerManagementTools(ctx as unknown as Parameters<typeof registerManagementTools>[0], manager, remoteFs);
+    const remoteTerminals = new RemoteTerminalPool(manager);
     const workspaceRegistry = (): WorkspaceRegistry | undefined => ctx.get('workspaceRegistry') as WorkspaceRegistry | undefined;
     const unregisterHttp = webServer.register({
       kind: 'prefix',
       path: '/api/remote-ssh',
-      handler: createNativeHttpHandler({ manager, workingDirectory: ctx.workingDirectory, agents, previousCwd, workspaceRegistry, requestRejection: request => connection.requestRejection(request) }) as (req: unknown, res: unknown) => Promise<void>,
+      handler: createNativeHttpHandler({ manager, workingDirectory: ctx.workingDirectory, agents, previousCwd, workspaceRegistry, remoteTerminals, requestRejection: request => connection.requestRejection(request) }) as (req: unknown, res: unknown) => Promise<void>,
     });
     ctx.logger.info(`remote-ssh: ready (storage ${storageDir})`);
     return () => {
+      remoteTerminals.closeAll();
       workspaceCleanup.dispose();
       unregisterHttp?.();
       restoreSearch();
