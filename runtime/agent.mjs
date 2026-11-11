@@ -130,7 +130,7 @@ function fromLog(content, port) {
   try {
     const uri = new URL(line[1]);
     if (uri.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(uri.hostname) ||
-        Number(uri.port) !== port || uri.username || uri.password || !uri.searchParams.has('tkn')) return null;
+        Number(uri.port) !== port || uri.username || uri.password || !uri.searchParams.has('token')) return null;
     return uri.href;
   } catch { return null; }
 }
