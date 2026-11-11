@@ -48,7 +48,7 @@ export class RemoteTerminalPool {
     channel.on('data', receive);
     channel.stderr?.on('data', receive);
     channel.on('close', () => { term.closed = true; });
-    channel.on('error', e => { receive('\r\n[SSH channel error: ' + e.message + ']\r\n'); term.closed = true; });
+    channel.on('error', (e: Error) => { receive('\r\n[SSH channel error: ' + e.message + ']\r\n'); term.closed = true; });
     this.terminals.set(term.id, term);
     // The PTY initially starts in the SSH account's home. Move to the actual
     // workspace root before giving the user control. No arbitrary shell
