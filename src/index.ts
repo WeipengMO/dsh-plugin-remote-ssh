@@ -107,7 +107,14 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
   }, { global: true });
 
   ctx.effect(() => {
-    const workspaceCleanup = installWorkspaceCleanup(ctx, manager, storageDir, ctx.logger);
+    const workspaceCleanup = installWorkspaceCleanup(ctx, manager, storageDir, ctx.logger, {
+      registered: () => {
+        const registry = ctx.get('workspaceRegistry') as
+          | { list?: () => Array<{ id: string; path: string }> }
+          | undefined;
+        return typeof registry?.list === 'function' ? registry.list() : [];
+      },
+    });
     const fsHandle = installFsRouter(ctx as unknown as { fs: Record<string, unknown>; effect?: (fn: () => () => void) => void }, manager);
     const shellHandle = installShellRouter(ctx as unknown as { shell: Record<string, unknown>; effect?: (fn: () => () => void) => void }, manager);
     const remoteFs = fsHandle.remoteFs;
