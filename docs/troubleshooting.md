@@ -76,3 +76,11 @@ v1.0.7 修复：
 - 新建项目中的「SSH 服务器」直接列出 Windows `~/.ssh/config`；只有一台主机时自动尝试连接。如果该列表为空，检查 Windows 账号与实际运行 DSH 的用户环境是否一致。
 - 首次连接出现未知 Host Key 时，在当前窗口独立核对并输入 SHA256 指纹，不需要去设置页再操作。
 - 如果原生 Git/变更请求仍读取失败，不代表远端 Git 仓库不存在：请在 SSH 终端运行 `git status --short --branch`。完整 Forge 工作树支持需要 DSH Core 远端运行时，参见 [desktop-ssh-runtime.md](desktop-ssh-runtime.md)。
+
+## v1.5 自动 Linux Helper
+
+- 在 Desktop 的 SSH 工作区选择远端目录时，插件会自动尝试部署内容哈希匹配的 Linux Node Helper。`Node.js >=20` 不存在、服务器不是 Linux 或服务器 Home 目录无法创建私有 `.cache/dsh-remote-ssh` 时，返回明确的 `runtime.state=unavailable`；原有 SFTP/SSH Shell 仍可使用。
+- 到 **设置 → Remote SSH → 连接信息 → 检查远端 Helper**，查看 Helper 版本、Node 和是否有 DSH CLI。该按钮是诊断工具，平时打开工作区无需手动先点。
+- 如果提示 `remote helper checksum mismatch`，表明远端 Helper 文件与插件打包版本不一致，**不会自动执行或默默覆盖**。检查服务器目录权限和文件是否被其他进程修改；不要取消 SSH 指纹核验。
+- v1.5 的 Helper Git 状态属于后台真实 Linux 查询，并未接入 DSH 原生 Forge 面板。**右侧 Git 面板报错仍属后续 DSH Core 整合任务**，不是单靠 Helper 就能修复。
+- 不要手动复制远端 DSH Web token，也不必为 Helper 打开公网端口；所有通信都经过现有 SSH。

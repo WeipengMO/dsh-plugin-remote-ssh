@@ -36,3 +36,9 @@ DSH 官方的 [SSH Provider](https://github.com/deepseek-ai/deepseek-harness/tre
 ## 交付进度
 
 当前：**原生 UI 简化、自动导入 Host、首次身份确认集成、原有 SSH 文件/Shell/PTY 桥接**。未完成：**跨平台 Remote Runtime 全栈、完整原生 Forge/worktree/LSP/sandbox**。
+
+## v1.5 新实现：版本校验的 Linux Helper
+
+新增 `runtime/agent.mjs` 和 `src/remote-host-runtime.ts`。Windows Desktop 的 SSH 工作区打开后，插件会通过已验证主机身份的 SFTP 自动部署一份以 SHA-256 命名的 Helper，使用一次性 SSH exec 的 JSON 协议进行 Linux 平台检查、Node 版本协商、真实 Git 状态/worktree/Diff-stat 查询及 DSH CLI 存在性检测。无需独立浏览器、HTTP 端口或手动部署。Helper 不允许自由执行 Shell 命令，不能代替完整 DSH Host 的 Agent Session。
+
+这一阶段解决的是可复用的 Remote Runtime **bootstrap/control-plane**。真正的 Host-Scoped RPC、Agent 事件和原生 Forge 接管仍需要修改 [官方 Desktop 启动/Host 绑定代码](https://github.com/deepseek-ai/deepseek-harness/blob/main/apps/desktop/src/main.ts)、[Client Connection 实现](https://github.com/deepseek-ai/deepseek-harness/blob/main/packages/client/connection/src/client/index.ts) 与 Core API，见本文件现有的后续任务。具体协议与错误处理见 [remote-runtime-protocol.md](remote-runtime-protocol.md)。
