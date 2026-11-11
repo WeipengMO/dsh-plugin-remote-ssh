@@ -74,7 +74,7 @@ test('automatic SSH helper bootstrap verifies digest, deduplicates connections a
   assert.equal(first.helperHash, REMOTE_HELPER_SHA256);
   assert.equal(first.platform, 'linux');
   assert.equal(pool.list().length, 1);
-  assert.equal(fx.commands.filter(x => x.startsWith('node ')).length, 1);
+  assert.equal(fx.commands.filter(x => /^node '/.test(x)).length, 1);
   const status = await pool.inspect('host1', projectRoot);
   assert.equal(status.git.available, true);
   assert.ok(status.git.root);
