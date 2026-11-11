@@ -153,3 +153,36 @@ jobs:
         with:
           files: artifacts/*.tgz
           generate_release_notes: true
+
+  # One-time cleanup requested by owner; exact allowlist only (never main).
+  cleanup_merged_branches:
+    name: Remove superseded feature branches
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'WeipengMO/dsh-plugin-remote-ssh'
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Delete only explicitly approved obsolete branches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for branch in \
+            'feat/native-remote-projects' \
+            'fix/native-workspace-and-ci' \
+            'fix/search-single-file-and-remote-shell-hints' \
+            'docs/refresh-readme-and-publish-packages'; do
+            if gh api "repos/$GH_REPO/git/ref/heads/$branch" >/dev/null 2>&1; then
+              gh api --method DELETE "repos/$GH_REPO/git/refs/heads/$branch"
+              echo "Deleted obsolete branch: $branch"
+            else
+              echo "Already absent: $branch"
+            fi
+          done
+          echo "Repository cleanup complete; main remains untouched."
