@@ -307,7 +307,7 @@ export class SshConnection {
    * verified connection. This is separate from DSH's local terminalController.
    */
   async shell(columns = 90, rows = 25): Promise<import('ssh2').ClientChannel> {
-    await this.ensureReady();
+    await this.ensure();
     const client = this.client;
     if (!client) throw new RemoteSshError('SSH_CONNECTION_LOST', 'SSH channel is not connected');
     return await new Promise((resolve, reject) => {
