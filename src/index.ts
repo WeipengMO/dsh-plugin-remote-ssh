@@ -98,6 +98,10 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
   }
   const agents = new Map<string, AgentRef>();
   const previousCwd = new Map<string, string>();
+  // The native terminal-controller passes the Agent ID in
+  // spec.env.DSH_SESSION_ID. Record the original DSH Session workspace to
+  // distinguish a real SSH project from a local session with a stale cwd.
+  const terminalSessionOrigins = new Map<string, string>();
   ctx.on('agent/created', (event: unknown) => {
     const agent = agentFromCreatedEvent(event);
     const id = agent?.session?.id ?? agent?.session?.header?.id;
@@ -105,6 +109,19 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
       agents.delete(id);
       agents.set(id, agent);
       if (agents.size > 80) agents.delete(agents.keys().next().value!);
+      const origin = agent.session.header?.cwd;
+      if (typeof origin === 'string' && origin.length > 0) {
+        for (const key of new Set([id, agent.id])) {
+          if (typeof key !== 'string' || key.length === 0) continue;
+          terminalSessionOrigins.delete(key);
+          terminalSessionOrigins.set(key, origin);
+        }
+        while (terminalSessionOrigins.size > 160) {
+          const oldest = terminalSessionOrigins.keys().next().value;
+          if (oldest === undefined) break;
+          terminalSessionOrigins.delete(oldest);
+        }
+      }
     }
   }, { global: true });
 
@@ -134,7 +151,8 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
       | Parameters<typeof installNativeTerminalRouter>[0]
       | undefined;
     const nativeTerminal = subprocess && typeof subprocess.spawnTerminal === 'function'
-      ? installNativeTerminalRouter(subprocess, manager, ctx.logger)
+      ? installNativeTerminalRouter(subprocess, manager, ctx.logger,
+        sessionId => terminalSessionOrigins.get(sessionId))
       : undefined;
     if (!nativeTerminal) ctx.logger.warn(
       'remote-ssh: native DSH terminal router unavailable (subprocess service missing)',
