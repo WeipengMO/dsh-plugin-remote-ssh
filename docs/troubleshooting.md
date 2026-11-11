@@ -88,3 +88,7 @@ v1.0.7 修复：
 ### SSH 断开时是否会回退到 Windows 本地目录？
 
 不会。v1.5 不再在 `workingDirectory.ensure()` 的异常路径中自动调用本地 `set()`。会话将保留原 SSH 工作区身份，远端文件/命令请求会显式失败，避免 Git 或 Agent 命令落到本地占位目录。SSH 恢复后正常重试；只有用户显式退出远程工作区才切换为本地路径。
+
+## v1.6：Windows Desktop 中的完整远端 DSH
+
+选择 SSH 服务器与真实 Linux 项目目录后，点击「连接完整远端 DSH」，不要选择旧版兼容桥接。新增入口自动启动官方 Linux DSH、SSH 转发，并在受控 Electron WebView 中打开；无需手动复制 URL 或打开外部浏览器。若 Node 版本不足，需服务器 Node ≥24.9；若 TCP 转发被拒，应检查 sshd AllowTcpForwarding。出现 failed 时检查服务器私有启动日志并删除其中 token 后再分享。若原 Windows 变更请求面板仍读不到远端 Git，这是本地 Session 面板，与内嵌 Linux DSH Web 自己的 Git 面板不同。详细见 [remote-dsh-host.md](remote-dsh-host.md)。

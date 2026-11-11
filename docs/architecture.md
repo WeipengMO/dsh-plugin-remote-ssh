@@ -39,3 +39,7 @@ Windows Desktop 的工作区选择器默认使用 SSH 目录，直接展示已�
 ## v1.5 Linux Helper 自动部署 / 控制平面
 
 `RemoteHostRuntimePool` 每个已验证 SSH Host 管理一个版本匹配的 Helper（SFTP 写入并核验内容 sha256 / 文件权限；运行时 Node≥20、Linux），通过纯 JSON one-shot RPC 读取远端 Git root、HEAD、status、worktree 与 diff-stat，并探测 DSH CLI。没有开放端口、自由命令执行、HTTP Web token 或后台服务。新 API `/runtime/connect`、`/runtime/inspect` 都需要现有 DSH 浏览器认证；inspect 只能以已登记 workspace token 获取后端解析的真实 Linux 根路径。`/workspace/prepare` 在工作区添加时自动尝试引导。helper 无法运行时不在 Windows 占位目录回退执行，只明确标记 `runtime.state=unavailable`，原有 SSH 文件/Shell 桥接仍可使用。请参见 [README](../README.md) 和 [remote-runtime-protocol.md](remote-runtime-protocol.md)。
+
+## v1.6：完整 Linux DSH Web 嵌入 Windows Desktop
+
+在原 Windows DSH Desktop 的主窗口，不改变 DSH Core：用户通过 Native DirectoryFlow 选择 SSH Host/目录，插件的 /runtime/web/open API 通过 SSH Helper web.ensure 启动或复用远端完整 DSH Web（该 DSH 使用真实 Linux cwd），建立 direct-tcpip SSH 隧道，返回经校验的本地回环授权 URL。客户端在官方 shell.overlay 槽渲染全窗口前景层，通过 dshDesktop.browser.acquire 申请 Electron WebView Guest Lease，完成独立 DSH Web 登录与 Client UI 加载。返回本地仅取消前景视图，远端 Agent 与 Session 继续运行。该机制不合并本地与远端 Session Store，也不修改 Desktop Core Connection。详见 [remote-dsh-host.md](remote-dsh-host.md)。
