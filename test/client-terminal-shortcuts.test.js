@@ -152,8 +152,8 @@ test('Settings UI does not paint an opaque application panel in dark mode', () =
 
 test('remote SSH command explicitly selects bar cursor; local subprocess remains unchanged', () => {
   const source = fs.readFileSync(path.join(root, 'src/connection.ts'), 'utf8');
-  assert.match(source, /DECSCUSR 6/);
-  assert.match(source, /printf .*033\[6 q/);
+  assert.match(source, /DECSCUSR 5/);
+  assert.match(source, /printf .*033\[5 q/);
   const router = fs.readFileSync(path.join(root, 'src/native-terminal-router.ts'), 'utf8');
   assert.match(router, /return await original\.call\(runtime, spec\)/);
 });

@@ -90,3 +90,8 @@ GitHub Actions 在 **PR** 中构建并测试；推送 `main` 成功后自动发�
 进一步了解：[架构](docs/architecture.md) · [常见问题](docs/troubleshooting.md) · [第三方组件](docs/THIRD_PARTY.md)
 
 [MIT License](LICENSE)
+
+### 远程 Git 与命令环境
+
+远程工作区的原生 Git 状态查询通过 SSH 访问服务器上的实际仓库，不会在本地占位目录创建假 `.git`。当前仅路由 DSH 原生面板的只读 Git 探测；涉及 Git 写入、worktree 创建等操作请使用远端 Agent Shell。SSH 会话的 Agent 会自动收到 POSIX 环境提示，本地会话不注入此提示。终端使用闪烁竖线光标。
+

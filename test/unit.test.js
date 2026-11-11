@@ -341,7 +341,9 @@ test('management tools register valid definitions and perform host CRUD', async 
     ['remote_ssh_hosts', 'remote_ssh_list_dir', 'remote_ssh_status', 'remote_ssh_test', 'remote_ssh_trust_host', 'remote_workspace_close', 'remote_workspace_open'].sort(),
   );
   assert.equal(sections.length, 1);
-  assert.equal(typeof sections[0].text, 'string');
+  assert.equal(typeof sections[0].text, 'function');
+  assert.equal(sections[0].text({ agent }), ''); // local sessions spend no SSH prompt tokens
+  assert.equal(sections[0].text({}), '');
   assert.equal(Number.isFinite(sections[0].order), true);
 
   // Every definition must satisfy DSH's raw JSON Schema subset and must not
