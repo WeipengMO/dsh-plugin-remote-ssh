@@ -114,11 +114,16 @@ async function install(connection: AgentConnection): Promise<string> {
 export class RemoteHostRuntimePool {
   private readonly active = new Map<string, RuntimeInfo>();
   private readonly pending = new Map<string, Promise<RuntimeInfo>>();
+  private readonly generations = new Map<string, number>();
   private disposed = false;
   constructor(private readonly manager: RuntimeManager) {}
   list(): RuntimeInfo[] { return [...this.active.values()]; }
-  clear(host: string): void { this.active.delete(host); }
-  closeAll(): void { this.disposed = true; this.active.clear(); this.pending.clear(); }
+  clear(host: string): void {
+    this.generations.set(host, (this.generations.get(host) ?? 0) + 1);
+    this.active.delete(host);
+    this.pending.delete(host);
+  }
+  closeAll(): void { this.disposed = true; this.active.clear(); this.pending.clear(); this.generations.clear(); }
 
   async connect(host: string): Promise<RuntimeInfo> {
     if (this.disposed) throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'remote runtime pool is disposed');
@@ -126,12 +131,13 @@ export class RemoteHostRuntimePool {
     if (cached) return cached;
     const pending = this.pending.get(host);
     if (pending) return await pending;
-    const task = this.setup(host);
+    const generation = this.generations.get(host) ?? 0;
+    const task = this.setup(host, generation);
     this.pending.set(host, task);
     try { return await task; }
     finally { if (this.pending.get(host) === task) this.pending.delete(host); }
   }
-  private async setup(host: string): Promise<RuntimeInfo> {
+  private async setup(host: string, generation: number): Promise<RuntimeInfo> {
     const connection = await this.manager.connection(host) as unknown as AgentConnection;
     const platform = await connection.exec('uname -s', { timeoutMs: 5000, maxBytes: 256 });
     if (platform.code !== 0 || platform.stdout.trim() !== 'Linux') {
@@ -150,7 +156,10 @@ export class RemoteHostRuntimePool {
         r.platform !== 'linux' || typeof r.node !== 'string' || typeof r.arch !== 'string') {
       throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'remote helper protocol or checksum mismatch');
     }
-    if (this.disposed) throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'remote runtime was disposed during setup');
+    if (this.disposed || (this.generations.get(host) ?? 0) !== generation) {
+      throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED',
+        'remote host configuration changed or runtime was disposed during setup');
+    }
     const view: RuntimeInfo = { host, protocol: REMOTE_RUNTIME_PROTOCOL, helperHash: REMOTE_HELPER_SHA256,
       helperPath, node: r.node, platform: 'linux', arch: r.arch, verified: true };
     this.active.set(host, view);
