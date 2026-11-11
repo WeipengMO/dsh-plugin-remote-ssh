@@ -223,6 +223,14 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
         throw error(405, `method not allowed: ${req.method} ${route.slice(0, 120)} — the running DSH host plugin build is older than this UI; fully restart the DSH client to reload it`);
       }
       const body = await readBody(req);
+      if (route === '/recent/clear') {
+        // Deleting history is an explicit action, independent of deleting any
+        // DSH workspace or its server-side folder. Use the authenticated
+        // state-changing API with a user-confirmation flag.
+        if (body.confirmed !== true) throw error(400, 'confirm clearing recent SSH directories');
+        const removed = manager.clearRecentHistory();
+        return send(res, 200, { ok: true, removed });
+      }
       if (route === '/host/add') {
         const patch = hostPatch(body);
         const host = manager.addHost({ ...patch, host: text(patch.host, 'host') });
