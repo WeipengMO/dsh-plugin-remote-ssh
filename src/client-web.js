@@ -547,12 +547,87 @@ window.__ModuleLoader__.load({
     // the host plugin routes according to the current workspace's SSH cwd.
     // Do NOT create a second text-only SSH terminal dialog.
 
+
+    /**
+     * DSH's native xterm owns terminal input. Intercept copy/paste only while
+     * keyboard focus is inside an actual terminal, never in chat or Settings.
+     * Do not forward Ctrl+C when xterm owns a visible selection; otherwise
+     * preserve Ctrl+C as SIGINT (the terminal's native behavior).
+     *
+     * xterm renders selection in .xterm-selection overlay elements. It also
+     * handles browser copy/paste events, preserving bracketed-paste mode.
+     */
+    function installTerminalClipboard(root, doc, clipboard) {
+      if (!root || typeof root.addEventListener !== 'function') return () => {};
+      const onKey = event => {
+        if (!event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+        if (event.defaultPrevented) return;
+        const key = String(event.key || '').toLowerCase();
+        if (key !== 'c' && key !== 'v') return;
+        const element = event.target;
+        const xterm = typeof element?.closest === 'function' ? element.closest('.xterm') : null;
+        if (!xterm || !xterm.closest('[data-sidebar-terminal]')) return;
+        const textarea = xterm.querySelector('.xterm-helper-textarea');
+        if (!textarea || (element !== textarea && !xterm.contains(element))) return;
+
+        if (key === 'c') {
+          // xterm's selection is not a DOM Selection: window.getSelection()
+          // is empty even when the user has highlighted terminal text.
+          const selection = xterm.querySelector('.xterm-selection');
+          if (!selection || !selection.children || selection.children.length === 0) return;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          try {
+            // Let the xterm copy handler populate the text/plain clipboard.
+            const data = new root.DataTransfer();
+            const synthetic = new root.ClipboardEvent('copy',
+              { bubbles: true, cancelable: true, clipboardData: data });
+            xterm.dispatchEvent(synthetic);
+            const selectedText = data.getData('text/plain');
+            if (selectedText && typeof clipboard?.writeText === 'function') {
+              void clipboard.writeText(selectedText).catch(() => {
+                // Electron builds may not grant Clipboard API write access.
+                try { doc.execCommand?.('copy'); } catch { /* no permission */ }
+              });
+            } else {
+              // Browser ClipboardEvent integration also works on older builds.
+              doc.execCommand?.('copy');
+            }
+          } catch {
+            try { doc.execCommand?.('copy'); } catch { /* no permission */ }
+          }
+          return;
+        }
+        // Ctrl+V is normal paste on Windows. Ctrl+Shift+V and other xterm
+        // keyboard sequences remain native and untouched.
+        if (typeof clipboard?.readText !== 'function') return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        void clipboard.readText().then(value => {
+          // An asynchronous clipboard read must never paste into a newly
+          // selected terminal tab or a chat field.
+          if (typeof value !== 'string' || !value || !textarea.isConnected ||
+              doc.activeElement !== textarea) return;
+          const data = new root.DataTransfer();
+          data.setData('text/plain', value);
+          textarea.dispatchEvent(new root.ClipboardEvent('paste',
+            { bubbles: true, cancelable: true, clipboardData: data }));
+        }).catch(error => {
+          console.warn('Remote SSH: terminal clipboard read denied; try Ctrl+Shift+V', error);
+        });
+      };
+      root.addEventListener('keydown', onKey, true);
+      return () => root.removeEventListener('keydown', onKey, true);
+    }
+
     function apply(ctx) {
       ctx.effect(() => {
         const style = document.createElement('style'); style.id = 'dsh-remote-ssh-style'; style.textContent = CSS;
         document.head.appendChild(style);
         return () => style.remove();
       }, 'remote-ssh:styles');
+      ctx.effect(() => installTerminalClipboard(window, document, window.navigator?.clipboard),
+        'remote-ssh:terminal-clipboard');
       // Official DSH settings section seam, as used by @dsh-ssh/dsh-ssh.
       // No main sidebar entry or shell-wide overlay is registered.
       ctx.slots.inject('settings.section', () => ctx.slots.register({
