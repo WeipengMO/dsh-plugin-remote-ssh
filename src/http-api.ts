@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { RemoteSshManager } from './manager.js';
 import { prepareRemoteWorkspace, type WorkspaceRegistry } from './workspace-registration.js';
+import type { RemoteTerminalPool } from './remote-terminal.js';
 import { looksVirtual, shellQuote } from './paths.js';
 import type { HostRecord } from './types.js';
 import { listSshConfigAliases, resolveSshConfig } from './ssh-config.js';
@@ -29,6 +30,7 @@ export interface NativeApiDeps {
   previousCwd: Map<string, string>;
   /** Native DSH project registry; optional when only the built-in project picker is available. */
   workspaceRegistry?: WorkspaceRegistry | (() => WorkspaceRegistry | undefined);
+  remoteTerminals?: RemoteTerminalPool;
   /** DSH Connection's signed-cookie and Host/Origin admission, fail closed. */
   requestRejection(req: IncomingMessage): number | undefined;
 }
@@ -284,6 +286,39 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
         const cwd = await deps.workingDirectory.set(agent, target);
         deps.previousCwd.delete(id);
         return send(res, 200, { ok: true, changed: true, cwd });
+      }
+      // A user-initiated SSH PTY, separate from DSH's built-in local terminal.
+      // All commands run over the already authenticated browser session.
+      if (route.startsWith('/terminal/')) {
+        const terminals = deps.remoteTerminals;
+        if (!terminals) throw error(503, 'SSH interactive terminal is not available');
+        if (route === '/terminal/open') {
+          const host = text(body.host, 'host');
+          const remote = text(body.path ?? '~', 'path');
+          return send(res, 200, { ok: true, terminal: await terminals.open(host, remote) });
+        }
+        const id = text(body.id, 'terminal id', 100);
+        if (route === '/terminal/read') {
+          const cursor = typeof body.cursor === 'number' && Number.isSafeInteger(body.cursor) && body.cursor >= 0
+            ? body.cursor : 0;
+          return send(res, 200, { ok: true, ...terminals.read(id, cursor) });
+        }
+        if (route === '/terminal/write') {
+          const input = typeof body.input === 'string' ? body.input : '';
+          terminals.write(id, input);
+          return send(res, 200, { ok: true });
+        }
+        if (route === '/terminal/resize') {
+          const cols = Number(body.cols), rows = Number(body.rows);
+          if (!Number.isInteger(cols) || !Number.isInteger(rows)) throw error(400, 'invalid terminal size');
+          terminals.resize(id, cols, rows);
+          return send(res, 200, { ok: true });
+        }
+        if (route === '/terminal/close') {
+          terminals.close(id);
+          return send(res, 200, { ok: true });
+        }
+        throw error(404, 'unknown terminal operation');
       }
       if (route === '/exec') {
         const hostId = text(body.host, 'host');
