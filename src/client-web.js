@@ -208,6 +208,114 @@ window.__ModuleLoader__.load({
     exports.localDshAccessUrl = localDshAccessUrl;
 
     // Mounted directly in the DSH Settings section, not in a global overlay.
+
+    // A plugin-owned window surface, not a separate external browser. The
+    // Electron WebView uses the official Desktop browser guest lease API so
+    // SameSite=Strict DSH Web cookies remain first-party in the guest.
+    const remoteViewListeners = new Set();
+    function openEmbeddedDsh(host, path, label) {
+      for (const notify of [...remoteViewListeners]) notify({host, path, label, id: Date.now() + Math.random()});
+    }
+    function RemoteDshDesktopView() {
+      const [selection, setSelection] = useState(null);
+      const [view, setView] = useState({phase:'idle'});
+      const [retry, setRetry] = useState(0);
+      const container = React.useRef(null);
+      const bridge = window.dshDesktop?.browser;
+      useEffect(() => {
+        remoteViewListeners.add(setSelection);
+        return () => remoteViewListeners.delete(setSelection);
+      }, []);
+      useEffect(() => {
+        if (!selection) return;
+        let cancelled = false;
+        let timer;
+        let attempts = 0;
+        const start = async () => {
+          if (cancelled) return;
+          try {
+            const result = await api('/runtime/web/open',
+              { host:selection.host, path:selection.path, installIfMissing:true });
+            if (cancelled) return;
+            if (result.phase === 'ready') {
+              setView({phase:'ready', url:result.url, path:result.path,
+                installation:result.installation});
+            } else {
+              attempts++;
+              if (attempts >= 150) throw Error('远端 DSH 启动超时；检查服务器 Node.js、网络和 npm 状态');
+              setView({phase:'starting', installation:result.installation});
+              timer = setTimeout(start, 2000);
+            }
+          } catch(error) {
+            if (!cancelled) setView({phase:'error', message:error.message || String(error)});
+          }
+        };
+        setView({phase:'connecting'});
+        void start();
+        return () => { cancelled = true; clearTimeout(timer); };
+      }, [selection?.id, retry]);
+      useEffect(() => {
+        const url = view.phase === 'ready' ? view.url : null;
+        if (!selection || !url || !container.current || !bridge || typeof bridge.acquire !== 'function') return;
+        let disposed = false, element, reservation;
+        const attach = async () => {
+          reservation = await bridge.acquire('dsh-remote-ssh:' + selection.host + ':' + selection.path);
+          if (disposed) { await bridge.release(reservation.lease); return; }
+          element = document.createElement('webview');
+          element.className = 'rss-remote-webview';
+          element.dataset.sidebarBrowserFrame = 'webview';
+          element.setAttribute('name', reservation.lease);
+          element.setAttribute('partition', reservation.partition);
+          element.setAttribute('allowpopups', '');
+          element.setAttribute('src', 'about:blank#' + reservation.lease);
+          element.setAttribute('aria-label', 'Linux 远端 DSH');
+          element.addEventListener('dom-ready', () => {
+            if (!disposed) void element.loadURL(url).catch(e => {
+              if (!disposed) setView({phase:'error', message:'加载远端 DSH 失败：' + (e.message || String(e))});
+            });
+          }, {once:true});
+          element.addEventListener('did-fail-load', e => {
+            if (!disposed && e.isMainFrame && e.errorCode !== -3) {
+              setView({phase:'error',message:'远端 DSH 页面加载失败：' + e.errorDescription});
+            }
+          });
+          if (container.current) container.current.appendChild(element);
+        };
+        void attach().catch(e => {
+          if (!disposed) setView({phase:'error',message:'Desktop WebView 创建失败：' + (e.message || String(e))});
+        });
+        return () => {
+          disposed = true;
+          element?.remove();
+          if (reservation) void bridge.release(reservation.lease).catch(() => {});
+        };
+      }, [selection?.id, view.phase === 'ready' ? view.url : null]);
+      if (!selection) return null;
+      const close = () => { setSelection(null); setView({phase:'idle'}); };
+      return h('section', {className:'rss-remote-main',role:'dialog','aria-modal':true,
+        'aria-label':'Linux 远端 DSH Desktop 工作区'},
+        h('header', {className:'rss-remote-main-header'},
+          h('div', {className:'rss-remote-title'},
+            h(Icon,{name:'server',size:17}),
+            h('strong',null,selection.label || 'Linux DSH'),
+            h('code',null,selection.path)),
+          h('div', {className:'rss-remote-controls'},
+            h('span',{className:'rss-remote-status'},
+              view.phase === 'ready'?'远端 Agent · Linux':view.phase==='error'?'连接错误':'正在启动远端 DSH'),
+            h(Button,{icon:'refresh',small:true,title:'重新连接',onClick:()=>setRetry(n=>n+1)}),
+            h(Button,{icon:'x',small:true,title:'返回 Windows DSH',onClick:close},'返回本地'))),
+        view.phase === 'ready' && bridge
+          ? h('div',{className:'rss-remote-viewport',ref:container})
+          : h('div',{className:'rss-remote-splash'},
+              h('div',{className:'rss-remote-splash-content'},
+                h(Icon,{name:view.phase==='error'?'alert':'cloud',size:32}),
+                h('strong',null,view.phase==='error'?'远端 DSH 连接失败':'正在连接 Linux DSH'),
+                h('p',null,view.phase==='error'?view.message:
+                  '插件正在通过 SSH 启动 Linux 上的完整 DSH，首次启动可能需要下载官方 CLI。'),
+                !bridge && h('p',null,'此模式需要 Windows DSH Desktop 提供受控 Electron WebView。'),
+                view.phase==='error' && h(Button,{variant:'primary',onClick:()=>setRetry(n=>n+1)},'重试连接'))));
+    }
+
     function RemoteSSHSettings({ createWorkspace }) {
       const [state, setState] = useState({ hosts: [], effective: {}, statuses: [], sessions: [], aliases: [], recent: [], remoteDsh: { desktopProfile: false, tunnels: [] } });
       const [selected, setSelected] = useState('');
@@ -328,6 +436,10 @@ window.__ModuleLoader__.load({
         const result = await run('dsh-close', () => api('/dsh/tunnel/close', { host: selected }), '访问通道已关闭');
         if (result) refresh();
       };
+      const openRemoteDshInDesktop = () => {
+        if (!selected || !browse) { setError('请先选择服务器和远端目录'); return; }
+        openEmbeddedDsh(selected, browse.path, currentHost?.label || currentHost?.host);
+      };
       const launchRemoteDshBrowser = () => {
         try {
           const target = localDshAccessUrl(remoteDshAccess, remoteDshTunnel);
@@ -405,59 +517,12 @@ window.__ModuleLoader__.load({
                 h('button', { key: id, role: 'tab', type: 'button', 'aria-selected': tab === id,
                     className: 'rss-tab ' + (tab === id ? 'rss-tab-active' : ''), onClick: () => setTab(id) },
                   h(Icon, { name: glyph, size: 15 }), label))),
-            tab === 'dsh' && h('div', { className: 'rss-dsh-tab', role: 'tabpanel', 'aria-label': '远端 DSH Host 连接' },
-              h('div', { className: 'rss-dsh-intro' },
-                h('strong', null, '推荐：在 Linux 服务器运行完整 DSH'),
-                h('p', null, 'Git、Agent、Shell 和工作区全部留在 Linux。当前 Windows DSH 只用于主机管理与打开独立的远端 Web 界面；不会把 Windows 会话迁移到远端。')),
-              h('div', { className: 'rss-dsh-step' },
-                h('div', { className: 'rss-dsh-step-title' }, h('strong', null, '1. 检查远端运行环境'),
-                  h(Button, { icon: 'refresh', disabled: !!busy, onClick: checkRemoteDsh },
-                    busy === 'dsh-check' ? '检查中…' : '检查环境')),
-                h('p', null, 'Linux 上需有 Node.js ≥24.9、Git。GitHub PR 功能还需要 gh 登录。'),
-                remoteDshProbe && h('pre', { className: 'rss-dsh-output' },
-                  [remoteDshProbe.output, remoteDshProbe.stderr].filter(Boolean).join('\n') || '未返回检查信息')),
-              h('div', { className: 'rss-dsh-step' },
-                h('strong', null, '2. 在 Linux SSH 终端启动 DSH Web'),
-                h('p', null, '在服务器的独立 SSH 终端执行，保持进程运行。首次安装也可使用 npx。不要将启动输出中的访问令牌发给其他人。'),
-                h('div', { className: 'rss-dsh-command' },
-                  h('code', null, remoteDshStartCommand),
-                  h('button', { type: 'button', title: '复制启动命令', onClick: () => {
-                    if (!navigator.clipboard?.writeText) { setError('剪贴板不可用，请手动复制命令'); return; }
-                    void navigator.clipboard.writeText(remoteDshStartCommand).catch(() => setError('复制失败，请手动复制命令'));
-                  } }, h(Icon, { name: 'copy', size: 15 }))),
-                h('label', { className: 'rss-dsh-port' }, h('span', null, '远端 Web 端口'),
-                  h('input', { type: 'number', min: 1024, max: 65535, value: remoteDshPort,
-                    disabled: !!remoteDshTunnel || !!busy, onChange: e => setRemoteDshPort(e.target.value) }))),
-              h('div', { className: 'rss-dsh-step' },
-                h('strong', null, '3. 建立 SSH 本机访问通道'),
-                remoteDshDesktop
-                  ? h(React.Fragment, null,
-                      h('p', null, '使用已验证的 SSH 连接，仅在这台 Windows 电脑的 127.0.0.1 上监听随机端口。服务器需要允许 SSH TCP forwarding。'),
-                      remoteDshTunnel
-                        ? h('div', { className: 'rss-dsh-tunnel' },
-                            h('code', null, remoteDshTunnel.localUrl + ' → 远端 127.0.0.1:' + remoteDshTunnel.remotePort),
-                            h(Button, { icon: 'x', disabled: !!busy, onClick: closeRemoteDshTunnel }, '关闭通道'))
-                        : h(Button, { icon: 'cloud', variant: 'primary', disabled: !!busy, onClick: openRemoteDshTunnel },
-                            busy === 'dsh-open' ? '建立中…' : '建立本机隧道'))
-                  : h(React.Fragment, null,
-                      h('p', null, '当前 DSH Host 不是 Desktop，无法确认浏览器与 Host 在同一台电脑。请在 Windows PowerShell 手动执行：'),
-                      h('pre', { className: 'rss-dsh-output' }, manualDshForward),
-                      h('p', null, '然后在本机浏览器通过 127.0.0.1:13080 访问；不应尝试直接打开此 Host 的本机端口。'))),
-              h('div', { className: 'rss-dsh-step' },
-                h('strong', null, '4. 使用启动时打印的完整访问 URL'),
-                h('p', null, '粘贴远端终端中 dsh web: 后面的完整 http://127.0.0.1:端口/... 地址。令牌只保存在当前输入框中，不会提交给插件 API。'),
-                h('input', { className: 'rss-dsh-access', type: 'password',
-                  'aria-label': '远端 DSH Web 带令牌访问 URL',
-                  autoComplete: 'off', spellCheck: false,
-                  value: remoteDshAccess, onChange: e => setRemoteDshAccess(e.target.value),
-                  placeholder: 'http://127.0.0.1:3080/…（包含登录令牌）' }),
-                remoteDshDesktop
-                  ? h(Button, { icon: 'arrow', variant: 'primary',
-                      disabled: !remoteDshTunnel || !remoteDshAccess.trim(), onClick: launchRemoteDshBrowser },
-                      '在浏览器打开远端 DSH')
-                  : h('p', null, '将启动 URL 的地址部分换成 http://127.0.0.1:13080，保留原路径、查询参数及令牌后打开。')),
-              h('p', { className: 'rss-dsh-footer' },
-                '远端 DSH 使用独立的模型配置、插件和会话。需要在远端 Web 中重新打开真实 Linux 项目，并启用 Change requests & worktrees 才能显示原生 Git 面板。')),
+            tab === 'dsh' && h('div', { className:'rss-dsh-tab', role:'tabpanel' },
+              h('strong',null,'完整 Linux DSH · 内嵌 Desktop'),
+              h('p',{className:'rss-hint'},'选择目录后直接连接。自动通过 SSH 启动完整 DSH、建立加密转发并在 Desktop 内打开，不需要浏览器或手动复制令牌。'),
+              h(Button,{icon:'cloud',variant:'primary',disabled:!browse||!!busy,
+                onClick:openRemoteDshInDesktop},'在 Desktop 连接 Linux DSH'),
+              h('p',{className:'rss-hint'},'远端 Agent、Git、Session、终端由 Linux DSH 独立管理。首次未安装 CLI 时，将使用固定版本的官方软件包；需要 Linux Node.js ≥24.9。')),
             tab === 'files' && h('div', { className: 'rss-files-tab', role: 'tabpanel' },
               h('div', { className: 'rss-pathbar' },
                 h(Button, { small: true, icon: 'home', title: '远程 Home 目录', onClick: () => loadDir(selected, '~') }),
@@ -482,6 +547,11 @@ window.__ModuleLoader__.load({
                     h('span', null, entry.name),
                     entry.type === 'directory' && h(Icon, { name: 'chevron', size: 13 }))),
                   browse.truncated && h('p', { className: 'rss-hint rss-truncated' }, '目录过大，只显示前 1000 项'))),
+              h('div', { className: 'rss-workspace-actions rss-workspace-primary' },
+                h('div', null, h('strong', null, '完整远端 DSH · 推荐'),
+                  h('p', null, '真正让 Linux 上的 DSH 接管 Agent、Git 和 Session，在 Windows Desktop 内操作。')),
+                h(Button, { variant:'primary', icon:'cloud', disabled:!!busy||loading||!browse,
+                  onClick:openRemoteDshInDesktop }, '连接远端 DSH')),
               h('div', { className: 'rss-workspace-actions' },
                 h('div', null, h('strong', null, '添加为 DSH 工作区'),
                   h('p', null, '添加到当前 Windows DSH Desktop；Agent 文件工具、Shell 和终端通过 SSH 执行。原生 Git/工作树仍有兼容性限制。')),
@@ -637,6 +707,12 @@ window.__ModuleLoader__.load({
         } catch (e) { setError(e.message || String(e)); }
         finally { setTrustBusy(false); }
       }
+      async function chooseFullRemote() {
+        if (reported.current || busy || picking || !hostId || !listing) return;
+        reported.current = true;
+        openEmbeddedDsh(hostId, listing.path, hosts.find(h => h.id===hostId)?.label || 'Linux 远端 DSH');
+        onCancel();
+      }
       async function chooseRemote() {
         if (reported.current || busy || picking || !hostId || !listing) return;
         setPicking(true); setError('');
@@ -728,9 +804,12 @@ window.__ModuleLoader__.load({
         error && h('p', { className: 'rss-project-error', role: 'alert' }, error),
         h('div', { className: 'rss-project-footer' },
           h('button', { type: 'button', className: 'rss-btn', onClick: cancel, disabled: !!busy || picking }, '取消'),
-          mode === 'remote' && h('button', { type: 'button', className: 'rss-btn rss-primary',
+          mode === 'remote' && h('button', { type: 'button', className: 'rss-btn',
             onClick: chooseRemote, disabled: !!busy || picking || loading || !listing || !hostId },
-            picking ? '正在打开…' : '在 Desktop 打开工作区')))),
+            picking ? '正在打开…' : '兼容：在 Desktop 打开工作区'),
+          mode === 'remote' && h('button', { type: 'button', className: 'rss-btn rss-primary',
+            onClick: chooseFullRemote, disabled: !!busy || picking || loading || !listing || !hostId },
+            '连接完整远端 DSH'))),
         hostProbe && h(TrustModal, { probe: hostProbe, busy: trustBusy,
           onClose: () => setHostProbe(null), onConfirm: verifyHostFingerprint }));
     }
@@ -822,6 +901,12 @@ window.__ModuleLoader__.load({
       }, 'remote-ssh:styles');
       ctx.effect(() => installTerminalClipboard(window, document, window.navigator?.clipboard),
         'remote-ssh:terminal-clipboard');
+      // Main-window remote Host surface is a first-class plugin overlay. Its
+      // content is a lease-backed Electron WebView, not an iframe with broken
+      // SameSite=Strict DSH cookies. It never replaces Core Connection.
+      ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+        name:'shell.overlay', id:'remote-ssh-desktop-host',order:1000,
+      }, RemoteDshDesktopView));
       // Official DSH settings section seam, as used by @dsh-ssh/dsh-ssh.
       // No main sidebar entry or shell-wide overlay is registered.
       ctx.slots.inject('settings.section', () => ctx.slots.register({
