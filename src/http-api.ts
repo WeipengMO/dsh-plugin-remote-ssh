@@ -249,6 +249,47 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
         const inspection = await deps.remoteRuntime.inspect(workspace.connectionId, workspace.remoteRoot);
         return send(res, 200, { ok: true, inspection, host: workspace.connectionId, token });
       }
+      if (route === '/runtime/web/open') {
+        // This is a Desktop-owned SSH loopback connection. A Web profile Host
+        // cannot assume the browser shares its 127.0.0.1.
+        if (deps.desktopProfile !== true || !deps.remoteRuntime || !deps.dshWebTunnels) {
+          throw error(409, 'Embedded Remote DSH requires the Windows Desktop Host and native WebView');
+        }
+        const host = text(body.host, 'host');
+        const requestedPath = text(body.path ?? '~', 'path');
+        manager.getHost(host);
+        const opened = await manager.openWorkspace(host, requestedPath);
+        // User chose "Connect remote DSH"; this authorizes fetching the pinned
+        // official CLI with npx if there is no existing dsh executable.
+        const remote = await deps.remoteRuntime.ensureWeb(host, opened.workspace.remoteRoot,
+          body.installIfMissing !== false);
+        if (remote.phase === 'failed') {
+          return send(res, 200, {ok:true, phase:'failed', host,
+            message:remote.message || 'remote DSH failed to start'});
+        }
+        if (remote.phase !== 'ready' || !remote.url) {
+          return send(res, 200, { ok:true, phase:'starting', host,
+            path:opened.workspace.remoteRoot, installation:remote.installation || 'unknown' });
+        }
+        const existing = deps.dshWebTunnels.list().find(t => t.host === host);
+        if (existing && existing.remotePort !== remote.port) deps.dshWebTunnels.close(host);
+        const tunnel = await deps.dshWebTunnels.open(host, remote.port);
+        const from = new URL(remote.url);
+        if (from.protocol !== 'http:' || !['127.0.0.1','localhost'].includes(from.hostname)
+            || Number(from.port) !== remote.port || !from.searchParams.has('token')) {
+          throw error(502, 'remote DSH Web authentication URL is not trusted');
+        }
+        const to = new URL(tunnel.localUrl);
+        to.pathname = from.pathname;
+        to.search = from.search;
+        to.hash = from.hash;
+        // The URL contains a process launch credential. Never log, persist,
+        // include in GET /state, or pass through Session/Agent messages.
+        return send(res, 200, {
+          ok:true, phase:'ready', host, path:opened.workspace.remoteRoot,
+          url:to.href, installation:remote.installation || 'existing',
+        });
+      }
       if (route === '/dsh/check') {
         const host = text(body.host, 'host');
         const connection = await manager.connection(host);

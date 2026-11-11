@@ -1,66 +1,44 @@
-# 远端 DSH Host：Linux 原生开发（推荐）
+# 远端 DSH 在 Windows Desktop 内嵌运行（v1.6）
 
-## 设计目标与边界
+## 直接使用
 
-本方案不再使用 Windows 本地占位目录伪装 Linux Git checkout。**完整的 DSH Host 在 Linux 服务器上运行**，它拥有真正的项目文件、Git、Shell、Agent、会话与模型配置；Windows 上原来的 DSH Desktop 只提供 SSH 主机管理、环回隧道和浏览器入口。两个 DSH Host 的会话与配置**不会自动同步**。
+1. Windows DSH Desktop 选择「新建项目 → SSH 服务器」，选择已有的 SSH Config 主机及 Linux 项目路径。
+2. 点击「连接完整远端 DSH」。这是主要入口；旁边「兼容：在 Desktop 打开工作区」仍是旧版 Windows 文件桥接模式。
+3. 插件通过经过身份验证的 SSH 连接，检查 Linux Node.js、必要时下载固定版本的官方 DSH CLI，启动或复用远端 DSH Web，并自动创建仅绑定 Windows 127.0.0.1 的 SSH TCP 转发。
+4. 远端 DSH 在现有 Windows Desktop 窗口的主要工作区域显示；Agent、Git、Session、Terminal 和 Worktree 属于 Linux DSH 运行时。
+5. 顶部「返回本地」关闭内嵌视图，不停止 Linux DSH；重新进入同一工作目录时可继续使用原远端会话。
 
-本插件的「远端 DSH」标签提供：SSH 环境检测、启动命令指引、Desktop-only 本地环回访问隧道、一次性的访问 URL 输入及浏览器跳转。插件**不负责远端 DSH 安装、更新或启动**，不会持久化、转发或打印 Web 访问令牌，也不假装把 Desktop 当前 Agent 迁移到 Linux。旧版「文件浏览（兼容）」仍可使用，但原生 Git、Forge worktree 等跨系统接口不保证兼容。
+不需要手动运行 dsh web、不需要复制 token、不需要外部浏览器或配置 ssh -L。
 
-## 条件
+## 运行条件
 
-- 本地 Windows 安装 DSH Desktop 和本插件；SSH 主机已经配置并经过**独立确认的 Host Key 指纹**验证。
-- 远端为 Linux，Node.js **≥24.9.0**；Git 已安装。查看/操作 GitHub PR 建议安装并登录 \`gh\`。
-- 远端 SSH 服务器允许 \`direct-tcpip\` / \`AllowTcpForwarding\`，并允许从 SSH 服务器连接它自己的 \`127.0.0.1:3080\`。
-- 如果 DSH Web 进程没有启动，插件不会绕过认证而自动启动一个守护进程。必须在远端独立 SSH 终端运行。
+- Linux SSH 登录可用，并允许 SSH direct-tcpip（AllowTcpForwarding）。第一次信任服务器仍需从可信渠道核验 SHA256 主机密钥指纹。
+- Linux 环境 Node.js 至少为 24.9.0，git 已安装；如要 GitHub PR 状态，建议安装 gh 并登录。插件不会静默升级 Node 或更改 sshd。
+- 优先执行远端已有的 dsh；若没有，用户点击连接即授权执行官方固定版本的 npx 命令：npx -y @deepseek-ai/dsh@0.2.2-rc.1 web --no-open --host 127.0.0.1 --port <随机端口>。首次下载需要访问 npm registry。
+- 仅适用于 Windows DSH Desktop 的授权 Electron Browser Guest；普通 Web Profile 不支持这个原生桌面内嵌入口。
 
-## 首次部署
+## 安全与进程生命周期
 
-1. 在 Windows DSH → 设置 → Remote SSH → 选择已经验证过的服务器 → **远端 DSH**，点击 **检查环境**。检查输出中的 Node、Git 和 \`dsh\`；\`command -v dsh\` 为空并不等于 npx 无法使用。
-2. 在 Linux SSH 终端执行：
-   \`\`\`bash
-   node -v
-   npx -y @deepseek-ai/dsh --profile web --no-open --port 3080
-   \`\`\`
-   \`npx\` 可能需要下载包，首次启动前应核对官方源及版本。也可先按官方指南安装，再用 \`dsh --profile web --no-open --port 3080\`。
-3. 保持远端进程运行。终端将打印 \`dsh web:\` 及**携带启动令牌**的访问 URL，**不要公开、提交到 Git 或发在聊天中**。
-4. Windows DSH Desktop 的「远端 DSH」标签点击 **建立本机隧道**。插件使用已经验证的 SSH 连接访问远端的 \`127.0.0.1:3080\`，本机仅绑定 \`127.0.0.1\` 的**随机可用端口**。请求携带 SSH 的数据通道加密，没有额外公网监听端口。
-5. 将 Linux 终端打印的完整启动 URL 粘贴到页面的密码输入框，点击 **在浏览器打开远端 DSH**。插件只在浏览器端把原 URL 的本地地址和端口换成本机隧道地址，原路径、查询参数、片段不变。令牌**不经** \`/api/remote-ssh\` 传输或落盘。
-6. 在新打开的远端 DSH Web 中直接选择真实的 Linux Git 项目目录。按需要在 **Plugins → Official → Change requests & worktrees** 中启用 Git 面板；此插件不会跨 DSH Host 同步插件设置。GitHub PR 检测需要远端 \`gh auth login\`。
+- Linux DSH 只监听服务器回环地址 127.0.0.1；Windows 隧道只监听本机 127.0.0.1 的随机端口，不对外公开服务。
+- 远端 helper 位于其私有 SHA256 校验目录，Web 进程的 PID、端口和启动日志位于 ~/.cache/dsh-remote-ssh/web/v1/<项目SHA256>/。日志可能包含 DSH Web 启动 token，必须当作敏感数据。
+- 含 token 的启动 URL 仅在受认证的插件 API 应答中短暂返回给 Desktop WebView，不写入插件持久配置、不送入 Agent 聊天。完成首个登录后，官方 DSH 会将 token 换成 Session Cookie。
+- Desktop 内嵌 WebView 通过官方 dshDesktop.browser.acquire 和 release 获取受控 Electron Guest Lease；与本地 Host 的 cookie、Node API 和 Agent 进程隔离。
+- 断线或启动失败时显示错误，可重试；不能在后台将远程 Agent 意外转为 Windows 本地执行。
 
-## DSH Web Profile / 非同机浏览器
+## 与真正修改 Desktop Core 的区别
 
-如果本插件运行在 Web Profile（例如 DSH Host 在 WSL/另一台服务器上），**不启用托管本机隧道**：\`127.0.0.1\` 属于 DSH Host，不一定是浏览器所在的电脑。此时需在**实际使用的 Windows 电脑**执行：
+这条路线不修改 DSH Desktop Core：插件将完整 Linux DSH Web Client 嵌入 Desktop 主窗口。**本地和远端的 Session Store 不合并**，不同主机仍是独立的 DSH 实例。Linux Web 内的 Git/Agent 由 Linux Host 执行，但原 Windows DSH 自己的 Git 侧栏仍属于本地 Session。
 
-\`\`\`powershell
-ssh -N -L 13080:127.0.0.1:3080 <服务器SSH别名>
-\`\`\`
+## 验证与排障
 
-然后将远端启动 URL 的 \`127.0.0.1:3080\` 改为 \`127.0.0.1:13080\` 并保留令牌。手动隧道不由插件管理，也不会出现在插件隧道状态列表中。
+- GitHub CI 测试客户端脚本语法、原生 UI 槽注册、Web URL 验证、HTTP/SSH 隧道逻辑；Node24 smoke 测试在 Linux 启动假的 dsh 进程并验证复用/URL。**还需要在真实 Windows Electron 与 Linux 官方 DSH Web 中验收登录、Agent、Git 和连接恢复。**
+- 若报 Node 版本不足：在服务器检查 node -v，应为 24.9 或更高。
+- 若报 SSH forwarding 失败：检查服务端 SSHD 的 AllowTcpForwarding，以及任何 SSH ProxyCommand / 跳板限制；不要把 DSH Web 暴露到公网。
+- 若提示 starting 持续很久或 failed：查看服务器私有运行目录中的启动日志，分享日志前务必删去完整含 token 的 URL。
+- 若 Git 仍显示本地路径：确认进入了「连接完整远端 DSH」而非旧版「兼容」模式。
 
-## 状态、断开与安全
+## 参考
 
-- 点击「关闭通道」会关闭本地 TCP listener 与活动连接，**不会结束 Linux DSH**。关闭 Windows DSH 或卸载插件时也会清理托管隧道。
-- 只允许远端端口 1024–65535；绑定 \`127.0.0.1\`，不使用 \`0.0.0.0\`、公网 URL 或代理到其他主机。用户可以有多个已验证 SSH 主机，每个主机最多一个托管通道。
-- Web 访问 URL 是 bearer credential：只粘贴官方在远端 SSH 终端打印的 \`http://127.0.0.1:<port>/...\`。客户端会拒绝外部域名、HTTPS、包含用户名或不匹配端口的 URL，以防止把令牌发送到非预期主机。
-- 远端 DSH 应保持 loopback 监听，不应为了远程访问而直接暴露 Web 端口到公网。
-- 若服务器要求保留长期会话，使用 \`tmux\` 或受控 systemd 用户服务启动 Linux DSH；**不要**把启动令牌写入不受保护的日志。
-- 插件中旧版 SSH 占位目录的内容不是同步的源文件；迁移时重新打开**服务器上的真实目录**，不要复制本机占位目录充当源码。
-- DSH Web 会话、插件、模型、账号和文件历史与 Windows Desktop DSH 是**两个实例**，不会自动迁移；请按照 DSH 官方方式逐项配置。
-
-## 常见问题
-
-**建立隧道提示失败：** 检查 \`dsh --profile web\` 是否仍在运行、端口是否一致，以及远端 SSHD 的 \`AllowTcpForwarding\`。服务端不允许 \`direct-tcpip\` 时，需要管理员调整策略；不要关闭主机密钥验证。
-
-**浏览器访问出现未授权：** 必须使用完整的带令牌 URL，不能只访问 \`http://127.0.0.1:<本地端口>/\`。在 Linux 终端核对启动输出。不要将令牌发给第三方。
-
-**仍然看到「无法读取 Git 信息」：** 核对你是不是仍在 **Windows DSH 的旧版 SSH 工作区会话**。需要在新打开的 **Linux DSH Web** 中打开真实的 Linux Git checkout，并确认已启用 Forge 插件。
-
-**Git 能读但 PR 不显示：** 检查远端的 \`gh auth status\` 和当前分支的 upstream；官方 Forge 组件依赖 Linux Host 的 Git/gh 环境。
-
-**浏览器在另一台设备：** 此插件 Desktop 托管的 loopback 端口只供本机使用。请使用该设备自己的 SSH 本地转发，不应将其暴露到 LAN。
-
-## 官方架构参考
-
-- [DSH Web 文档](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/bundle/web-app)
-- [官方 Forge（变更请求和 worktrees）](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/experimental/forge-bundle)
-- [官方 POSIX SSH Provider（另一种 headless 组合方式）](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/ssh/ssh)
+- DSH Web 官方说明：https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/bundle/web-app
+- DSH Desktop Browser Guest：https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/desktop/src/browser-guests.ts
+- 插件 README：https://github.com/WeipengMO/dsh-plugin-remote-ssh

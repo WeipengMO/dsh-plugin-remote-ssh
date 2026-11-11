@@ -52,3 +52,7 @@
 完整的 DSH Remote Host 不应靠 Helper 持续增加自由命令；下一步必须在 Desktop Core 中引入每 Workspace/Session 的 Host 身份和连接选择，将 DSH Client Connection 的 unary/stream/RPC 与远端正式 DSH Host 对接。Helper 只负责版本协商、下载/校验/启动、健康检查、停机/清理这类**引导职责**。完整 Agent、审批、Forge、worktree、Debug Adapter 等必须经过 DSH Core 已定义的权限和远端服务接口。
 
 参见 [README 架构](../README.md#架构目标与当前实现) 与 [Core 改造方案](desktop-ssh-runtime.md)。
+
+## v1.6：Web Host 自动启动（web.ensure）
+
+经严格验证的 SSH Host 与已通过 SFTP 规范化的远端 cwd 才可调用 web.ensure。请求为 {protocol:1,id,method:'web.ensure',cwd:'/real/Linux/cwd',installIfMissing:true}，响应 phase 为 starting、ready 或 failed；ready 含远端回环端口与官方带 ?token= 的启动 URL。控制层校验远端 URL authority、端口、令牌是否匹配，通过仅绑定本机 127.0.0.1 的 SSH TCP 转发交付给 Desktop WebView。用户主动点击「连接完整远端 DSH」才允许 npx 下载固定官方 CLI。敏感 token 不存储在 Windows 插件配置，远端私有日志含 token，需保护；Node ≥24.9 和 SSH TCP forwarding 为前提。独立 DSH Agent/Session 仍由远端 Web Host 管理，不会重新绑定本地 Core Connection。详见 [remote-dsh-host.md](remote-dsh-host.md)。
