@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-remote-ssh",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "DSH Remote SSH Settings plugin with compact native UI for Desktop and Web; pure-JS SSH transport.",
   "type": "module",
   "main": "dist/index.js",
