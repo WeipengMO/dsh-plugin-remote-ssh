@@ -373,6 +373,19 @@ export class RemoteSshManager {
     return workspace;
   }
 
+  /** Called after DSH has deleted a workspace and its owned empty placeholder. */
+  forgetWorkspace(token: string): void {
+    const state = this.loadWorkspaces();
+    const removed = state.workspaces.find(entry => entry.token === token);
+    if (!removed) return;
+    this.saveWorkspaces({
+      version: 1,
+      workspaces: state.workspaces.filter(entry => entry.token !== token),
+      recent: state.recent.filter(entry =>
+        entry.connectionId !== removed.connectionId || entry.remoteRoot !== removed.remoteRoot),
+    });
+  }
+
   private rememberWorkspace(workspace: WorkspaceRecord): void {
     const file = this.loadWorkspaces();
     const workspaces = file.workspaces.filter((entry) => entry.token !== workspace.token);
