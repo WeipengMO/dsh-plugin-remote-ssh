@@ -50,7 +50,8 @@ test('native DSH sidebar terminal overrides block-cursor visuals with a vertical
   const css = fs.readFileSync(new URL('../src/client.css', import.meta.url), 'utf8');
   assert.match(css, /\[data-sidebar-terminal\] \.xterm \.xterm-rows \.xterm-cursor\.xterm-cursor-block/);
   assert.match(css, /background-color: transparent !important;/);
-  assert.match(css, /box-shadow: inset 2px 0 0 var\(--terminal-cursor, currentColor\) !important;/);
+  assert.match(css, /box-shadow: inset 2px 0 0 var\(--terminal-cursor, currentColor\);/);
+  assert.doesNotMatch(css, /box-shadow: inset 2px 0 0 var\(--terminal-cursor, currentColor\) !important;/);
   assert.match(css, /@keyframes rss-terminal-bar-blink/);
   assert.match(css, /animation: rss-terminal-bar-blink 1s step-end infinite !important;/);
 });
