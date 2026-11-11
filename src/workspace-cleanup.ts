@@ -18,7 +18,7 @@ export function installWorkspaceCleanup(
   manager: Pick<RemoteSshManager, 'workspaceByToken' | 'forgetWorkspace'>,
   storageDir: string,
   logger: Logger,
-  options: { root?: string; unlinkEmpty?: (p: string) => void } = {},
+  options: { root?: string; unlinkEmpty?: (p: string) => void; registered?: () => Array<{ id: string; path: string }> } = {},
 ): { dispose(): void; mappings(): Map<string, string> } {
   const root = path.resolve(options.root ?? workspacePlaceholderRoot());
   const stateFile = path.join(storageDir, 'placeholder-workspace-ids.json');
@@ -48,6 +48,22 @@ export function installWorkspaceCleanup(
       }
     }
   } catch { /* A fresh install has no map. */ }
+  // Rebuild mappings for workspaces created before this cleanup feature or
+  // across a restart. The DSH registry remains the source of active ownership.
+  if (options.registered) {
+    try {
+      for (const item of options.registered()) {
+        if (typeof item.id !== 'string' || typeof item.path !== 'string') continue;
+        const valid = managedPath(item.path);
+        if (!valid) continue;
+        try { manager.workspaceByToken(valid.token); } catch { continue; }
+        byId.set(item.id, valid.absolute);
+      }
+      save();
+    } catch (err) {
+      logger.warn('remote-ssh: could not reconcile workspace registry: ' + String(err));
+    }
+  }
   const removeEmpty = options.unlinkEmpty ?? (file => fs.rmdirSync(file));
   const handle = (input: unknown): void => {
     const raw = input && typeof input === 'object' && 'change' in input
