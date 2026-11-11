@@ -69,9 +69,20 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  web-launcher:
+    name: Linux DSH Web launch smoke (Node 24.9)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.9.0'
+      - name: Verify private remote Web launcher and token handoff
+        run: node --test test/remote-web-launcher.node24.test.js
+
   release:
     name: Publish GitHub Release
-    needs: build
+    needs: [build, web-launcher]
     if: >-
       github.event_name == 'push' &&
       github.repository == 'WeipengMO/dsh-plugin-remote-ssh' &&
