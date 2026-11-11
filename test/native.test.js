@@ -46,33 +46,38 @@ test('client registers settings plus native remote project directory flows', () 
   result.apply({
     effect(callback) { callback(); },
     slots: {
-      inject(slot, callback) { assert.ok(['settings.section', 'conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow'].includes(slot)); const result = callback(); if (result && result[Symbol.iterator]) for (const _ of result) { /* Cordis effect iterator */ } },
+      inject(slot, callback) { assert.ok(['shell.overlay', 'settings.section', 'conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow'].includes(slot)); const result = callback(); if (result && result[Symbol.iterator]) for (const _ of result) { /* Cordis effect iterator */ } },
       register(record, component) { registrations.push({ record, component }); return () => {}; },
     },
   });
-  assert.equal(registrations.length, 3);
-  assert.deepEqual(registrations.slice(1).map(x => x.record.name), ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow']);
-  assert.ok(registrations.slice(1).every(x => x.record.priority === -2));
-  assert.ok(registrations.slice(1).every(x => typeof x.record.inject === 'function'));
-  const localPicker = registrations[1].record.inject().pickDirectory;
+  assert.equal(registrations.length, 4);
+  assert.deepEqual(registrations.slice(2).map(x => x.record.name), ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow']);
+  assert.ok(registrations.slice(2).every(x => x.record.priority === -2));
+  assert.ok(registrations.slice(2).every(x => typeof x.record.inject === 'function'));
+  const localPicker = registrations[2].record.inject().pickDirectory;
   assert.equal(typeof localPicker, 'function');
   // The official API is uiWorkspace.pickDirectory, NOT workspaces.pickDirectory.
   assert.ok(source.includes('ctx.uiWorkspace.pickDirectory()'));
   assert.ok(!source.includes('ctx.workspaces.pickDirectory()'));
   assert.match(source, /rss-project-select-wrap/);
   assert.match(source, /'aria-label': '跳转目录'/);
-  assert.ok(registrations.slice(1).every(x => typeof x.component === 'function'));
+  assert.ok(registrations.slice(2).every(x => typeof x.component === 'function'));
   assert.ok(!source.includes("h('section', { className: 'rss-session' }"));
-  assert.equal(registrations[0].record.name, 'settings.section');
-  assert.equal(registrations[0].record.id, 'remote-ssh');
-  assert.equal(registrations[0].record.label(), 'Remote SSH');
-  assert.equal(typeof registrations[0].component, 'function');
-  const section = registrations[0].component({});
+  assert.equal(registrations[0].record.name, 'shell.overlay');
+  assert.equal(registrations[0].record.id, 'remote-ssh-desktop-host');
+  assert.equal(registrations[1].record.name, 'settings.section');
+  assert.equal(registrations[1].record.id, 'remote-ssh');
+  assert.equal(registrations[1].record.label(), 'Remote SSH');
+  assert.equal(typeof registrations[1].component, 'function');
+  const section = registrations[1].component({});
   assert.equal(section.props.className, 'rss-settings-container');
   assert.equal(section.children[0].props.className, 'rss-app');
   assert.equal(section.children[0].props.role, 'region');
   assert.ok(!source.includes("name: 'sidebar.footer.action'"));
-  assert.ok(!source.includes("name: 'shell.overlay'"));
+  assert.match(source, /RemoteDshDesktopView/);
+  assert.match(source, /bridge\.acquire/);
+  assert.match(source, /about:blank#/);
+  assert.match(source, /连接完整远端 DSH/);
 });
 
 function fixture() {
