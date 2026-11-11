@@ -5,6 +5,7 @@
  */
 import path from 'node:path';
 import fs from 'node:fs';
+import { prepareRemoteWorkspace } from './workspace-registration.js';
 import { looksVirtual, shellQuote } from './paths.js';
 import { listSshConfigAliases, resolveSshConfig } from './ssh-config.js';
 const PREFIX = '/api/remote-ssh';
@@ -225,6 +226,15 @@ export function createNativeHttpHandler(deps) {
                 throw error(405, `method not allowed: ${req.method} ${route.slice(0, 120)} — the running DSH host plugin build is older than this UI; fully restart the DSH client to reload it`);
             }
             const body = await readBody(req);
+            if (route === '/recent/clear') {
+                // Deleting history is an explicit action, independent of deleting any
+                // DSH workspace or its server-side folder. Use the authenticated
+                // state-changing API with a user-confirmation flag.
+                if (body.confirmed !== true)
+                    throw error(400, 'confirm clearing recent SSH directories');
+                const removed = manager.clearRecentHistory();
+                return send(res, 200, { ok: true, removed });
+            }
             if (route === '/host/add') {
                 const patch = hostPatch(body);
                 const host = manager.addHost({ ...patch, host: text(patch.host, 'host') });
@@ -261,6 +271,16 @@ export function createNativeHttpHandler(deps) {
                 const reconnect = await manager.test(id);
                 return send(res, 200, { ok: true, fingerprint: verified.fingerprint, connected: reconnect.ok, probe: reconnect });
             }
+            // Native project creation flow: return a *real* local placeholder dir.
+            // DSH's own workspace/project picker calls onPicked(localPath), then uses
+            // the standard project registry and session creation path.
+            if (route === '/workspace/prepare') {
+                const hostId = text(body.host, 'host');
+                const remote = text(body.path ?? '~', 'path');
+                const registry = typeof deps.workspaceRegistry === 'function' ? deps.workspaceRegistry() : deps.workspaceRegistry;
+                const prepared = await prepareRemoteWorkspace(manager, hostId, remote, registry);
+                return send(res, 200, { ok: true, ...prepared });
+            }
             if (route === '/workspace/open') {
                 const { id, agent } = resolveSession(deps, body.sessionId);
                 const hostId = text(body.host, 'host');
@@ -283,6 +303,41 @@ export function createNativeHttpHandler(deps) {
                 const cwd = await deps.workingDirectory.set(agent, target);
                 deps.previousCwd.delete(id);
                 return send(res, 200, { ok: true, changed: true, cwd });
+            }
+            // A user-initiated SSH PTY, separate from DSH's built-in local terminal.
+            // All commands run over the already authenticated browser session.
+            if (route.startsWith('/terminal/')) {
+                const terminals = deps.remoteTerminals;
+                if (!terminals)
+                    throw error(503, 'SSH interactive terminal is not available');
+                if (route === '/terminal/open') {
+                    const host = text(body.host, 'host');
+                    const remote = text(body.path ?? '~', 'path');
+                    return send(res, 200, { ok: true, terminal: await terminals.open(host, remote) });
+                }
+                const id = text(body.id, 'terminal id', 100);
+                if (route === '/terminal/read') {
+                    const cursor = typeof body.cursor === 'number' && Number.isSafeInteger(body.cursor) && body.cursor >= 0
+                        ? body.cursor : 0;
+                    return send(res, 200, { ok: true, ...terminals.read(id, cursor) });
+                }
+                if (route === '/terminal/write') {
+                    const input = typeof body.input === 'string' ? body.input : '';
+                    terminals.write(id, input);
+                    return send(res, 200, { ok: true });
+                }
+                if (route === '/terminal/resize') {
+                    const cols = Number(body.cols), rows = Number(body.rows);
+                    if (!Number.isInteger(cols) || !Number.isInteger(rows))
+                        throw error(400, 'invalid terminal size');
+                    terminals.resize(id, cols, rows);
+                    return send(res, 200, { ok: true });
+                }
+                if (route === '/terminal/close') {
+                    terminals.close(id);
+                    return send(res, 200, { ok: true });
+                }
+                throw error(404, 'unknown terminal operation');
             }
             if (route === '/exec') {
                 const hostId = text(body.host, 'host');

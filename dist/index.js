@@ -9,6 +9,10 @@ import { installRemoteSearchShadow } from './remote-search.js';
 import { installShellRouter } from './shell-router.js';
 import { registerManagementTools } from './tools.js';
 import { agentFromCreatedEvent, createNativeHttpHandler } from './http-api.js';
+import { installWorkspaceCleanup } from './workspace-cleanup.js';
+import { RemoteTerminalPool } from './remote-terminal.js';
+import { installNativeTerminalRouter } from './native-terminal-router.js';
+import { installNativeGitRouter } from './native-git-router.js';
 export const name = 'remote-ssh';
 /** The plugin needs the native tool seams before it can route remote work. */
 export const inject = ['fs', 'shell', 'tools', 'workingDirectory', 'systemPrompt', 'webServer', 'connection'];
@@ -72,6 +76,10 @@ export function apply(ctx, config = {}) {
     }
     const agents = new Map();
     const previousCwd = new Map();
+    // The native terminal-controller passes the Agent ID in
+    // spec.env.DSH_SESSION_ID. Record the original DSH Session workspace to
+    // distinguish a real SSH project from a local session with a stale cwd.
+    const terminalSessionOrigins = new Map();
     ctx.on('agent/created', (event) => {
         const agent = agentFromCreatedEvent(event);
         const id = agent?.session?.id ?? agent?.session?.header?.id;
@@ -80,22 +88,67 @@ export function apply(ctx, config = {}) {
             agents.set(id, agent);
             if (agents.size > 80)
                 agents.delete(agents.keys().next().value);
+            const origin = agent.session.header?.cwd;
+            if (typeof origin === 'string' && origin.length > 0) {
+                for (const key of new Set([id, agent.id])) {
+                    if (typeof key !== 'string' || key.length === 0)
+                        continue;
+                    terminalSessionOrigins.delete(key);
+                    terminalSessionOrigins.set(key, origin);
+                }
+                while (terminalSessionOrigins.size > 160) {
+                    const oldest = terminalSessionOrigins.keys().next().value;
+                    if (oldest === undefined)
+                        break;
+                    terminalSessionOrigins.delete(oldest);
+                }
+            }
         }
     }, { global: true });
     ctx.effect(() => {
+        const workspaceCleanup = installWorkspaceCleanup(ctx, manager, storageDir, ctx.logger, {
+            registered: () => {
+                const registry = ctx.get('workspaceRegistry');
+                return typeof registry?.list === 'function' ? registry.list() : [];
+            },
+        });
         const fsHandle = installFsRouter(ctx, manager);
         const shellHandle = installShellRouter(ctx, manager);
         const remoteFs = fsHandle.remoteFs;
         const restoreSearch = installRemoteSearchShadow(ctx, manager, remoteFs);
         const restoreWorkingDirectory = guardWorkingDirectory(ctx);
         registerManagementTools(ctx, manager, remoteFs);
+        // `subprocess` is deliberately an OPTIONAL service. inject (above) is a
+        // hard dependency list: adding it there would refuse to load the entire
+        // plugin on any DSH build that does not expose this exact service name.
+        // Resolve it with ctx.get() and degrade gracefully, like workspaceRegistry.
+        // The native right-side terminal is created by terminalController through
+        // subprocess.spawnTerminal(). Route only when its cwd is an SSH placeholder,
+        // preserving ordinary local/WSL terminals without a second UI surface.
+        const subprocess = ctx.get('subprocess');
+        const nativeTerminal = subprocess && typeof subprocess.spawnTerminal === 'function'
+            ? installNativeTerminalRouter(subprocess, manager, ctx.logger, sessionId => terminalSessionOrigins.get(sessionId))
+            : undefined;
+        if (!nativeTerminal)
+            ctx.logger.warn('remote-ssh: native DSH terminal router unavailable (subprocess service missing)');
+        const nativeGit = subprocess && typeof subprocess.spawn === 'function'
+            ? installNativeGitRouter(subprocess, manager, ctx.logger) : undefined;
+        if (!nativeGit)
+            ctx.logger.warn('remote-ssh: native Git subprocess router unavailable (no subprocess service or spawn()); ' +
+                'sidebar Changes / Code Review will not see remote Git data');
+        const remoteTerminals = new RemoteTerminalPool(manager);
+        const workspaceRegistry = () => ctx.get('workspaceRegistry');
         const unregisterHttp = webServer.register({
             kind: 'prefix',
             path: '/api/remote-ssh',
-            handler: createNativeHttpHandler({ manager, workingDirectory: ctx.workingDirectory, agents, previousCwd, requestRejection: request => connection.requestRejection(request) }),
+            handler: createNativeHttpHandler({ manager, workingDirectory: ctx.workingDirectory, agents, previousCwd, workspaceRegistry, remoteTerminals, requestRejection: request => connection.requestRejection(request) }),
         });
         ctx.logger.info(`remote-ssh: ready (storage ${storageDir})`);
         return () => {
+            nativeGit?.dispose();
+            nativeTerminal?.dispose();
+            remoteTerminals.closeAll();
+            workspaceCleanup.dispose();
             unregisterHttp?.();
             restoreSearch();
             restoreWorkingDirectory();

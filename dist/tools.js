@@ -390,12 +390,27 @@ export function registerManagementTools(ctx, manager, remoteFs) {
     ctx.systemPrompt?.section({
         name: 'plugin:remote-ssh',
         order: 900,
-        text: 'Remote SSH workspaces: use remote_ssh_hosts to configure a host, remote_ssh_test / remote_ssh_trust_host for strict host-key setup, and remote_workspace_open to make a remote directory the session cwd. Native read/write/edit/glob/grep/bash then operate on the remote host with no local mirror. Use remote_workspace_close to return to local work. Never assume a failed remote path is local.',
+        text: ({ agent }) => {
+            if (!agent?.session)
+                return '';
+            try {
+                return remoteWorkspaceShellGuidance(ctx.workingDirectory.get(agent.session));
+            }
+            catch {
+                return '';
+            }
+        },
     });
     ctx.on?.('agent/disposed', (payload) => {
         const agent = payload.agent;
         if (typeof agent?.id === 'string')
             previousCwd.delete(agent.id);
     }, { global: true });
+}
+/** A remote-only shell hint avoids wasting tokens on local DSH sessions. */
+export function remoteWorkspaceShellGuidance(cwd) {
+    if (!looksVirtual(cwd))
+        return '';
+    return 'ACTIVE WORKSPACE: remote Linux via SSH. The shell executor is POSIX (bash by default), even on Windows or when DSH names the tool pwsh. Use Linux/POSIX commands from the FIRST call; do not probe with PowerShell cmdlets or Windows paths. For Git run git rev-parse --show-toplevel and git status --short --branch in the remote workdir, not the local DSH placeholder. Native file tools and shell target the remote host. Create directories before writing files. Never run local Git against the placeholder.';
 }
 //# sourceMappingURL=tools.js.map

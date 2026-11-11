@@ -298,12 +298,36 @@ export class RemoteSshManager {
     recent() {
         return [...this.loadWorkspaces().recent];
     }
+    /**
+     * Clear only the recent-folder navigation history. Registered SSH/DSH
+     * workspaces, their placeholder directories and remote files stay intact.
+     */
+    clearRecentHistory() {
+        const state = this.loadWorkspaces();
+        const removed = state.recent.length;
+        if (removed === 0)
+            return 0;
+        this.saveWorkspaces({ ...state, recent: [] });
+        return removed;
+    }
     workspaceByToken(token) {
         const workspace = this.loadWorkspaces().workspaces.find((entry) => entry.token === token);
         if (workspace === undefined) {
             throw new RemoteSshError('SSH_WORKSPACE_UNKNOWN', `remote workspace ${token} is not registered; reopen it with remote_workspace_open (this is not a local path)`);
         }
         return workspace;
+    }
+    /** Called after DSH has deleted a workspace and its owned empty placeholder. */
+    forgetWorkspace(token) {
+        const state = this.loadWorkspaces();
+        const removed = state.workspaces.find(entry => entry.token === token);
+        if (!removed)
+            return;
+        this.saveWorkspaces({
+            version: 1,
+            workspaces: state.workspaces.filter(entry => entry.token !== token),
+            recent: state.recent.filter(entry => entry.connectionId !== removed.connectionId || entry.remoteRoot !== removed.remoteRoot),
+        });
     }
     rememberWorkspace(workspace) {
         const file = this.loadWorkspaces();
@@ -357,13 +381,30 @@ export class RemoteSshManager {
         this.rememberWorkspace(workspace);
         return { workspace, virtualPath: encodeVirtualPath(token, canonicalRoot), status: connection.status() };
     }
-    /** Synchronously identify the workspace for an fs request without touching the network. */
+    /**
+     * DSH project cwd is an existing local placeholder; the actual files remain
+     * remote. A placeholder root corresponds to workspace.remoteRoot, not '/'.
+     * Never mistake a normal local path for a remote one.
+     */
     routeFor(pathValue, cwd) {
+        const buildRoute = (workspace, remotePath) => {
+            const normalized = path.posix.normalize(remotePath);
+            return {
+                workspace, remotePath: normalized,
+                virtualPath: encodeVirtualPath(workspace.token, normalized),
+                targetKey: `ssh:${workspace.token}:${normalized}`,
+            };
+        };
+        const absoluteRemote = (parsed, workspace) => {
+            if (!parsed.placeholder)
+                return parsed.remotePath;
+            const value = path.posix.join(workspace.remoteRoot, parsed.remotePath);
+            return value.length > 1 && value.endsWith('/') ? value.slice(0, -1) : value;
+        };
         const parsedPath = parseVirtualPath(pathValue);
         if (parsedPath !== null) {
             const workspace = this.workspaceByToken(parsedPath.workspaceToken);
-            const virtualPath = encodeVirtualPath(workspace.token, parsedPath.remotePath);
-            return { workspace, remotePath: parsedPath.remotePath, virtualPath, targetKey: `ssh:${workspace.token}:${parsedPath.remotePath}` };
+            return buildRoute(workspace, absoluteRemote(parsedPath, workspace));
         }
         if (!looksVirtual(cwd))
             return null;
@@ -371,9 +412,9 @@ export class RemoteSshManager {
         if (parsedCwd === null)
             return null;
         const workspace = this.workspaceByToken(parsedCwd.workspaceToken);
-        const remotePath = resolveRemotePath(pathValue, parsedCwd.remotePath, workspace.remoteHome, workspace.token);
-        const virtualPath = encodeVirtualPath(workspace.token, remotePath);
-        return { workspace, remotePath, virtualPath, targetKey: `ssh:${workspace.token}:${remotePath}` };
+        const remoteCwd = absoluteRemote(parsedCwd, workspace);
+        const remotePath = resolveRemotePath(pathValue, remoteCwd, workspace.remoteHome, workspace.token);
+        return buildRoute(workspace, remotePath);
     }
     async resolveRoute(pathValue, cwd) {
         const route = this.routeFor(pathValue, cwd);

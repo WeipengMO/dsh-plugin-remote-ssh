@@ -54,6 +54,17 @@ export declare class SshConnection {
     invalidate(error?: unknown): void;
     reconnect(): Promise<void>;
     /** Run a one-shot remote command over ssh2 (used by diagnostics and search). */
+    /**
+     * Open a real interactive SSH PTY on the already authenticated, host-key-
+     * verified connection. This is separate from DSH's local terminalController.
+     */
+    /**
+     * Native DSH terminal: open one SSH PTY with the remote working directory
+     * selected *before* the interactive shell starts. Unlike shell(), this does
+     * not expose the initial local cwd nor echo a synthetic 'cd' command.
+     */
+    terminalInDirectory(remoteCwd: string, columns?: number, rows?: number, terminalType?: string): Promise<import('ssh2').ClientChannel>;
+    shell(columns?: number, rows?: number): Promise<import('ssh2').ClientChannel>;
     exec(command: string, options?: ExecOptions): Promise<ExecResult>;
     remoteHome(): Promise<string>;
     mapSftpError(error: {

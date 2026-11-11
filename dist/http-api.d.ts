@@ -1,5 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { RemoteSshManager } from './manager.js';
+import { type WorkspaceRegistry } from './workspace-registration.js';
+import type { RemoteTerminalPool } from './remote-terminal.js';
 export interface AgentRef {
     id: string;
     session: {
@@ -21,6 +23,9 @@ export interface NativeApiDeps {
     agents: Map<string, AgentRef>;
     /** Local directory from before the first remote activation per session. */
     previousCwd: Map<string, string>;
+    /** Native DSH project registry; optional when only the built-in project picker is available. */
+    workspaceRegistry?: WorkspaceRegistry | (() => WorkspaceRegistry | undefined);
+    remoteTerminals?: RemoteTerminalPool;
     /** DSH Connection's signed-cookie and Host/Origin admission, fail closed. */
     requestRejection(req: IncomingMessage): number | undefined;
 }

@@ -1,6 +1,15 @@
 import type { RemoteSshManager } from './manager.js';
 import { RemoteFileSystem, type RemoteTarget } from './remote-fs.js';
 type AnyRecord = Record<string, unknown>;
+/**
+ * An absolute *host* path is never a remote path, even when the current cwd
+ * is virtual. DSH workingDirectory.set() resolves every requested path with
+ * a cwd option pointing at the current virtual directory; without this
+ * escape hatch, local paths used by close/cd/recovery would be routed into
+ * the SFTP resolver, which rejects Windows paths and makes a remote session
+ * impossible to leave.
+ */
+export declare function isAbsoluteLocalPath(value: string, cwd?: string, platform?: string): boolean;
 /** Resolve a target object to its remote coordinates, or null for local targets. */
 export declare function remoteTargetOf(target: unknown): RemoteTarget | null;
 export interface FsRouterHandle {

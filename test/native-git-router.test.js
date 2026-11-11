@@ -23,6 +23,49 @@ test('accepts native Forge read-only Git probes and rejects changes', () => {
   assert.equal(forgeGitQuery(['git', 'status']), null);
 });
 
+test('accepts other safety-prefixed read-only probe shapes', () => {
+  // DSH releases vary the number and order of global options before the
+  // subcommand; only their kind (and one safety marker) should matter.
+  assert.ok(forgeGitQuery(['/usr/bin/git', '--no-optional-locks', 'status', '--porcelain=v1']));
+  assert.ok(forgeGitQuery(['git', '-c', 'core.quotepath=false', '-c', 'core.hooksPath=/dev/null',
+    '-c', 'core.fsmonitor=false', 'diff', '--numstat']));
+  assert.ok(forgeGitQuery(['git', '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false',
+    '--literal-pathspecs', 'log', '-5']));
+  assert.ok(forgeGitQuery(['git.exe', '-ccore.quotepath=false', '--no-optional-locks',
+    'rev-parse', '--show-toplevel']));
+  assert.ok(forgeGitQuery([...prefix, 'remote', 'get-url', 'origin']));
+  assert.ok(forgeGitQuery([...prefix, 'symbolic-ref', '--short', 'HEAD']));
+  // A bare git command and any config that could execute helpers stay refused.
+  assert.equal(forgeGitQuery(['git', 'status']), null);
+  assert.equal(forgeGitQuery(['git', '-c', 'core.fsmonitor=!evil', 'status']), null);
+  assert.equal(forgeGitQuery(['git', '-c', 'include.path=/etc/passwd', 'status']), null);
+  assert.equal(forgeGitQuery(['git', '-c', 'core.sshCommand=evil', 'status']), null);
+  assert.equal(forgeGitQuery(['git', '-c', 'core.pager=less', 'status']), null);
+  assert.equal(forgeGitQuery(['git', '-C', '/tmp', '--no-optional-locks', 'status']), null);
+  assert.equal(forgeGitQuery(['git', '--no-optional-locks', 'push', 'origin', 'main']), null);
+  assert.equal(forgeGitQuery(['git', '--no-optional-locks', 'diff', '--output=/tmp/x']), null);
+  assert.equal(forgeGitQuery(['git', '--no-optional-locks', 'symbolic-ref', 'HEAD', 'refs/heads/other']), null);
+});
+
+test('rejected probe shapes are logged for later whitelisting', () => {
+  const warnings = [];
+  const runtime = { spawn(_spec) { return { local: true }; } };
+  const manager = {
+    routeFor() {
+      return { remotePath: '/data/repository', workspace: { token: 'w0123456789abcdef', connectionId: 'host' } };
+    },
+    async connection() { throw new Error('should not connect for a rejected shape'); },
+  };
+  const router = installNativeGitRouter(runtime, manager, {
+    info() {}, warn(message) { warnings.push(message); },
+  });
+  try {
+    assert.throws(() => runtime.spawn(spec(cwd, ['git', 'status'])), /not an authorized read-only Git query/);
+  } finally { router.dispose(); }
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /\["git","status"\]/);
+});
+
 test('native Forge Git reaches SSH repo without leaking into local placeholder', async () => {
   let localCalls = 0, remoteCommand = '';
   const runtime = { spawn(_spec) { localCalls++; return { local: true }; } };

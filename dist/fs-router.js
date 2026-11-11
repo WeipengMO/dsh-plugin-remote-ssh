@@ -34,8 +34,15 @@ function targetFromKey(target) {
  * the SFTP resolver, which rejects Windows paths and makes a remote session
  * impossible to leave.
  */
-function isAbsoluteLocalPath(value) {
-    return !looksVirtual(value) && path.isAbsolute(value);
+export function isAbsoluteLocalPath(value, cwd, platform = process.platform) {
+    if (looksVirtual(value))
+        return false;
+    // On Windows, a POSIX '/data/project' absolute path from a remote Linux
+    // Agent is not '\\data\\project' on the local Windows drive. Keep drive
+    // letters and UNC host paths explicitly local so "return to local" works.
+    if (platform === 'win32' && looksVirtual(cwd) && /^\/(?!\/)/.test(value))
+        return false;
+    return platform === 'win32' ? path.win32.isAbsolute(value) : path.posix.isAbsolute(value);
 }
 /** Resolve a target object to its remote coordinates, or null for local targets. */
 export function remoteTargetOf(target) {
@@ -87,7 +94,7 @@ export function installFsRouter(ctx, manager) {
         // must stay local; only a relative path follows a virtual cwd.
         if (looksVirtual(value))
             return await remoteFs.resolve(value, opts);
-        if (isAbsoluteLocalPath(value))
+        if (isAbsoluteLocalPath(value, opts?.cwd))
             return await originalResolve(pathValue, opts);
         if (looksVirtual(opts?.cwd))
             return await remoteFs.resolve(value, opts);
@@ -103,7 +110,7 @@ export function installFsRouter(ctx, manager) {
         const value = typeof pathValue === 'string' ? pathValue : String(pathValue);
         if (looksVirtual(value))
             return await remoteFs.lstat(value, opts, signal);
-        if (isAbsoluteLocalPath(value))
+        if (isAbsoluteLocalPath(value, opts?.cwd))
             return await originalLstat(pathValue, opts, signal);
         if (looksVirtual(opts?.cwd))
             return await remoteFs.lstat(value, opts, signal);

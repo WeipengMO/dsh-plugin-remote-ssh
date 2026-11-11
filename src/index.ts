@@ -145,6 +145,10 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
     );
     const restoreWorkingDirectory = guardWorkingDirectory(ctx);
     registerManagementTools(ctx as unknown as Parameters<typeof registerManagementTools>[0], manager, remoteFs);
+    // `subprocess` is deliberately an OPTIONAL service. inject (above) is a
+    // hard dependency list: adding it there would refuse to load the entire
+    // plugin on any DSH build that does not expose this exact service name.
+    // Resolve it with ctx.get() and degrade gracefully, like workspaceRegistry.
     // The native right-side terminal is created by terminalController through
     // subprocess.spawnTerminal(). Route only when its cwd is an SSH placeholder,
     // preserving ordinary local/WSL terminals without a second UI surface.
@@ -160,7 +164,10 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
     );
     const nativeGit = subprocess && typeof subprocess.spawn === 'function'
       ? installNativeGitRouter(subprocess, manager, ctx.logger) : undefined;
-    if (!nativeGit) ctx.logger.warn('remote-ssh: native Git subprocess router unavailable');
+    if (!nativeGit) ctx.logger.warn(
+      'remote-ssh: native Git subprocess router unavailable (no subprocess service or spawn()); ' +
+      'sidebar Changes / Code Review will not see remote Git data',
+    );
     const remoteTerminals = new RemoteTerminalPool(manager);
     const workspaceRegistry = (): WorkspaceRegistry | undefined => ctx.get('workspaceRegistry') as WorkspaceRegistry | undefined;
     const unregisterHttp = webServer.register({

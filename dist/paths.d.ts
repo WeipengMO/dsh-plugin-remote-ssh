@@ -8,10 +8,19 @@
  */
 export declare const VIRTUAL_NAMESPACE = "dsh-ssh";
 export declare const IS_WINDOWS: boolean;
+/** Real local directories are required by the DSH project/workspace registry.
+ * These contain NO copies of remote files; they only identify an SSH route.
+ * Stable across plugin upgrades and DSH restarts. Keep outside repo/project trees.
+ */
+export declare function workspacePlaceholderRoot(): string;
+export declare function workspacePlaceholderPath(token: string): string;
+export declare function parseWorkspacePlaceholder(value: string | undefined | null): ParsedVirtualPath | null;
 export interface ParsedVirtualPath {
     workspaceToken: string;
     /** Absolute POSIX path on the remote host. */
     remotePath: string;
+    /** Local, existing DSH workspace directory under our private placeholder root. */
+    placeholder?: boolean;
 }
 /** Deterministic workspace token: same host identity + same root reuses the mapping. */
 export declare function workspaceToken(connectionId: string, remoteRoot: string): string;

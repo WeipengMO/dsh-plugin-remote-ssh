@@ -76,10 +76,21 @@ export declare class RemoteSshManager {
     private saveWorkspaces;
     workspaces(): WorkspaceRecord[];
     recent(): RecentWorkspace[];
+    /**
+     * Clear only the recent-folder navigation history. Registered SSH/DSH
+     * workspaces, their placeholder directories and remote files stay intact.
+     */
+    clearRecentHistory(): number;
     workspaceByToken(token: string): WorkspaceRecord;
+    /** Called after DSH has deleted a workspace and its owned empty placeholder. */
+    forgetWorkspace(token: string): void;
     private rememberWorkspace;
     openWorkspace(hostId: string, inputPath: string | undefined): Promise<OpenResult>;
-    /** Synchronously identify the workspace for an fs request without touching the network. */
+    /**
+     * DSH project cwd is an existing local placeholder; the actual files remain
+     * remote. A placeholder root corresponds to workspace.remoteRoot, not '/'.
+     * Never mistake a normal local path for a remote one.
+     */
     routeFor(pathValue: string, cwd: string | undefined): FsRoute | null;
     resolveRoute(pathValue: string, cwd: string | undefined): Promise<ResolvedRoute | null>;
     ensureKnownHostsFile(connection: SshConnection): Promise<string>;

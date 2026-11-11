@@ -13,7 +13,11 @@ interface ToolContext {
         section(definition: {
             name: string;
             order: number;
-            text: string;
+            text: string | ((context: {
+                agent?: {
+                    session?: unknown;
+                };
+            }) => string);
         }): unknown;
     };
     logger?: {
@@ -31,4 +35,6 @@ interface ToolContext {
  * transparently against the selected virtual cwd.
  */
 export declare function registerManagementTools(ctx: ToolContext, manager: RemoteSshManager, remoteFs: RemoteFileSystem): void;
+/** A remote-only shell hint avoids wasting tokens on local DSH sessions. */
+export declare function remoteWorkspaceShellGuidance(cwd: string): string;
 export {};
