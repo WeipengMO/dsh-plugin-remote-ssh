@@ -23,3 +23,11 @@ Host Cordis 插件通过 `dist/index.js` 装载，与 DSH Agent 共享 `ctx.fs`�
 - Shell Router 使用 OpenSSH `StrictHostKeyChecking=yes`、`BatchMode=yes`，禁用密码、交互认证与端口转发。
 - 远程目录不可用时，插件通过 workingDirectory.set() 显式恢复会话原始本地目录（提交事件并保留 DSH 通知），而不是静默回退，也不会让 system-prompt 组装失败。
 - 本插件不是浏览器多用户访问控制系统；拥有可写 Agent 会话的已授权 DSH operator 自然拥有相应远程 SSH 执行权限。
+
+## v1.4：独立远端 DSH Web Host
+
+新增 `src/dsh-web-tunnel.ts`，管理 Windows DSH Desktop Host 上按 SSH 主机划分的本机 `127.0.0.1:0` TCP listener。每个入站浏览器 TCP socket 通过严格主机密钥校验的 `SshConnection.forwardLoopback()` 创建 SSH `direct-tcpip` channel，转发到 Linux 服务器自身的 `127.0.0.1:<port>`。该链路对 HTTP/WebSocket 字节透明，不代理令牌也不访问远端 DSH Host API。托管隧道必须来自 DSH `desktop` profile；非 Desktop 使用用户所在电脑的手动 `ssh -L`。
+
+新增 `/dsh/check`、`/dsh/tunnel/open`、`/dsh/tunnel/close` API，沿用 DSH 登录认证、Origin/Host 与专用请求头验证。连接状态通过 `/state.remoteDsh` 返回。关闭主机/退出插件立即释放 listener 与套接字。新模式**不修改现有 `ctx.fs`、`ctx.shell`、`subprocess.spawn()` 路由**，也不把 Windows Session 迁移到远端 DSH，远端的 Git/Forge/Shell 直接由完整 Linux DSH Web 服务提供。旧工作区模式保留。
+
+查看 [远端 DSH Host 使用说明](remote-dsh-host.md)。
