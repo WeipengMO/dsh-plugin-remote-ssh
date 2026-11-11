@@ -314,3 +314,49 @@
   .rss-pty-dialog .rss-pty-input input { color: #fff; background: #30333c; border-color: #545a66; }
   .rss-pty-title code { color: #a1aac1; }
 }
+
+
+/* Compact native workspace picker controls: equal-height icon buttons and a
+   deliberately inset SSH host chevron, consistent in light and dark DSH. */
+.rss-directory-dialog .rss-project-select-wrap {
+  position: relative; display: block; width: 100%; min-width: 0;
+}
+.rss-directory-dialog .rss-project-select-wrap select {
+  display: block; width: 100%; min-height: 38px;
+  padding: 8px 42px 8px 12px !important; appearance: none;
+  -webkit-appearance: none; cursor: pointer; line-height: 20px;
+}
+.rss-directory-dialog .rss-project-select-chevron {
+  position: absolute; top: 50%; right: 14px; transform: translateY(-50%) rotate(90deg);
+  display: inline-flex; align-items: center; justify-content: center;
+  pointer-events: none; color: currentColor; opacity: .65;
+}
+.rss-directory-dialog .rss-project-path-row {
+  display: flex; align-items: stretch; gap: 7px; min-width: 0;
+}
+.rss-directory-dialog .rss-project-path-row form {
+  display: flex; gap: 7px; min-width: 0; flex: 1 1 auto; align-items: stretch;
+}
+.rss-directory-dialog .rss-project-path-row input {
+  min-width: 0; width: 100%; flex: 1 1 auto;
+  min-height: 38px; height: 38px; padding: 8px 11px !important;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.rss-directory-dialog .rss-project-path-row button.rss-project-nav-button {
+  flex: 0 0 38px; width: 38px; min-width: 38px; height: 38px;
+  min-height: 38px; padding: 0; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.rss-directory-dialog .rss-project-path-row button.rss-project-nav-button:hover:not(:disabled) {
+  background: color-mix(in srgb, currentColor 9%, transparent);
+}
+.rss-directory-dialog .rss-project-path-row button.rss-project-nav-button:disabled {
+  opacity: .45; cursor: default;
+}
+@media(max-width:440px) {
+  .rss-directory-dialog .rss-project-path-row { flex-wrap: nowrap; }
+  .rss-directory-dialog .rss-project-path-row form { flex-basis: auto; }
+  .rss-directory-dialog .rss-project-path-row button.rss-project-nav-button {
+    flex-basis: 34px; width: 34px; min-width: 34px;
+  }
+}
