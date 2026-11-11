@@ -83,6 +83,8 @@ function fixture() {
   let trusted = false;
   let probeFingerprint = 'SHA256:ABCDEFGHIJKLMNOP';
   const hosts = [{ id: 'h1', label: 'GPU host', host: 'gpu.example.com' }];
+  const recentEntries = [];
+  const savedWorkspaces = [{ token: 'existing-workspace', connectionId: 'h1', remoteRoot: '/home/research/project' }];
   const conn = {
     async remoteHome() { return '/home/research'; },
     sftp: {
@@ -97,7 +99,10 @@ function fixture() {
     async exec(command) { return { code: 0, stdout: command, stderr: '', truncated: false }; },
   };
   const manager = {
-    hosts() { return hosts; }, effectiveConfig() { return { identityFiles: [], proxyCommand: undefined }; }, statuses() { return [{ id: 'h1', state: 'ready' }]; }, recent() { return []; },
+    hosts() { return hosts; }, effectiveConfig() { return { identityFiles: [], proxyCommand: undefined }; }, statuses() { return [{ id: 'h1', state: 'ready' }]; },
+    recent() { return [...recentEntries]; }, testSeedRecent(entry) { recentEntries.push(entry); },
+    workspaces() { return [...savedWorkspaces]; },
+    clearRecentHistory() { const removed = recentEntries.length; recentEntries.length = 0; return removed; },
     getHost(id) { const match = hosts.find(h => h.id === id); if (!match) throw Object.assign(Error('not found'), { code: 'SSH_HOST_NOT_FOUND' }); return match; },
     addHost(host) { const newHost = { ...host, id: 'h' + (hosts.length + 1) }; hosts.push(newHost); return newHost; },
     updateHost(id, patch) { const host = this.getHost(id); Object.assign(host, patch); return host; },
@@ -156,6 +161,28 @@ test('native API rejects unauthenticated requests and browser CSRF before readin
     assert.equal(success.data.host.port, 2222);
     const invalidPort = await call('/host/add', { host: 'third.example.com', port: 0 });
     assert.equal(invalidPort.status, 400);
+  });
+});
+
+test('clearing SSH recent folders requires confirmation and never removes registered workspaces', async () => {
+  await withServer(async ({ call, manager, setAuthorized }) => {
+    manager.testSeedRecent({ connectionId: 'h1', remoteRoot: '/home/research/project', hostLabel: 'GPU host' });
+    manager.testSeedRecent({ connectionId: 'h1', remoteRoot: '/tmp', hostLabel: 'GPU host' });
+    const before = manager.workspaces();
+    assert.equal((await call('/state')).data.recent.length, 2);
+    assert.equal((await call('/recent/clear', {})).status, 400);
+    assert.equal((await call('/state')).data.recent.length, 2);
+    const csrf = await call('/recent/clear', { confirmed: true }, { headers: { 'x-dsh-remote-ssh': '' } });
+    assert.equal(csrf.status, 403);
+    setAuthorized(false);
+    assert.equal((await call('/recent/clear', { confirmed: true })).status, 401);
+    setAuthorized(true);
+    const removed = await call('/recent/clear', { confirmed: true });
+    assert.equal(removed.status, 200);
+    assert.equal(removed.data.removed, 2);
+    assert.deepEqual(manager.workspaces(), before, 'clearing history must not remove DSH workspaces');
+    assert.deepEqual((await call('/state')).data.recent, []);
+    assert.equal((await call('/recent/clear', { confirmed: true })).data.removed, 0);
   });
 });
 
