@@ -46,13 +46,15 @@ test('client registers settings plus native remote project directory flows', () 
   result.apply({
     effect(callback) { callback(); },
     slots: {
-      inject(slot, callback) { assert.ok(['settings.section', 'conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow'].includes(slot)); const result = callback(); if (result && result[Symbol.iterator]) for (const _ of result) { /* Cordis effect iterator */ } },
+      inject(slot, callback) { assert.ok(['settings.section', 'conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow', 'sidebar.right.tab.guide.actions'].includes(slot)); const result = callback(); if (result && result[Symbol.iterator]) for (const _ of result) { /* Cordis effect iterator */ } },
       register(record, component) { registrations.push({ record, component }); return () => {}; },
     },
   });
-  assert.equal(registrations.length, 3);
-  assert.deepEqual(registrations.slice(1).map(x => x.record.name), ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow']);
-  assert.ok(registrations.slice(1).every(x => x.record.priority === -2));
+  assert.equal(registrations.length, 4);
+  assert.equal(registrations[1].record.name, 'sidebar.right.tab.guide.actions');
+  assert.equal(registrations[1].record.id, 'remote-ssh-terminal');
+  assert.deepEqual(registrations.slice(2).map(x => x.record.name), ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow']);
+  assert.ok(registrations.slice(2).every(x => x.record.priority === -2));
   assert.ok(registrations.slice(1).every(x => typeof x.record.inject === 'function'));
   assert.ok(registrations.slice(1).every(x => typeof x.component === 'function'));
   assert.ok(!source.includes("h('section', { className: 'rss-session' }"));
@@ -210,6 +212,9 @@ test('compact Settings UI keeps a single-column, theme-safe, accessible structur
   assert.match(source, /'aria-live': 'polite'/);
   assert.match(source, /'添加为 DSH 工作区'/);
   assert.match(source, /'rss-project-flow'/);
+  assert.match(source, /'rss-directory-dialog'/);
+  assert.match(source, /'aria-modal': true/);
+  assert.match(source, /'RemoteTerminalAction'/);
   assert.doesNotMatch(source, /来自 SSH Config/);
   assert.match(source, /'主机地址 \/ HostName'/);
 });
