@@ -267,7 +267,7 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
         // Auto-import only an exact Host listed by the operator's OpenSSH config.
         // Registering an alias never trusts an unknown SSH host key.
         const alias = text(body.alias, 'alias', 253);
-        if (alias.startsWith('-') || /[\\s\\0*?]/.test(alias) || !listSshConfigAliases().includes(alias)) {
+        if (alias.startsWith('-') || /[\s\0*?]/.test(alias) || !listSshConfigAliases().includes(alias)) {
           throw error(400, 'alias must match a concrete ~/.ssh/config Host');
         }
         const existing = manager.hosts().find(host => host.host === alias || host.sshAlias === alias);

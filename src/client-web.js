@@ -53,7 +53,9 @@ window.__ModuleLoader__.load({
             if (response.status === 405 || /method not allowed/i.test(message)) {
               throw Error('服务端 Remote SSH 插件版本过旧，无法读取 SSH Config。请完全退出并重启 DSH 客户端（不是仅刷新页面），再硬刷新本页后重试。原始错误：' + message);
             }
-            throw Error(message);
+            const error = Error(message);
+            error.code = data.code || 'SSH_API_ERROR';
+            throw error;
           }
           return data;
         });
