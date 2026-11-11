@@ -42,7 +42,7 @@ test('client registers settings plus native remote project directory flows', () 
   };
   const source = fs.readFileSync(path.join(root, 'lib', 'client.js'), 'utf8');
   vm.runInNewContext(source, sandbox);
-  assert.deepEqual([...result.inject], ['slots', 'workspaces']);
+  assert.deepEqual([...result.inject], ['slots', 'workspaces', 'uiWorkspace']);
   result.apply({
     effect(callback) { callback(); },
     slots: {
@@ -53,7 +53,14 @@ test('client registers settings plus native remote project directory flows', () 
   assert.equal(registrations.length, 3);
   assert.deepEqual(registrations.slice(1).map(x => x.record.name), ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow']);
   assert.ok(registrations.slice(1).every(x => x.record.priority === -2));
-  assert.ok(registrations.slice(2).every(x => typeof x.record.inject === 'function'));
+  assert.ok(registrations.slice(1).every(x => typeof x.record.inject === 'function'));
+  const localPicker = registrations[1].record.inject().pickDirectory;
+  assert.equal(typeof localPicker, 'function');
+  // The official API is uiWorkspace.pickDirectory, NOT workspaces.pickDirectory.
+  assert.ok(source.includes('ctx.uiWorkspace.pickDirectory()'));
+  assert.ok(!source.includes('ctx.workspaces.pickDirectory()'));
+  assert.match(source, /rss-project-select-wrap/);
+  assert.match(source, /'aria-label': '跳转目录'/);
   assert.ok(registrations.slice(1).every(x => typeof x.component === 'function'));
   assert.ok(!source.includes("h('section', { className: 'rss-session' }"));
   assert.equal(registrations[0].record.name, 'settings.section');
