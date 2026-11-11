@@ -149,6 +149,7 @@ export class SshNativeTerminal implements NativeTerminalHandle {
 export function installNativeTerminalRouter(
   runtime: SubprocessProvider,
   manager: Pick<RemoteSshManager, 'routeFor' | 'connection'>,
+  logger?: { info(message: string): void },
 ): { dispose(): void } {
   const original = runtime.spawnTerminal;
   if (typeof original !== 'function') throw new Error('DSH subprocess.spawnTerminal is unavailable');
@@ -160,6 +161,8 @@ export function installNativeTerminalRouter(
       throw new RemoteSshError('SSH_WORKSPACE_UNKNOWN',
         'Remote terminal cannot map this DSH workspace to an SSH host; refusing local fallback');
     }
+    logger?.info('remote-ssh: native DSH terminal routed to SSH host ' +
+      route.workspace.connectionId + ' cwd=' + route.remotePath);
     const conn = await manager.connection(route.workspace.connectionId);
     const channel = await conn.terminalInDirectory(
       route.remotePath, spec.cols, spec.rows, spec.terminalType || 'xterm-256color',
