@@ -302,6 +302,23 @@ export class SshConnection {
   }
 
   /** Run a one-shot remote command over ssh2 (used by diagnostics and search). */
+  /**
+   * Open a real interactive SSH PTY on the already authenticated, host-key-
+   * verified connection. This is separate from DSH's local terminalController.
+   */
+  async shell(columns = 90, rows = 25): Promise<import('ssh2').ClientChannel> {
+    await this.ensureReady();
+    const client = this.client;
+    if (!client) throw new RemoteSshError('SSH_CONNECTION_LOST', 'SSH channel is not connected');
+    return await new Promise((resolve, reject) => {
+      client.shell({ term: 'xterm-256color', cols: Math.min(250, Math.max(20, columns)),
+        rows: Math.min(100, Math.max(5, rows)) }, (err, channel) => {
+        if (err) reject(new RemoteSshError('SSH_CHANNEL_FAILED', 'failed to open SSH terminal: ' + err.message));
+        else resolve(channel);
+      });
+    });
+  }
+
   async exec(command: string, options: ExecOptions = {}): Promise<ExecResult> {
     await this.ensure();
     const client = this.client;
