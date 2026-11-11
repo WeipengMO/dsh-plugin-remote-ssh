@@ -6,11 +6,11 @@ import { installNativeTerminalRouter } from '../dist/native-terminal-router.js';
 import { workspaceToken, workspacePlaceholderPath } from '../dist/paths.js';
 
 class FakePty extends PassThrough {
-  constructor() { super(); this.written = []; this.sizes = []; this.signals = []; this.closed = false; }
+  constructor() { super(); this.written = []; this.sizes = []; this.signals = []; this.closedFlag = false; }
   write(data, callback) { this.written.push(data); if (typeof callback === 'function') callback(); return true; }
   setWindow(rows, cols, width, height) { this.sizes.push([rows, cols, width, height]); }
   signal(signal) { this.signals.push(signal); }
-  close() { if (this.closed) return; this.closed = true; this.emit('close', 0, null); this.end(); }
+  close() { if (this.closedFlag) return; this.closedFlag = true; this.emit('close', 0, null); this.end(); }
 }
 const cwd = workspacePlaceholderPath(workspaceToken('host1', '/data/project'));
 function fixture() {
@@ -68,7 +68,7 @@ test('native DSH right-sidebar terminal opens remote SSH xterm by mapped cwd', a
     assert.deepEqual(f.pty.sizes, [[30, 90, 0, 0]]);
     await assert.rejects(() => h.signalForeground('SIGINT'), /process-group ID/);
     await h.terminate();
-    assert.equal(f.pty.closed, true);
+    assert.equal(f.pty.closedFlag, true);
     assert.deepEqual(await h.done, { exitCode: 0, signal: null });
   } finally { f.installed.dispose(); }
 });
@@ -85,18 +85,15 @@ test('local or WSL workspace delegates byte-for-byte to native subprocess provid
   assert.strictEqual(f.runtime.spawnTerminal, f.original, 'must restore original provider');
 });
 
-test('no local fallback if SSH placeholder lookup fails', async () => {
-  const f = fixture();
+test('unknown remote placeholder fails without starting local subprocess', async () => {
+  const localCalls = [];
+  const runtime = { spawnTerminal: async value => { localCalls.push(value); return {}; } };
+  const installed = installNativeTerminalRouter(runtime, {
+    routeFor() { return null; },
+    async connection() { throw Error('should not connect'); },
+  });
   try {
-    const original = f.runtime.spawnTerminal;
-    const bad = installNativeTerminalRouter({ spawnTerminal: async () => {
-      throw Error('should not fall back');
-    } }, {
-      routeFor() { return null; },
-      async connection() { throw Error('should not connect'); },
-    });
-    // Simulate a detached manager after workspace deletion without touching local provider.
-    bad.dispose();
-    assert.notStrictEqual(original, f.original);
-  } finally { f.installed.dispose(); }
+    await assert.rejects(() => runtime.spawnTerminal(spec), /refusing local fallback/);
+    assert.equal(localCalls.length, 0);
+  } finally { installed.dispose(); }
 });
