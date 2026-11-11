@@ -62,3 +62,11 @@ v1.0.7 修复：
 使用建议：在**目标会话**里发一条消息（让 `agent/created` 产生 Agent），再在面板选该会话点「使用此目录」；看到成功提示后切到该会话使用。若会话列表没有目标会话，先刷新。要退出远程工作区用面板「返回本地」或 `remote_workspace_close`。
 
 升级后必须**完全退出 DSH 客户端并重启**（ESM 缓存不会重载 host 插件），然后硬刷新页面。
+
+## 新的远端 DSH Host 模式（v1.4）
+
+- 如果 Windows 侧「变更请求」仍显示 Git 读取失败，先确认你是否仍在使用**旧 SSH 工作区占位目录**。推荐在 **Linux DSH Web** 中打开真正的 Git checkout；两个 DSH Host 的面板独立。
+- 若「建立本机隧道」提示 `SSH direct-tcpip forwarding failed`，确认远端 DSH Web 正在对应端口监听，且 SSHD 允许 `AllowTcpForwarding`。不要关闭 SSH Host Key 检查。
+- Web Profile 无法使用托管隧道属于预期：本地 127.0.0.1 与浏览器不一定同机。改在浏览器所在的 Windows 使用 `ssh -N -L 13080:127.0.0.1:3080 host`。
+- 不要直接打开隧道的根 URL。登录必须保留远端 DSH 启动输出中完整的带令牌 URL；不要粘贴令牌到 Agent 聊天中。
+- 详细操作参见 [remote-dsh-host.md](remote-dsh-host.md)。

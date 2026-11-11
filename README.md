@@ -1,97 +1,70 @@
 # DSH Remote SSH
 
 [![Build](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml/badge.svg)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml)
-[![MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**直接在 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 中打开远程 Linux 项目。** 通过 SSH/SFTP 让 Agent 的文件读写、代码搜索和 Shell 操作运行在服务器上；同时将 DSH 右侧的原生终端连接到当前远程项目。无需把源码同步到本机，也不需要 VS Code Server。
+在 Windows [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 中管理 Linux SSH 主机。**v1.4 开始推荐「远端 DSH Host」模式**：在 Linux 上运行完整 DSH Web，让 Git、Agent、Shell 和文件系统都运行在服务器；Windows DSH Desktop 负责管理 SSH 连接及建立访问通道。旧 SSH 工作区 / SFTP / 原生终端功能保留为兼容模式。
 
-## 主要功能
+## 两种工作方式
 
-- **原生工作区**：新建 DSH 项目时选择「远程 SSH」主机和源文件夹，之后像本地项目一样从侧边栏打开。
-- **SSH 主机管理**：支持导入 `~/.ssh/config`、SSH 密钥与 ssh-agent、服务器指纹核验；支持受限的 Cloudflare Access 代理。
-- **远程开发**：Agent 的 `read`、`write`、`edit`、`glob`、`grep`、Shell 和右侧 xterm 终端访问同一个远程文件系统。
-- **本地/远程隔离**：只有已确认属于远程 SSH 项目的终端才走 SSH；本地项目仍使用 DSH 原来的 Windows/WSL 终端。
-- **安全清理**：从 DSH 删除远程工作区时，仅尝试清理已识别且为空的本机占位目录，不删除服务器上的项目。
+| | 远端 DSH Host（推荐） | SSH 工作区（兼容） |
+|---|---|---|
+| Agent 执行 | Linux DSH Host 原生执行 | Windows DSH 的 Agent 通过 SSH 发送命令 |
+| Git / Forge | 远端 DSH 直接读取真实 Linux checkout | Windows 占位目录 + 只读 Git 查询桥接，兼容性有限 |
+| 文件与终端 | 远端 DSH 原生文件工具和终端 | SFTP、Shell、SSH PTY 转发 |
+| 界面 | Windows 浏览器中的独立 Linux DSH Web | Windows DSH Desktop 本身 |
+| 会话/模型配置 | 独立的 Linux DSH 实例 | 原 Windows DSH 实例 |
 
-## 安装
+> **重点：**「远端 DSH Host」不是把现有 Windows Agent/Session 切换到另一台电脑，而是打开一个独立的 Linux DSH Web 实例。未连接前不要期待原 Windows DSH 的右侧 Git 面板能够显示服务器 Git 状态。
 
-在 [GitHub Releases](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases) 下载最新的 `dsh-plugin-remote-ssh-X.Y.Z.tgz`（预览版 Release 也包含安装包）。
+## 安装插件
 
-完全退出 DSH 桌面客户端（包括托盘进程），在 Windows PowerShell 中运行：
+在 [GitHub Releases](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases) 下载带 \`dsh-plugin-remote-ssh-X.Y.Z.tgz\` 的构建包，完全退出 DSH Desktop（含托盘）后在 Windows PowerShell 运行：
 
-```powershell
+\`\`\`powershell
 dsh plugin --profile desktop add "C:\path\to\dsh-plugin-remote-ssh-X.Y.Z.tgz"
-```
+\`\`\`
 
-如果使用 DSH Web 服务，则在运行 Web 服务的电脑上安装：
+重启 DSH Desktop。Web Profile 需使用 \`--profile web\` 分别安装；两个 profile 不共享插件或会话状态。
 
-```bash
-dsh plugin --profile web add /path/to/dsh-plugin-remote-ssh-X.Y.Z.tgz
-```
+## 快速开始：远端 DSH Host
 
-`desktop` 与 `web` 是独立的插件 profile。安装或更新后，**完全重启对应的 DSH 进程**；如果界面和 Host 版本不一致，检查是否安装到了正确的 profile。
+1. 在 **设置 → Remote SSH** 导入 \`~/.ssh/config\` 或添加主机，**独立核对** SSH Host Key SHA256 指纹并确认。
+2. 选中主机 → **远端 DSH** → **检查环境**。远端 Linux 推荐 Node.js ≥24.9、Git。原生 PR 功能需 \`gh\`。
+3. 在独立 SSH 终端运行：
+   \`\`\`bash
+   npx -y @deepseek-ai/dsh --profile web --no-open --port 3080
+   \`\`\`
+   终端会打印含访问令牌的 \`dsh web:\` URL；令牌不应分享到任何聊天、Git 或公开日志。
+4. 插件页面点击 **建立本机隧道**。此按钮只在 Windows DSH Desktop 同机浏览器模式可用，通道仅监听本机 \`127.0.0.1\`。远端 DSH 必须已启动并允许 SSH TCP forwarding。
+5. 粘贴远端 DSH 启动时打印的完整 URL，点击 **在浏览器打开远端 DSH**。在新页面中打开真实 Linux 项目并在 Official 插件中启用 **Change requests & worktrees**。
 
-## 使用方法
+[完整部署指南、手动 SSH 转发、安全边界与故障排查](docs/remote-dsh-host.md)
 
-**1. 添加服务器。** 打开 **设置 → Remote SSH → 添加主机**。可以选择 `~/.ssh/config` 中的别名，也可以手动填写地址、用户名、端口和私钥路径。点击「测试连接」，首次连接时核对主机 SHA256 指纹。
+## 保留的 SSH 工作区兼容功能
 
-示例 SSH Config：
+**文件浏览（兼容）**：浏览远端文件并将目录登记为 Windows DSH 的工作区。Agent 文件工具/Shell、原生终端在现有实现中通过 SSH 路由；远程 Git 查询有只读桥接，但 Windows 占位路径与 Linux 真实 Git 路径跨系统映射不保证完整的 Forge 功能。可用来编辑文件、运行命令，不建议用它承载复杂 Git worktrees。
 
-```sshconfig
-Host nansha
-    HostName 192.0.2.10
-    User researcher
-    IdentityFile ~/.ssh/id_ed25519
-```
+**快速命令**：在选定 Linux 目录执行一次性命令；不等同于远端 DSH Web 的完整 Agent。SSH 主机支持严格指纹校验、密钥/ssh-agent、SSH Config 和受限 ProxyCommand；最近目录历史可以单独清理，不会删除远程文件。
 
-**2. 打开远程项目。** 点击 DSH **新建项目 → 源文件夹 → 远程 SSH**，选择主机和 Linux 目录（如 `/home/researcher/project`），点击「使用此远程文件夹」并创建项目。也可从设置页浏览远程目录后添加为工作区。「最近使用的远程目录」支持**清空历史**，只删除访问记录，不影响已添加的工作区或服务器文件。
+## 安全和限制
 
-**3. 使用原生终端。** 打开远程项目，在 DSH 右侧点击 **「+」新建终端**。终端应直接进入所选 Linux 项目目录。用 `pwd; uname -s; hostname` 核对位置；本地工作区应打开本地终端，而不是连接 SSH。
+- Windows Desktop 托管的 DSH Web TCP 隧道**仅绑定 127.0.0.1 的随机端口**；不会公开监听、不会自动启动 DSH、不会持久化 Web token。浏览器 URL token 只在 UI 内存中转换。
+- 本地隧道关闭或插件退出不会结束远端 DSH。远端 DSH Web 保持 loopback 监听，并应使用 SSH 转发而不是开放公网端口。
+- 对于非同机浏览器（DSH Web/WSL 等），必须在浏览器所在的机器建立手动 \`ssh -L\` 转发；插件不会错把 Host 的 loopback 当作浏览器的 loopback。
+- Windows 与 Linux 的 DSH Host 之间**不共享**模型配置、会话、插件和 Agent 状态。
+- 推荐的 Linux Web 路线不依赖旧占位目录，但并未移除老功能；不应把占位目录内的空内容当作远端真实源码。
 
-### 终端快捷键
+## 开发
 
-| 操作 | 行为 |
-| --- | --- |
-| Ctrl+C（选中了终端文本） | 复制选中文本 |
-| Ctrl+C（没有选中） | 向正在运行的命令发送中断 |
-| Ctrl+V | 从系统剪贴板粘贴到终端 |
-| Ctrl+Shift+V | 保留 xterm/系统原生粘贴方式 |
-| 光标 | DSH 右侧原生终端显示竖线光标 |
-
-快捷键处理仅在 DSH 原生**终端区域**生效，不覆盖聊天输入框或其他页面。剪贴板读写须获得桌面客户端/浏览器允许；如果 Ctrl+V 受系统权限限制，可尝试 Ctrl+Shift+V。
-
-## 工作原理与安全限制
-
-DSH 需要本地项目路径，因此插件会登记一个 **本机占位目录**（`~/.dsh/remote-ssh-workspaces/<token>`），将它映射到 SSH 服务器上的真实目录。**占位目录不是源码副本**；不要在其中存放自己的文件。
-
-插件使用已认证的 SSH/SFTP 连接路由文件、搜索及 Shell 操作。原生终端按会话与工作区身份决定运行位置，避免误将本地命令发到服务器。SSH 映射失效时不会静默回退为本地执行。
-
-注意以下边界：
-
-- 使用前核对 SSH 服务器指纹；Windows 私钥路径必须对当前运行 DSH 的系统有效。
-- 远程账号可能读取工作区以外的服务器文件；SSH 账户权限才是真正的访问控制。
-- SSH 断线后可能需要重新打开终端；本插件不是完整的 VS Code Server/远程 DSH Host。
-- DSH Host 如果运行在 WSL，原生 Shell 列表可能只显示 Linux Shell；本插件不会修改 PowerShell 等本地 Shell 的发现逻辑。
-- 当前未提供完整远程调试器、扩展宿主或可视化端口转发管理。避免与其他接管同一 DSH 工作区选择器的 Remote SSH 插件同时启用。
-
-## 开发与发布
-
-环境：Node.js 22、pnpm 10。
-
-```bash
-corepack enable
+\`\`\`bash
 pnpm install --frozen-lockfile --ignore-scripts
 pnpm test
 pnpm pack
-```
+\`\`\`
 
-GitHub Actions 在 **PR** 中构建并测试；推送 `main` 成功后自动发布附带 `.tgz` 的 **GitHub Releases 预览版**；推送与 `package.json` 版本一致的 `vX.Y.Z` 标签会生成正式 Release。**不使用 GitHub Packages**。
+发布包必须包含最新 \`dist/\`、\`lib/client.js\` 和 \`cordis.patch.yml\`。GitHub Actions 构建并运行测试，main 提交成功后发布开发预览包。
 
-进一步了解：[架构](docs/architecture.md) · [常见问题](docs/troubleshooting.md) · [第三方组件](docs/THIRD_PARTY.md)
-
-[MIT License](LICENSE)
-
-### 远程 Git 与命令环境
-
-远程工作区的原生 Git 状态查询通过 SSH 访问服务器上的实际仓库，不会在本地占位目录创建假 `.git`。当前仅路由 DSH 原生面板的只读 Git 探测；涉及 Git 写入、worktree 创建等操作请使用远端 Agent Shell。SSH 会话的 Agent 会自动收到 POSIX 环境提示，本地会话不注入此提示。终端使用闪烁竖线光标。
-
+- [远端 DSH Host 详细指南](docs/remote-dsh-host.md)
+- [架构](docs/architecture.md)
+- [排障](docs/troubleshooting.md)
+- [许可证](LICENSE)

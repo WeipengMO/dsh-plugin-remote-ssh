@@ -526,3 +526,21 @@ body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block
 body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block.xterm-cursor-blink {
   animation: rss-terminal-bar-blink 1s step-end infinite !important;
 }
+
+/* Independent remote Linux DSH Host onboarding. Never style outside Settings. */
+.rss-settings-container .rss-dsh-tab{display:flex;flex-direction:column;gap:14px;min-width:0;padding:15px 0 8px}
+.rss-settings-container .rss-dsh-intro{padding:10px 12px;background:var(--rss-subtle);border:1px solid var(--rss-line);border-radius:9px}
+.rss-settings-container .rss-dsh-intro strong{font-size:12px}
+.rss-settings-container .rss-dsh-intro p,.rss-settings-container .rss-dsh-step p{margin:5px 0;font-size:11.5px;color:var(--rss-secondary);line-height:1.6}
+.rss-settings-container .rss-dsh-step{display:flex;flex-direction:column;align-items:flex-start;gap:7px;padding-bottom:13px;border-bottom:1px solid var(--rss-line);min-width:0}
+.rss-settings-container .rss-dsh-step strong{font-size:12.5px}
+.rss-settings-container .rss-dsh-step-title,.rss-settings-container .rss-dsh-tunnel{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-width:0}
+.rss-settings-container .rss-dsh-command{display:flex;align-items:center;gap:8px;border:1px solid var(--rss-line);border-radius:7px;padding:8px 10px;width:100%;min-width:0;background:var(--rss-subtle)}
+.rss-settings-container .rss-dsh-command code,.rss-settings-container .rss-dsh-tunnel code{overflow-wrap:anywhere;word-break:break-word;min-width:0;flex:1;font-size:11px}
+.rss-settings-container .rss-dsh-command button{border:0;cursor:pointer;background:transparent;color:var(--rss-secondary);padding:3px}
+.rss-settings-container .rss-dsh-output{max-height:175px;overflow:auto;white-space:pre-wrap;word-break:break-word;font:11px/1.55 ui-monospace,Consolas,monospace;border:1px solid var(--rss-line);background:var(--rss-subtle);padding:9px;border-radius:7px;width:100%;margin:0}
+.rss-settings-container .rss-dsh-port{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--rss-secondary)}
+.rss-settings-container .rss-dsh-port input{width:82px;min-height:30px;border:1px solid var(--rss-line);background:var(--rss-bg);border-radius:6px;color:var(--rss-text);padding:4px 7px}
+.rss-settings-container .rss-dsh-access{width:100%;min-height:34px;border-radius:7px;border:1px solid var(--rss-line);background:var(--rss-bg);color:var(--rss-text);padding:7px 9px;font:11px ui-monospace,Consolas,monospace}
+.rss-settings-container .rss-dsh-footer{font-size:11px;color:var(--rss-secondary);line-height:1.6;margin:0}
+@media(max-width:520px){.rss-settings-container .rss-dsh-step-title,.rss-settings-container .rss-dsh-tunnel{flex-wrap:wrap}.rss-settings-container .rss-tabs{gap:8px;overflow-x:auto}}
