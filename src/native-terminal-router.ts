@@ -171,5 +171,7 @@ export function installNativeTerminalRouter(
     return new SshNativeTerminal(channel, spec);
   };
   runtime.spawnTerminal = routed;
-  return { dispose() { if (runtime.spawnTerminal === routed) runtime.spawnTerminal = original; } };
+  // Cordis can wrap service methods with traced proxies; comparing a later
+  // read to 'routed' is not reliable. Restore the saved original unconditionally.
+  return { dispose() { runtime.spawnTerminal = original; } };
 }
