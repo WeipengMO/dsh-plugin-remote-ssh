@@ -530,6 +530,129 @@ window.__ModuleLoader__.load({
             picking ? '正在打开…' : '使用此远程文件夹')))));
     }
 
+
+    function RemoteTerminalAction(props) {
+      const [visible, setVisible] = useState(false);
+      const [hosts, setHosts] = useState([]);
+      const [host, setHost] = useState('');
+      const [remotePath, setRemotePath] = useState('~');
+      const [term, setTerm] = useState(null);
+      const [output, setOutput] = useState('');
+      const [input, setInput] = useState('');
+      const [pending, setPending] = useState(false);
+      const [error, setError] = useState('');
+      const cursorRef = React.useRef(0);
+      const outputRef = React.useRef(null);
+      const terminalIdRef = React.useRef(null);
+      useEffect(() => {
+        if (!visible) return;
+        let alive = true;
+        api('/state').then(state => {
+          if (!alive) return;
+          setHosts(state.hosts || []);
+          const recent = (state.recent || [])[0];
+          if (recent) {
+            const match = (state.hosts || []).find(h => h.id === recent.connectionId);
+            if (match) { setHost(match.id); setRemotePath(recent.remoteRoot); return; }
+          }
+          if (state.hosts?.[0]) setHost(state.hosts[0].id);
+        }).catch(e => alive && setError(e.message || String(e)));
+        return () => { alive = false; };
+      }, [visible]);
+      useEffect(() => {
+        terminalIdRef.current = term?.id || null;
+      }, [term]);
+      useEffect(() => {
+        if (!visible || !term?.id) return;
+        let active = true, inFlight = false;
+        const poll = async () => {
+          if (!active || inFlight) return;
+          inFlight = true;
+          try {
+            const result = await api('/terminal/read', { id: term.id, cursor: cursorRef.current });
+            if (!active) return;
+            cursorRef.current = result.cursor;
+            // Basic VT escape stripping; the backend is a genuine SSH PTY,
+            // but the first-party display intentionally avoids an xterm dependency.
+            const clean = (result.output || '').replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
+              .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+              .replace(/\r(?!\n)/g, '\n');
+            if (result.truncated) setOutput(old => old.slice(-30000) + '\n[较早的终端输出已截断]\n');
+            if (clean) setOutput(old => (old + clean).slice(-65000));
+            if (result.closed) {
+              setError('远程终端已关闭，可关闭窗口后重新打开。');
+              return;
+            }
+            if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
+          } catch (e) {
+            if (active) setError('远程终端连接中断：' + (e.message || String(e)));
+          } finally { inFlight = false; }
+        };
+        poll();
+        const interval = setInterval(poll, 650);
+        return () => { active = false; clearInterval(interval); };
+      }, [visible, term?.id]);
+      const stop = () => {
+        const id = terminalIdRef.current;
+        terminalIdRef.current = null;
+        setTerm(null); setVisible(false); setOutput(''); setInput(''); setError('');
+        cursorRef.current = 0;
+        if (id) api('/terminal/close', { id }).catch(() => {});
+      };
+      const start = async () => {
+        if (!host || pending) return;
+        setError(''); setPending(true); setOutput(''); cursorRef.current = 0;
+        try {
+          const response = await api('/terminal/open', { host, path: remotePath || '~' });
+          setTerm(response.terminal);
+        } catch (e) { setError(e.message || String(e)); } finally { setPending(false); }
+      };
+      const sendLine = async e => {
+        e.preventDefault();
+        if (!term || !input.trim()) return;
+        const value = input;
+        setInput('');
+        try { await api('/terminal/write', { id: term.id, input: value + '\n' }); }
+        catch (e) { setError(e.message || String(e)); }
+      };
+      return h(React.Fragment, null,
+        h('button', { type: 'button', className: 'rss-guide-terminal-action',
+          onClick: () => { props.onDismiss?.(); setVisible(true); } },
+          h(Icon, { name: 'terminal', size: 15 }), '远程 SSH 终端'),
+        visible && h('div', { className: 'rss-directory-backdrop', role: 'presentation' },
+          h('div', { className: 'rss-directory-dialog rss-pty-dialog', role: 'dialog', 'aria-modal': true,
+            'aria-label': '远程 SSH 终端' },
+            h('div', { className: 'rss-directory-head' },
+              h('div', null, h('h2', null, '远程 SSH 终端'),
+                h('p', null, '使用已验证的 SSH 连接，在远程服务器启动交互式 Shell。')),
+              h('button', { type: 'button', className: 'rss-directory-close',
+                title: '关闭远程终端', onClick: stop }, '×')),
+            !term && h('div', { className: 'rss-project-remote' },
+              h('label', { className: 'rss-project-label' }, 'SSH 主机',
+                h('select', { value: host, onChange: e => setHost(e.target.value) },
+                  h('option', { value: '' }, '选择服务器…'),
+                  hosts.map(x => h('option', { key: x.id, value: x.id }, x.label || x.host)))),
+              h('label', { className: 'rss-project-label' }, '远程工作目录',
+                h('input', { value: remotePath, onChange: e => setRemotePath(e.target.value),
+                  placeholder: '/home/user/project' })),
+              h('div', { className: 'rss-project-footer' },
+                h('button', { type: 'button', className: 'rss-btn', onClick: stop }, '取消'),
+                h('button', { type: 'button', className: 'rss-btn rss-primary', disabled: pending || !host,
+                  onClick: start }, pending ? '正在连接…' : '连接 SSH'))),
+            term && h('div', { className: 'rss-pty-content' },
+              h('div', { className: 'rss-pty-title' },
+                h('span', null, 'SSH · ' + (hosts.find(x => x.id === term.hostId)?.label || term.hostId)),
+                h('code', null, term.remoteRoot)),
+              h('pre', { ref: outputRef, className: 'rss-pty-output', 'aria-live': 'off' }, output || '正在建立远程 Shell…'),
+              h('form', { className: 'rss-pty-input', onSubmit: sendLine },
+                h('input', { value: input, onChange: e => setInput(e.target.value), autoFocus: true,
+                  placeholder: '输入命令，按 Enter 执行；支持 Shell 的 cd / pwd / git 等命令' }),
+                h('button', { type: 'submit', className: 'rss-btn rss-primary' }, '发送'))),
+            error && h('p', { role: 'alert', className: 'rss-project-error' }, error),
+            h('p', { className: 'rss-project-hint' },
+              '这是独立的 SSH PTY（基础文本控制台）；DSH 内置「新建终端」仍由本机 subprocess 提供者管理。'))));
+    }
+
     function apply(ctx) {
       ctx.effect(() => {
         const style = document.createElement('style'); style.id = 'dsh-remote-ssh-style'; style.textContent = CSS;
@@ -545,6 +668,14 @@ window.__ModuleLoader__.load({
         label: () => 'Remote SSH',
         inject: () => ({ createWorkspace: (localPath) => ctx.workspaces.create(localPath) }),
       }, RemoteSSHSettings));
+      // Right-sidebar More actions: a separate SSH terminal. Do not shadow
+      // DSH's built-in local terminal provider, whose subprocess lifecycle
+      // cannot be changed per-workspace by this plug-in.
+      ctx.slots.inject('sidebar.right.tab.guide.actions', () => ctx.slots.register({
+        name: 'sidebar.right.tab.guide.actions',
+        id: 'remote-ssh-terminal',
+        order: 35,
+      }, RemoteTerminalAction));
       // DSH's own project creation and workspace selector consume these slots.
       // Priority -2 beats the stock picker (-0) and @dsh-ssh/dsh-ssh (-1).
       // Keeping both slots consistent avoids selecting the remote folder in
