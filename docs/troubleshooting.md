@@ -84,3 +84,7 @@ v1.0.7 修复：
 - 如果提示 `remote helper checksum mismatch`，表明远端 Helper 文件与插件打包版本不一致，**不会自动执行或默默覆盖**。检查服务器目录权限和文件是否被其他进程修改；不要取消 SSH 指纹核验。
 - v1.5 的 Helper Git 状态属于后台真实 Linux 查询，并未接入 DSH 原生 Forge 面板。**右侧 Git 面板报错仍属后续 DSH Core 整合任务**，不是单靠 Helper 就能修复。
 - 不要手动复制远端 DSH Web token，也不必为 Helper 打开公网端口；所有通信都经过现有 SSH。
+
+### SSH 断开时是否会回退到 Windows 本地目录？
+
+不会。v1.5 不再在 `workingDirectory.ensure()` 的异常路径中自动调用本地 `set()`。会话将保留原 SSH 工作区身份，远端文件/命令请求会显式失败，避免 Git 或 Agent 命令落到本地占位目录。SSH 恢复后正常重试；只有用户显式退出远程工作区才切换为本地路径。
