@@ -1,4 +1,4 @@
-name: Build DSH Remote SSH plugin
+name: Build and publish DSH Remote SSH
 
 on:
   push:
@@ -7,12 +7,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Test and package (Node 22)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -29,26 +30,28 @@ jobs:
           node-version: '22'
           cache: pnpm
 
-      - name: Install dependencies without install-time build scripts
+      - name: Install dependencies without build scripts
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Build and test plugin
+      - name: Build and run tests
         run: pnpm test
 
-      - name: Produce DSH-installable .tgz
+      - name: Package the original DSH installer
         shell: bash
         run: |
           mkdir -p artifacts
           pnpm pack --pack-destination artifacts
-          file="$(find artifacts -maxdepth 1 -name '*.tgz' -type f -print -quit)"
+          file="$(find artifacts -maxdepth 1 -name 'dsh-plugin-remote-ssh-*.tgz' -type f -print -quit)"
           test -n "$file"
           tar -tzf "$file" > "$RUNNER_TEMP/plugin-files.txt"
-          grep -q '^package/dist/index.js$' "$RUNNER_TEMP/plugin-files.txt"
-          grep -q '^package/lib/client.js$' "$RUNNER_TEMP/plugin-files.txt"
-          grep -q '^package/cordis.patch.yml$' "$RUNNER_TEMP/plugin-files.txt"
-          echo "Validated: $file"
+          grep -qx 'package/package.json' "$RUNNER_TEMP/plugin-files.txt"
+          grep -qx 'package/dist/index.js' "$RUNNER_TEMP/plugin-files.txt"
+          grep -qx 'package/lib/client.js' "$RUNNER_TEMP/plugin-files.txt"
+          grep -qx 'package/cordis.patch.yml' "$RUNNER_TEMP/plugin-files.txt"
+          grep -q '^package/vendor/ssh2/' "$RUNNER_TEMP/plugin-files.txt"
+          echo "Validated DSH installer: $file"
 
-      - name: Upload plugin install package
+      - name: Upload DSH installer
         uses: actions/upload-artifact@v4
         with:
           name: dsh-remote-ssh-${{ github.sha }}
@@ -56,21 +59,96 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  release:
-    name: Publish tagged release
-    if: startsWith(github.ref, 'refs/tags/v')
+  publish:
+    name: Publish to GitHub Packages (npm)
     needs: build
+    # Pull requests, including forks, never receive package write credentials.
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.repository == 'WeipengMO/dsh-plugin-remote-ssh' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+      packages: write
+    concurrency:
+      group: dsh-remote-ssh-github-packages
+      cancel-in-progress: false
     steps:
-      - name: Retrieve install package
+      - name: Checkout publishing script
+        uses: actions/checkout@v4
+
+      - name: Configure GitHub npm registry
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@weipengmo'
+
+      - name: Download tested DSH installer
         uses: actions/download-artifact@v4
         with:
           name: dsh-remote-ssh-${{ github.sha }}
           path: artifacts
 
-      - name: Attach .tgz to GitHub Release
+      - name: Create separately scoped GitHub Packages distribution
+        id: prepare
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/github-npm"
+          file="$(find artifacts -maxdepth 1 -name 'dsh-plugin-remote-ssh-*.tgz' -type f -print -quit)"
+          test -n "$file"
+          tar -xzf "$file" -C "$RUNNER_TEMP/github-npm"
+          node scripts/prepare-github-package.mjs "$RUNNER_TEMP/github-npm/package"
+          node -e "const p=require(process.argv[1]); if(p.name!=='@weipengmo/dsh-plugin-remote-ssh')process.exit(1)" "$RUNNER_TEMP/github-npm/package/package.json"
+          echo "package_dir=$RUNNER_TEMP/github-npm/package" >> "$GITHUB_OUTPUT"
+
+      - name: Validate registry tarball separately
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/github-packed"
+          cd "${{ steps.prepare.outputs.package_dir }}"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/github-packed"
+          file="$(find "$RUNNER_TEMP/github-packed" -name '*.tgz' -type f -print -quit)"
+          test -n "$file"
+          tar -tzf "$file" > "$RUNNER_TEMP/registry-files.txt"
+          grep -qx 'package/dist/index.js' "$RUNNER_TEMP/registry-files.txt"
+          grep -qx 'package/lib/client.js' "$RUNNER_TEMP/registry-files.txt"
+          grep -qx 'package/cordis.patch.yml' "$RUNNER_TEMP/registry-files.txt"
+          grep -q '^package/vendor/ssh2/' "$RUNNER_TEMP/registry-files.txt"
+
+      - name: Publish npm package
+        shell: bash
+        working-directory: "${{ steps.prepare.outputs.package_dir }}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_NAME: ${{ steps.prepare.outputs.package_name }}
+          PACKAGE_VERSION: ${{ steps.prepare.outputs.package_version }}
+          DIST_TAG: ${{ steps.prepare.outputs.dist_tag }}
+        run: |
+          # Re-running an existing stable tag must be idempotent.
+          if npm view "$PACKAGE_NAME@$PACKAGE_VERSION" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "Already published: $PACKAGE_NAME@$PACKAGE_VERSION"
+          else
+            npm publish --ignore-scripts --registry=https://npm.pkg.github.com --tag "$DIST_TAG"
+          fi
+          echo "GitHub Packages: $PACKAGE_NAME@$PACKAGE_VERSION (dist-tag: $DIST_TAG)"
+
+  release:
+    name: Attach installable .tgz to GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download original installer
+        uses: actions/download-artifact@v4
+        with:
+          name: dsh-remote-ssh-${{ github.sha }}
+          path: artifacts
+
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*.tgz
