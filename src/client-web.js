@@ -879,8 +879,8 @@ window.__ModuleLoader__.load({
             const clean=String(result.output||'')
               .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g,'')
               .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'');
-            setOutput(old=>(result.truncated?'[早期终端输出已截断]\n':'')+
-              (result.truncated?'':old)+clean).slice(-80000);
+            setOutput(old=>((result.truncated?'[早期终端输出已截断]\n':'')+
+              (result.truncated?'':old)+clean).slice(-80000));
             if(result.closed)setTerminal(old=>old?{...old,closed:true}:old);
             else timer=setTimeout(read,900);
           } catch(e) {
