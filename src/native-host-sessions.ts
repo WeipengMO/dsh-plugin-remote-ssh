@@ -135,16 +135,27 @@ export class NativeHostSessions {
   private async authenticate(host: string, ready: Ready): Promise<string> {
     const saved = this.cookies.get(host);
     if (saved?.origin === ready.origin) return saved.cookie;
-    // BrowserAuth's documented GET / token exchange returns 303 and an
-    // authority-bound signed cookie. Keep it in Node memory only.
-    const login = await fetch(ready.origin + '/?token=' + encodeURIComponent(ready.token), {
+    // DSH Core has two distinct token exchanges:
+    //   GET /?token=...       -> 303, v1 browser-session cookie
+    //   GET /connect?token=... -> 302, v2 authenticated API Peer cookie.
+    // A native Node API client must use /connect. Its signed cookie value
+    // is *dotted*: v2.<base64url payload>.<base64url signature>.
+    // The previous alphanumeric-only validator rejected every real DSH
+    // cookie. Keep all credentials in the Windows Host process.
+    // No event/approval waterfall is installed yet; announce interactions=none
+    // rather than misleading the Host into expecting this client to answer.
+    const login = await fetch(ready.origin + '/connect?token=' +
+      encodeURIComponent(ready.token) + '&interactions=none', {
       method:'GET', redirect:'manual', signal:AbortSignal.timeout(12000),
-      headers:{ 'accept':'text/html' },
+      headers:{ 'accept':'text/plain' },
     });
     const setCookie = login.headers.get('set-cookie');
     const cookie = setCookie?.split(';', 1)[0];
-    if (login.status !== 303 || !cookie || !/^dsh-auth-[A-Za-z0-9_-]+=[A-Za-z0-9_-]+$/.test(cookie)) {
-      throw fail('Remote DSH Host refused native Session authentication', 401);
+    if (login.status !== 302 || login.headers.get('location') !== './api/remote.mux'
+      || !cookie || !/^dsh-auth-[A-Za-z0-9_-]+=v2\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(cookie)) {
+      // Never echo the launch token, signed cookie or response body.
+      throw fail('Remote DSH API /connect refused authentication (HTTP ' +
+        login.status + '; expected 302 and signed v2 Peer cookie)', 401);
     }
     this.cookies.set(host, { origin:ready.origin, cookie });
     return cookie;
