@@ -49,7 +49,7 @@ test('remote project views remain mounted while switching between hosts and loca
       effective: {}, remoteDsh: { desktopProfile: true, tunnels: [] } };
     const owner = { values: [data, host, '', { path, entries: [] }, path], index: 0, effects: [], mountEffects: false };
     const tree = render(settings, owner);
-    const button = walk(tree).find(node => node.children?.includes('打开远程 DSH'));
+    const button = walk(tree).find(node => node.children?.includes('旧版 WebView'));
     assert.ok(button && !button.props.disabled);
     button.props.onClick();
   }

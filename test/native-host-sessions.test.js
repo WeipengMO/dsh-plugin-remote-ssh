@@ -60,6 +60,7 @@ async function mockCore(host) {
 }
 function setup(coreHosts) {
   const hostRecords=new Map([...coreHosts.keys()].map(id=>[id,{updatedAt:'v1'}]));
+  const ensured=new Map();
   const tunnels=new Map();
   const deps={
     manager:{
@@ -70,6 +71,7 @@ function setup(coreHosts) {
       },
     },
     runtime:{async ensureWeb(host,remoteRoot) {
+      ensured.set(host,(ensured.get(host)||0)+1);
       const core=coreHosts.get(host);
       return {phase:'ready',cwd:remoteRoot,port:core.port,
         url:'http://127.0.0.1:'+core.port+'/?token='+host+'-token'};
@@ -88,7 +90,7 @@ function setup(coreHosts) {
       },
     },
   };
-  return {pool:new NativeHostSessions(deps),hostRecords,tunnels};
+  return {pool:new NativeHostSessions(deps),hostRecords,tunnels,ensured};
 }
 test('native Session RPC binds same ID to independent Hosts and keeps credentials server-side',async t=>{
   const a=await mockCore('alpha'),b=await mockCore('beta');
@@ -114,6 +116,8 @@ test('native Session RPC binds same ID to independent Hosts and keeps credential
   assert.equal(a.calls.filter(x=>x.method==='session/prompt').length,1);
   assert.equal(b.calls.filter(x=>x.method==='session/prompt').length,1);
   assert.equal(a.connections(),1,'Connection auth is reused within Host Sessions');
+  assert.equal(fx.ensured.get('alpha'),1,'repeated RPCs must reuse a Host health check');
+  assert.equal(fx.ensured.get('beta'),1,'other Host is checked independently');
   assert.equal(fx.tunnels.size,2,'two hosts retain isolated listeners');
   const cancellation=await fx.pool.cancel(first.sessions[0].ref);
   assert.equal(cancellation.accepted,true);
