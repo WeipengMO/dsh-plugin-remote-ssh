@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSshArgv } from '../dist/shell-router.js';
+import { buildSshArgv, usesPowerShellSyntax } from '../dist/shell-router.js';
 import { remoteWorkspaceShellGuidance } from '../dist/tools.js';
 import { workspacePlaceholderPath } from '../dist/paths.js';
 
@@ -38,4 +38,11 @@ test('only remote SSH sessions get Bash guidance; local sessions retain Windows 
   assert.match(ssh,/Windows PowerShell/);
   assert.match(ssh,/remote_ssh_git/);
   assert.equal(remoteWorkspaceShellGuidance('C:\\Users\\test\\repo'),'');
+});
+
+test('PowerShell-only command text is diagnosed before SSH execution',()=>{
+  assert.equal(usesPowerShellSyntax('Get-ChildItem -Recurse'),true);
+  assert.equal(usesPowerShellSyntax('echo $env:PATH'),true);
+  assert.equal(usesPowerShellSyntax('pwd && ls -la'),false);
+  assert.equal(usesPowerShellSyntax('git log --oneline -5'),false);
 });

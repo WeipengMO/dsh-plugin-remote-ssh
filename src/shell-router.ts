@@ -31,6 +31,12 @@ export interface ShellRouterHandle {
   dispose(): void;
 }
 
+/** Detect unmistakable PowerShell-only syntax before sending it to Linux. */
+export function usesPowerShellSyntax(command: string): boolean {
+  return /\$env:[A-Za-z_]/i.test(command)
+    || /(?:^|[;&|]\s*|\n\s*)(?:Get-ChildItem|Set-Location|Select-String|Get-Content|Set-Content|Out-File|Remove-Item|New-Item|Write-Output|Get-Location|Test-Path)(?=\s|$)/i.test(command);
+}
+
 /**
  * Build the exact non-interactive OpenSSH argv. `-F none` prevents user config
  * from re-introducing password prompts or a different host/port; all effective
@@ -137,6 +143,10 @@ export function installShellRouter(
     if (!looksVirtual(spec.workdir)) return await originalExecute(spec);
     const route = manager.routeFor(spec.workdir, spec.workdir);
     if (route === null) throw new RemoteSshError('SSH_PATH_INVALID', `cannot route remote workdir: ${spec.workdir}`);
+    if (usesPowerShellSyntax(spec.command)) {
+      throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED',
+        'Remote Linux workspace uses Bash, not PowerShell. Rewrite this command using Bash/POSIX syntax (ls, grep, $HOME), then retry.');
+    }
     const connection = await manager.connection(route.workspace.connectionId);
     const knownHostsPath = await manager.ensureKnownHostsFile(connection);
     try {

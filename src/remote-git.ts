@@ -14,6 +14,7 @@ export interface RemoteGitSnapshot {
   status: string;
   history: RemoteCommit[];
   diffStat: string;
+  stagedDiffStat: string;
   error?: string;
 }
 
@@ -80,7 +81,7 @@ export async function inspectRemoteGit(
   const status = await run(['status', '--short', '--branch', '--untracked-files=normal']);
   if (status.code !== 0) {
     if (/not a git repository|not inside a git repository/i.test(status.stderr)) {
-      return { directory:cwd, isRepository:false, status:'', history:[], diffStat:'' };
+      return { directory:cwd, isRepository:false, status:'', history:[], diffStat:'', stagedDiffStat:'' };
     }
     throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED',
       'Remote Git status failed: '+status.stderr.trim().slice(0, 600));
@@ -89,11 +90,12 @@ export async function inspectRemoteGit(
     throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED',
       'Remote Git status exceeds the read-only output limit');
   }
-  const [log, diff] = await Promise.all([
+  const [log, diff, staged] = await Promise.all([
     run(['log', '--max-count='+limit, '--date=short', '--format=%h%x09%cs%x09%s']),
     run(['diff', '--no-ext-diff', '--no-textconv', '--stat']),
+    run(['diff', '--cached', '--no-ext-diff', '--no-textconv', '--stat']),
   ]);
-  if (log.truncated || diff.truncated) {
+  if (log.truncated || diff.truncated || staged.truncated) {
     throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED',
       'Remote Git history or diff exceeds the read-only output limit');
   }
@@ -103,9 +105,9 @@ export async function inspectRemoteGit(
     throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED',
       'Remote Git log failed: '+log.stderr.trim().slice(0, 600));
   }
-  if (diff.code !== 0) {
+  if (diff.code !== 0 || staged.code !== 0) {
     throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED',
-      'Remote Git diff failed: '+diff.stderr.trim().slice(0, 600));
+      'Remote Git diff failed: '+(diff.code !== 0 ? diff.stderr : staged.stderr).trim().slice(0, 600));
   }
   return {
     directory:cwd,
@@ -113,5 +115,6 @@ export async function inspectRemoteGit(
     status:status.stdout.slice(0, 192*1024),
     history:missingHead?[]:parseHistory(log.stdout),
     diffStat:diff.stdout.slice(0, 192*1024),
+    stagedDiffStat:staged.stdout.slice(0, 192*1024),
   };
 }

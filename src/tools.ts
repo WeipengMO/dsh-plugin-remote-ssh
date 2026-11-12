@@ -377,6 +377,7 @@ export function registerManagementTools(
           subject:string('Commit subject.'),
         }) },
         diffStat: string('Unstaged Git diff stat.'),
+        stagedDiffStat: string('Staged Git diff stat.'),
       }),
       render: textRender,
     },

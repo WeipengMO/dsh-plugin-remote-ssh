@@ -27,7 +27,8 @@ test('read-only SSH Git snapshots include status, commit history and diff from L
   assert.equal(result.history.length,2);
   assert.equal(result.history[0].subject,'Fix SSH routing');
   assert.match(result.diffStat,/1 file changed/);
-  assert.equal(calls.length,3);
+  assert.equal(typeof result.stagedDiffStat,'string');
+  assert.equal(calls.length,4);
   assert.ok(calls.every(c=>c.command.includes("cd -- '/home/research/project'")));
   assert.ok(calls.every(c=>c.command.includes('GIT_OPTIONAL_LOCKS=0')));
   assert.ok(calls.every(c=>c.command.includes("core.fsmonitor=false")));

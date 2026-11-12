@@ -395,8 +395,10 @@ window.__ModuleLoader__.load({
                       : h(React.Fragment, null,
                           h('h4', null, '工作区变更'),
                           h('pre', { className: 'rss-git-output' }, gitSnapshot.status || '工作区干净'),
-                          h('h4', null, '未提交改动统计'),
+                          h('h4', null, '未暂存改动'),
                           h('pre', { className: 'rss-git-output' }, gitSnapshot.diffStat || '暂无未暂存改动'),
+                          h('h4', null, '已暂存改动'),
+                          h('pre', { className: 'rss-git-output' }, gitSnapshot.stagedDiffStat || '暂无已暂存改动'),
                           h('h4', null, '最近提交'),
                           (gitSnapshot.history || []).length
                             ? h('div', { className: 'rss-git-history' },
