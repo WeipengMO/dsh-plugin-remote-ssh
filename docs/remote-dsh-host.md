@@ -1,3 +1,5 @@
+> **v2.5.0 更新：** 在 Windows DSH Desktop 左侧点击已登记的 Linux Workspace，现会走 Linux Host 自己的 Session/Agent（原生 main 插件面板），不再先建 Windows Agent。旧版“点击工作区只转发 SSH 工具”的说明可能不再适用于新会话；但官方 Conversation 全部高级能力与工具审批仍未接入。完整边界见 [Native Backend 设计](native-multihost-backend.md)。
+
 # 在 Desktop 打开 Linux DSH
 
 在 **设置 → Remote SSH** 添加或导入 SSH 主机，首次连接时独立核对完整指纹。选择主机并浏览项目目录，点击 **添加到左侧工作区**；完成注册后，在 DSH 原有的「工作区」里选择该目录，即可打开 Windows DSH 原生 Session（Shell/文件/Git 走 SSH 路由）。Linux DSH Host 原生 Agent 会话尚未透明绑定到这些 Windows Session。Linux 需要 Node.js ≥24.9、Git 和允许 TCP 转发的 SSH 服务。首次没有 DSH 时，插件可通过官方固定版本的 npm 包启动。

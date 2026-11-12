@@ -1,49 +1,51 @@
 # DSH Remote SSH
 
-让 Windows DSH Desktop 识别和管理经 SSH 验证的 Linux 工作目录，并把它们登记在**原有左侧「工作区」列表**。工作区模式通过 Windows DSH 的 Session、SSH 文件/Shell/Git 路由运行；独立的 Linux DSH Host Session 仍可通过设置页的实验入口访问，当前两者尚未共享同一个原生 Session 绑定。无需修改或重新打包 Desktop Core。
+**Windows DSH Desktop → 多个 Linux DSH Host 的原生工作区 Backend（实验版 v2.5.0）。**
 
-**v2.4.0**：修复 `session/list` Typert RPC 参数必须为 `_request`（此前错误传入 `request`），使用官方 `workspaceRegistry.create()` 把配置的 SSH 工作区直接加入 DSH 本机工作区列表，取消独立「远端 Sessions」侧栏项，并收紧远端实验面板的顶部空间。
+参考 [Yan-Zero/dsh-remote-ssh](https://github.com/Yan-Zero/dsh-remote-ssh) 的 Full Remote Backend 分层设计，当前版本让你在 **DSH 原有左侧工作区** 中打开 SSH Workspace 时，转到 **Linux DSH Host 自己的 Agent Session**，不再因打开远端工作区而新建 Windows 本地 Agent。Local Workspace 原样委派给官方服务。
 
-## 使用
+这不是 SSHFS 或“Agent 在 Windows、Shell 在 Linux”的模式；但目前仍是 **DSH 原生 main 槽位中的插件 Conversation 面板**，尚未将远端 Session 接入官方内置 Conversation 的全部功能。请先阅读 [实现边界](docs/native-multihost-backend.md)。
 
-1. 在 **设置 → Remote SSH** 添加服务器或从 Windows `~/.ssh/config` 导入。首次连接时，通过独立可信渠道核对完整 SHA-256 主机密钥指纹并确认。
-2. 在设置页选择 SSH Host，浏览 Linux 目录，点击 **添加到左侧工作区**。随后可在 DSH 自带的「工作区」列表中打开它；也可以在新建项目的目录选择器中选择 **SSH 服务器**。
-3. 原生工作区登记只需验证 SSH 路径和创建稳定本地占位目录，通过 Host WorkspaceRegistry 发布到左侧列表；SSH 路由访问远端文件和 Shell。若从设置页选择「远端 Agent（实验）」或 WebView 备用入口，则额外启动/复用 Linux DSH Web Host，并通过 SSH 回环隧道访问。
-4. 左侧原生工作区使用 DSH 内置 Session 创建与导航；Linux DSH Agent Session 不会自动挂入这份本地 Session 列表。作为备用的远端 WebView 模式按每 Host 复用页面和 Connection，在该页面内切换 Workspace。
+## 安装与使用
 
-原生工作区由 Windows DSH Host 保存并显示；远端 WebView 备用模式中的会话、Agent、Git、worktree、终端和文件监视则由 Linux DSH Host 单独管理。Windows 与 Linux 的会话列表**尚未合并**，不能将原生工作区模式宣传为完整的远端 Linux DSH 会话运行。
+1. 在 **设置 → Remote SSH** 添加 SSH 主机，或从 Windows \`~/.ssh/config\` 导入。首次连接时通过可信渠道核对 SSH 主机公钥 SHA-256 指纹。
+2. 在设置页浏览远端 Linux 目录，点击 **「添加到左侧工作区」**。插件通过 Windows DSH 的 \`workspaceRegistry.create()\` 登记稳定的工作区 ID（本地占位目录只用于识别工作区，**不是**复制/镜像工程代码）。
+3. 点击左侧 DSH 原生工作区列表中的该远端 Workspace：插件查询权威的 Host 映射，并在原生主面板中连接 **对应 Linux Host 的真实 Session**；优先恢复该目录最近的会话，没有时在 Linux 上创建。切换本地 Workspace 仍由 Windows DSH 自己管理。
+4. 在远端主面板直接发送文字 Prompt、查看历史、取消任务；点击「新会话」在对应 Linux Host 新建 Session。简易 SSH PTY 与只读 Git 状态作为辅助工具。
+5. 遇到需要复杂人工工具审批、实时流式推送或官方高级工具 UI 的任务，请先使用设置里的 **WebView 备用**，它运行完整的远端 DSH Web 界面。
 
-## Windows 原生多 Host Sessions（实验性）
+**注意：** 目前未实现完整的官方 Conversation 流式展示、权限审批/提问、附件、模型设置及会话级 Git/worktree/terminalController。由于 API Peer 使用 \`interactions=none\`，不要用实验面板运行必须由用户批准危险操作的任务；Windows Desktop 也尚未提供与 \`tuiBackends\` 对等的正式 Backend Provider 接口。
 
-**v2.3.1 认证修复**：原生会话通过 DSH 官方 `GET /connect?token=…&interactions=none` 领取含签名的 v2 API Cookie；不再误判带英文句点的真实 Cookie。出现 `Remote DSH Host refused native Session authentication` 请升级为 v2.3.1、**完全退出并重启 Windows DSH Desktop**，不是只刷新页面。
+## 为什么要重构
 
+- **v2.4.0 以前**：插件使用 SSH 文件、Shell、Git/PTY 路由，左侧虽然能列出 SSH Workspace，但点开仍会由 Windows DSH Host 创建本地 Agent。独立远端 RPC 面板与官方左侧 Workspace 点击未关联。
+- **v2.5.0**：为 Windows \`uiWorkspace.openWorkspace\`、\`startSession(workspaceId)\` 增加可卸载的 Host 路由兼容适配层。远端 Workspace 点开后使用 Linux Host Session；本地 Workspace 原函数完全保留。无法确定 SSH Host 的情况下**拒绝回退到 Windows Agent**。
+- 复用官方 Linux DSH Web Host、SSH loopback 隧道和 Typert Session RPC：\`session/list\` 发送 \`_request\`，其他方法发送 \`request\`；通过 \`/connect\` 领取 v2 API Peer cookie。Cookie 和启动 token 不传给浏览器。
+- 同 Host 不同目录按真实 cwd 隔离 Session，跨 Host 的 SessionID 不发生冲突。Host 隧道断开时只重试安全只读请求；写操作失败且回执不确定时不自动重放，避免重复执行任务。
 
-设置页选定远端目录后，点击 **「添加到左侧工作区」**，插件通过 Host 的 `workspaceRegistry.create()` 将经过 SSH 验证的目录登记为 DSH 原生 Workspace；之后它出现在左侧现有的「工作区」列表。此列表中的会话仍由 Windows DSH Host 管理，文件、Shell、Git 通过 SSH 路由，**这不是 Linux DSH Host 自身的 Session，也不是全透明远端 Connection**。远端 Linux Agent 的试验性操作可从设置页的「远端 Agent（实验）」进入，不再占用左侧独立导航入口。
+## Core / Desktop 兼容边界
 
-此界面是同一 Windows React/Cordis Shell 内的 `main` 面板，**不是** WebView/iframe；支持选择不同 SSH Host、创建真实 Linux Session、查看最近历史、发送 prompt 和取消任务；同一 Host 的 15 秒连接缓存减少了重复 SSH Helper 调用。同一 Linux Host 保留共享进程和 SSH tunnel，远端的 Agent 在 Linux 上执行。插件 Host 通过 DSH 官方 `/api/session/*` Connection RPC 协议与远端交互，短期签名 Cookie 仅保留在 Windows Node 进程内，浏览器只持有绑定 Host+Session 的不透明引用。SSH PTY 简易终端及只读 Git 状态已作为原生面板的工作区工具接入（不是官方 Session 的 `terminalController`、Git/worktree UI）。完整任务流式推送、工具审批和原生 Session 级 Git/终端仍需 Core API 适配，目前不是与官方内置 `ctx.sessions` 的统一列表。
+本版本 **没有修改或重新打包 DSH Core**，也没有使用或部署第三方 \`dsh-host\`。当前 Windows Desktop 的 \`ctx.connection\` 是整个 Client Context 拥有的连接，且 \`uiWorkspace\` 没有与 TUI \`tuiBackends\` 同等的公开多 Backend 机制。
 
-## Core Connection 集成边界
+插件采用明确标注的 **兼容性导航方法包装**，在卸载时恢复官方原方法；它是走向真正多 Host 客户端的阶段性方案，**不等于**远端 Session 已变成官方 \`ctx.sessions\` 中的对象，也未替换官方 \`UiConversation\`。未来若要完全原生，需要 Core/Desktop 提供 WorkspaceBackend Provider，统一加载 Session、订阅事件、权限交互、Git/worktree/terminal 等 service。详见 [架构与待办](docs/native-multihost-backend.md)。
 
-此版本复用的是**远端 DSH Client 树内的 Core Connection**，不是把 Windows Desktop 原生 Session 直接绑定到远端 Host。官方 `ctx.connection` 属于整个 Client Context、只允许一个 Generation Source；原生 Windows 会话的透明跨 Host 切换仍需要 Core 提供 Session → Host 选择/多 Context 装载接口，不能依靠修改插件 HTTP 路由实现。本仓库不会偷偷全局替换连接、拦截 RPC 或声称完成此功能。
+## 前提、安全和验证
 
-## 前提与安全
+- Linux 主机：Node.js ≥24.9、Git、可用的 DSH CLI（或安装官方 DSH 的网络能力）；SSH 必须允许 localhost \`direct-tcpip\` 端口转发。
+- 插件绝不自动信任未知 SSH Host key。令牌和 API Peer cookie 留在 Windows Host 进程；WebView 备用入口仍需谨慎保护独立 DSH 启动 URL。
+- 本地/远端 Workspace 的原生导航适配应先在非重要项目里验证；连接/映射失效时不应在本地运行远端任务。
+- 自动化 CI 测试包括跨主机身份隔离、只读重连、丢失写回执不重试、导航竞态，以及 Node 24.9 Linux DSH 启动 smoke。**尚未完成真实 Windows Desktop ↔ 多 Linux Host 端到端验收。**
+- 旧 SSH 文件路由及 WebView 兼容入口仍保留，但不应将它们当作本版本的 Full Remote Backend。
 
-- Linux 主机需要 Node.js ≥24.9、Git、可用的 DSH CLI 或访问 npm 的能力；SSH 服务需允许 `direct-tcpip` 转发。
-- 远端 DSH 和本地转发均绑定回环地址。首次信任或密钥变更必须认真核验；插件不会自动信任新密钥。
-- DSH 的启动 URL 含进程级认证令牌，会经受认证的插件 API 传到 Desktop 渲染进程并加载到隔离的 WebView；不要将 URL 或远端启动日志分享给他人。令牌不是一次性的。插件不将其写入配置或状态接口。
-- 旧版本地占位目录与 SSH 文件桥接仍保留以兼容已有工作区，新建项目不再使用它。打开已有旧工作区不会自动迁移到远端 DSH。
+构建、测试与打包：
 
-## 构建和验证
-
-```sh
+\`\`\`sh
 pnpm build
-pnpm run test:inprocess
+pnpm test
 node scripts/package-plugin.mjs
-dsh plugin --profile desktop add /path/to/dsh-plugin-remote-ssh-2.4.0.tgz
-```
+dsh plugin --profile desktop add /path/to/dsh-plugin-remote-ssh-2.5.0.tgz
+\`\`\`
 
-完全退出 Desktop 后，用其自带的 `dsh` 插件管理器安装打包脚本输出的绝对路径，再重新打开 Desktop；单纯刷新页面不会重载 Host 的 ESM 模块。插件管理器会更新 profile 的依赖与锁文件，不会替换 Desktop Core。保留安装包，以便以后重新安装依赖。
+请使用 Desktop 自带的 \`dsh\` 命令安装，并**完全退出、重启 Desktop**；刷新 UI 不能重载 Windows Host 插件模块。
 
-可用 `DSH_REMOTE_SSH_E2E=1 node scripts/verify-real-ssh.mjs` 对已保存的 SSH 主机运行真实连接、helper、Web 认证与会话恢复检查。脚本默认不运行真实连接；目标没有会话时可能创建一个空测试会话。该脚本不代替 Desktop 界面、Git、worktree、沙箱和文件监视验收。
-
-详细信息：[使用与故障排查](docs/remote-dsh-host.md) · [架构](docs/architecture.md) · [Helper 协议](docs/remote-runtime-protocol.md) · [旧工作区兼容说明](docs/desktop-ssh-runtime.md)。
+更多：[多 Host Backend 设计与测试](docs/native-multihost-backend.md) · [SSH 使用与故障排查](docs/remote-dsh-host.md) · [Helper 协议](docs/remote-runtime-protocol.md) · [旧版路由兼容](docs/desktop-ssh-runtime.md)。
