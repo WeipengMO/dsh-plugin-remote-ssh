@@ -84,6 +84,9 @@ test('client registers settings plus native remote project directory flows', () 
   assert.equal(registrations[5].record.id,'remote-ssh-sessions');
   assert.ok(source.includes("api('/runtime/native/prompt'"));
   assert.ok(source.includes("api('/runtime/native/events'"));
+  assert.ok(source.includes("api('/terminal/open'"));
+  assert.ok(source.includes("api('/terminal/close'"));
+  assert.ok(source.includes("api('/exec',{host,path:cwd"));
 });
 
 function fixture() {

@@ -856,6 +856,104 @@ window.__ModuleLoader__.load({
     function NativeHostPanelIcon({size}) {
       return h(Icon,{name:'server',size:size || 18});
     }
+
+    /*
+     * These are host-scoped SSH utilities in the native DSH main panel, not
+     * replacements for Core Session-owned terminalController / Git services.
+     * The PTY lease is closed when its component unmounts or host changes.
+     */
+    function NativeHostSessionTerminal({host,cwd}) {
+      const [terminal,setTerminal] = useState(null);
+      const [output,setOutput] = useState('');
+      const [input,setInput] = useState('');
+      const [error,setError] = useState('');
+      const [writing,setWriting] = useState(false);
+      useEffect(()=>{
+        if(!host||!cwd)return;
+        let disposed=false,timer,id='',cursor=0;
+        const read=async()=>{
+          try {
+            const result=await api('/terminal/read',{id,cursor});
+            if(disposed)return;
+            cursor=result.cursor;
+            const clean=String(result.output||'')
+              .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g,'')
+              .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'');
+            setOutput(old=>(result.truncated?'[早期终端输出已截断]\n':'')+
+              (result.truncated?'':old)+clean).slice(-80000);
+            if(result.closed)setTerminal(old=>old?{...old,closed:true}:old);
+            else timer=setTimeout(read,900);
+          } catch(e) {
+            if(!disposed)setError(e.message||String(e));
+          }
+        };
+        void (async()=>{
+          try {
+            const response=await api('/terminal/open',{host,path:cwd});
+            id=response.terminal.id;
+            if(disposed){
+              void api('/terminal/close',{id}).catch(()=>{});
+              return;
+            }
+            setTerminal({id,closed:false});
+            setError('');
+            void read();
+          }catch(e){if(!disposed)setError(e.message||String(e));}
+        })();
+        return ()=>{
+          disposed=true;
+          clearTimeout(timer);
+          if(id)void api('/terminal/close',{id}).catch(()=>{});
+        };
+      },[host,cwd]);
+      async function writeInput(event) {
+        event.preventDefault();
+        if(!terminal||terminal.closed||!input||writing)return;
+        setWriting(true);setError('');
+        try {
+          await api('/terminal/write',{id:terminal.id,input:input+'\n'});
+          setInput('');
+        }catch(e){setError(e.message||String(e));}
+        finally{setWriting(false);}
+      }
+      return h('div',{className:'rss-native-terminal'},
+        h('div',{className:'rss-native-tool-info'},
+          'SSH PTY · 简易终端（不是官方 Session terminalController，也不支持全屏 TUI）'),
+        error&&h('div',{className:'rss-native-error',role:'alert'},error),
+        h('pre',{className:'rss-native-terminal-output',role:'log',tabIndex:0},
+          output||(terminal?'终端已连接': '正在连接 SSH PTY…')),
+        h('form',{className:'rss-native-tool-input',onSubmit:writeInput},
+          h('input',{value:input,onChange:e=>setInput(e.target.value),
+            disabled:!terminal||terminal.closed||writing,
+            placeholder:terminal?.closed?'SSH 终端已结束':'输入 Shell 命令并回车'}),
+          h(Button,{variant:'primary',type:'submit',
+            disabled:!terminal||terminal.closed||writing||!input.trim()},'执行')));
+    }
+    function NativeHostSessionGit({host,cwd}) {
+      const [revision,setRevision]=useState(0);
+      const [state,setState]=useState({phase:'loading',output:''});
+      useEffect(()=>{
+        if(!host||!cwd)return;
+        let disposed=false;
+        setState({phase:'loading',output:''});
+        api('/exec',{host,path:cwd,
+          command:'git -c color.status=false status --short --branch'}).then(response=>{
+            if(disposed)return;
+            setState({phase:response.code===0?'ready':'error',
+              output:[response.stdout,response.stderr].filter(Boolean).join('\n')||
+                (response.code===0?'工作区干净':'git status 执行失败')});
+          }).catch(error=>{if(!disposed)setState({phase:'error',output:error.message||String(error)});});
+        return ()=>{disposed=true;};
+      },[host,cwd,revision]);
+      return h('div',{className:'rss-native-git'},
+        h('div',{className:'rss-native-tool-info'},
+          'SSH 工作区 Git 状态（只读；尚未集成 DSH Core worktree/Git UI）',
+          h(Button,{icon:'refresh',small:true,title:'刷新 Git 状态',
+            onClick:()=>setRevision(n=>n+1)})),
+        h('pre',{className:'rss-native-git-output',role:'status'},
+          state.phase==='loading'?'正在读取远端 Git 状态…':state.output));
+    }
+
     function NativeHostSessionsPanel() {
       const [hosts,setHosts] = useState([]);
       const [host,setHost] = useState(() => nativePanelSelection?.host || '');
@@ -870,6 +968,7 @@ window.__ModuleLoader__.load({
       const [draft,setDraft] = useState('');
       const [listRevision,setListRevision] = useState(0);
       const [messagesRevision,setMessagesRevision] = useState(0);
+      const [viewMode,setViewMode] = useState('chat');
       useEffect(() => {
         let disposed=false;
         api('/state').then(state=>{
@@ -1014,16 +1113,29 @@ window.__ModuleLoader__.load({
                   h('strong',null,current.title),
                   h('code',null,current.cwd),
                   h(Button,{icon:'x',small:true,onClick:cancelTurn,disabled:!!busy,title:'取消远端任务'})),
-                h('div',{className:'rss-native-messages',role:'log','aria-live':'polite'},
-                  messages.length?messages.map(m=>
-                    h('article',{key:m.seq+':'+m.role,className:'rss-native-message rss-native-'+m.role},
-                      h('strong',null,m.role==='user'?'You':'DSH'),
-                      h('pre',null,m.text)))
-                    :h('p',null,'暂无可显示的文本历史；刷新后查看最新消息。')),
-                h('form',{className:'rss-native-composer',onSubmit:e=>{e.preventDefault();void sendPrompt();}},
-                  h('textarea',{rows:3,value:draft,onChange:e=>setDraft(e.target.value),
-                    placeholder:'在 Linux 远端 Session 中执行任务…'}),
-                  h(Button,{variant:'primary',type:'submit',disabled:!!busy||!draft.trim()},busy==='prompt'?'发送中…':'发送')))
+                h('div',{className:'rss-native-tabs',role:'tablist','aria-label':'远端会话工具'},
+                  h('button',{type:'button',role:'tab','aria-selected':viewMode==='chat',
+                    onClick:()=>setViewMode('chat')},'对话'),
+                  h('button',{type:'button',role:'tab','aria-selected':viewMode==='git',
+                    onClick:()=>setViewMode('git'),disabled:!current.cwd},'Git 状态'),
+                  h('button',{type:'button',role:'tab','aria-selected':viewMode==='terminal',
+                    onClick:()=>setViewMode('terminal'),disabled:!current.cwd},'SSH 终端')),
+                viewMode==='terminal' && current.cwd
+                  ? h(NativeHostSessionTerminal,{key:ref,host,cwd:current.cwd})
+                  : viewMode==='git' && current.cwd
+                    ? h(NativeHostSessionGit,{key:ref,host,cwd:current.cwd})
+                    : h(React.Fragment,null,
+                      h('div',{className:'rss-native-messages',role:'log','aria-live':'polite'},
+                        messages.length?messages.map(m=>
+                          h('article',{key:m.seq+':'+m.role,className:'rss-native-message rss-native-'+m.role},
+                            h('strong',null,m.role==='user'?'You':'DSH'),
+                            h('pre',null,m.text)))
+                          :h('p',null,'暂无可显示的文本历史；刷新后查看最新消息。')),
+                      h('form',{className:'rss-native-composer',onSubmit:e=>{e.preventDefault();void sendPrompt();}},
+                        h('textarea',{rows:3,value:draft,onChange:e=>setDraft(e.target.value),
+                          placeholder:'在 Linux 远端 Session 中执行任务…'}),
+                        h(Button,{variant:'primary',type:'submit',disabled:!!busy||!draft.trim()},
+                          busy==='prompt'?'发送中…':'发送'))))
               :h('div',{className:'rss-native-empty'},
                 h(Icon,{name:'server',size:36}),
                 h('strong',null,'选择远端 Session'),

@@ -628,3 +628,14 @@ body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block
 .rss-native-empty{display:flex;flex:1;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:var(--rss-muted);padding:20px;text-align:center}
 .rss-native-empty strong{color:var(--rss-text)}
 @media(max-width:650px){.rss-native-body{grid-template-columns:130px minmax(0,1fr)}.rss-native-sessions{padding:6px}.rss-native-header{padding:12px}.rss-native-hostbar{padding:8px}}
+
+
+.rss-native-tabs{display:flex;gap:6px;align-items:center;padding:8px 16px;border-bottom:1px solid var(--rss-border)}
+.rss-native-tabs button{border:1px solid transparent;border-radius:6px;padding:6px 12px;background:transparent;color:inherit;cursor:pointer}
+.rss-native-tabs button[aria-selected="true"]{background:rgba(50,104,215,.1);border-color:rgba(50,104,215,.3);font-weight:650}
+.rss-native-tabs button:disabled{opacity:.4;cursor:not-allowed}
+.rss-native-terminal,.rss-native-git{display:flex;flex-direction:column;min-height:0;flex:1}
+.rss-native-tool-info{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 16px;color:var(--rss-muted);font-size:11px}
+.rss-native-terminal-output,.rss-native-git-output{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;white-space:pre-wrap;word-break:break-word;min-height:0;flex:1;overflow:auto;margin:0;padding:14px 18px;background:rgba(127,127,127,.05);color:inherit}
+.rss-native-tool-input{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--rss-border)}
+.rss-native-tool-input input{flex:1;min-width:0;min-height:35px;border:1px solid var(--rss-border);border-radius:7px;padding:7px 10px;background:transparent;color:inherit}

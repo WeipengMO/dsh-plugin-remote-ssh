@@ -13,7 +13,7 @@
 
 ## Windows 原生多 Host Sessions（实验性）
 
-DSH Desktop 左侧新增「远端 Sessions」原生导航入口。此界面是同一 Windows React/Cordis Shell 内的 `main` 面板，**不是** WebView/iframe；支持选择不同 SSH Host、创建真实 Linux Session、查看最近历史、发送 prompt 和取消任务；同一 Host 的 15 秒连接缓存减少了重复 SSH Helper 调用。同一 Linux Host 保留共享进程和 SSH tunnel，远端的 Agent 在 Linux 上执行。插件 Host 通过 DSH 官方 `/api/session/*` Connection RPC 协议与远端交互，短期签名 Cookie 仅保留在 Windows Node 进程内，浏览器只持有绑定 Host+Session 的不透明引用。完整任务推送、流式工具审批、终端和 Git 仍需原生 API 适配，目前不是与官方内置 `ctx.sessions` 的统一列表。
+DSH Desktop 左侧新增「远端 Sessions」原生导航入口。此界面是同一 Windows React/Cordis Shell 内的 `main` 面板，**不是** WebView/iframe；支持选择不同 SSH Host、创建真实 Linux Session、查看最近历史、发送 prompt 和取消任务；同一 Host 的 15 秒连接缓存减少了重复 SSH Helper 调用。同一 Linux Host 保留共享进程和 SSH tunnel，远端的 Agent 在 Linux 上执行。插件 Host 通过 DSH 官方 `/api/session/*` Connection RPC 协议与远端交互，短期签名 Cookie 仅保留在 Windows Node 进程内，浏览器只持有绑定 Host+Session 的不透明引用。SSH PTY 简易终端及只读 Git 状态已作为原生面板的工作区工具接入（不是官方 Session 的 `terminalController`、Git/worktree UI）。完整任务流式推送、工具审批和原生 Session 级 Git/终端仍需 Core API 适配，目前不是与官方内置 `ctx.sessions` 的统一列表。
 
 ## Core Connection 集成边界
 
