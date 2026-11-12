@@ -349,6 +349,10 @@ window.__ModuleLoader__.load({
           pages.map(page => h(RemoteDshPage, {key:page.key, selection:page, visible:active===page.key}))));
     }
 
+    // The official Workspace navigation service is owned by the Cordis client
+    // root. Settings is a slot component, not a plugin.apply callback: never
+    // reference an unbound "ctx" variable inside a React event handler.
+    let nativeWorkspaceNavigation = null;
     function RemoteSSHSettings() {
       const [state, setState] = useState({ hosts: [], effective: {}, statuses: [], sessions: [], aliases: [], recent: [], registeredWorkspaces: [], remoteDsh: { desktopProfile: false, tunnels: [] } });
       const [selected, setSelected] = useState('');
@@ -540,7 +544,11 @@ window.__ModuleLoader__.load({
                   onClick: registerNativeWorkspace },
                   selectedWorkspace?'已加入左侧工作区':'添加到左侧工作区'),
                 selectedWorkspace && h(Button,{icon:'arrow',disabled:!!busy,
-                  onClick:()=>{ctx.uiWorkspace.openWorkspace(selectedWorkspace.workspaceId).catch(e=>setError(e.message||String(e)));}},
+                  onClick:()=>{
+                    if(!nativeWorkspaceNavigation){setError('原生工作区导航尚未就绪');return;}
+                    Promise.resolve(nativeWorkspaceNavigation(selectedWorkspace.workspaceId))
+                      .catch(e=>setError(e.message||String(e)));
+                  }},
                   '打开原生工作区'),
                 h(Button, { icon:'server', disabled: !!busy || loading || !browse || !remoteDshDesktop,
                   onClick: openNativeSessions }, '远端 Agent（实验）'),
@@ -1173,6 +1181,10 @@ window.__ModuleLoader__.load({
      * -------------------------------------------------------------------- */
 
     function apply(ctx) {
+      nativeWorkspaceNavigation = workspaceId => ctx.uiWorkspace.openWorkspace(workspaceId);
+      ctx.effect(() => {
+        return () => { nativeWorkspaceNavigation = null; };
+      }, 'remote-ssh:workspace-navigation');
       ctx.effect(() => {
         const style = document.createElement('style'); style.id = 'dsh-remote-ssh-style'; style.textContent = CSS;
         document.head.appendChild(style);

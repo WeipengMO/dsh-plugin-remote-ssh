@@ -83,7 +83,7 @@ test('client registers settings plus native remote project directory flows', () 
   assert.equal(registrations.some(x=>x.record.name==='sidebar.panellist'),false,
     'configured SSH projects belong under native Workspaces, not a second sidebar panel');
   assert.ok(source.includes("api('/workspace/prepare',{host:selected,path:browse.path})"));
-  assert.ok(source.includes('ctx.uiWorkspace.openWorkspace(selectedWorkspace.workspaceId)'));
+  assert.ok(source.includes('nativeWorkspaceNavigation(selectedWorkspace.workspaceId)'));
   assert.doesNotMatch(source,/Windows 原生面板 · 独立 Host 身份 · Linux 执行/);
   assert.ok(source.includes("api('/runtime/native/prompt'"));
   assert.ok(source.includes("api('/runtime/native/events'"));
@@ -259,7 +259,7 @@ test('compact Settings UI keeps a single-column, theme-safe, accessible structur
   assert.doesNotMatch(source, /'aria-label': '选择 DSH Agent 会话'/);
   assert.match(source, /'aria-label': '远程源目录'/);
   assert.match(source, /'aria-live': 'polite'/);
-  assert.match(source, /'在 Linux DSH 中打开'/);
+  assert.match(source, /'加入左侧工作区'/);
   assert.match(source, /'rss-project-flow'/);
   assert.match(source, /'rss-directory-dialog'/);
   assert.match(source, /'aria-modal': true/);

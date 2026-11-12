@@ -198,7 +198,11 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
         const nativeWorkspaces = registry?.list?.() ?? [];
         const registeredWorkspaces = manager.workspaces()
           .flatMap(entry => {
-            const localPath = workspacePlaceholderPath(entry.token);
+            // Historical or corrupted saved workspace tokens must not break
+            // the authenticated /state endpoint for all other Hosts.
+            let localPath: string;
+            try { localPath = workspacePlaceholderPath(entry.token); }
+            catch { return []; }
             const native = nativeWorkspaces.find(item => item.path === localPath);
             return native === undefined ? [] : [{
               host:entry.connectionId, remoteRoot:entry.remoteRoot, title:entry.hostLabel,
