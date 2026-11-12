@@ -26,7 +26,7 @@ test('accepts native Forge read-only Git probes and rejects changes', () => {
   assert.equal(forgeGitQuery([...prefix, 'symbolic-ref', 'HEAD', 'refs/heads/other']), null);
   assert.equal(forgeGitQuery([...prefix, 'diff', '--output=/tmp/file']), null);
   assert.equal(forgeGitQuery([...prefix, 'checkout', 'main']), null);
-  assert.equal(forgeGitQuery(['git', 'status']), null);
+  assert.ok(forgeGitQuery(['git', 'status']));
 });
 
 test('accepts other safety-prefixed read-only probe shapes', () => {
@@ -41,8 +41,8 @@ test('accepts other safety-prefixed read-only probe shapes', () => {
     'rev-parse', '--show-toplevel']));
   assert.ok(forgeGitQuery([...prefix, 'remote', 'get-url', 'origin']));
   assert.ok(forgeGitQuery([...prefix, 'symbolic-ref', '--short', 'HEAD']));
-  // A bare git command and any config that could execute helpers stay refused.
-  assert.equal(forgeGitQuery(['git', 'status']), null);
+  // Safe unprefixed reads are allowed; unsafe Git config remains blocked.
+  assert.ok(forgeGitQuery(['git', 'status']));
   assert.equal(forgeGitQuery(['git', '-c', 'core.fsmonitor=!evil', 'status']), null);
   assert.equal(forgeGitQuery(['git', '-c', 'include.path=/etc/passwd', 'status']), null);
   assert.equal(forgeGitQuery(['git', '-c', 'core.sshCommand=evil', 'status']), null);
@@ -51,6 +51,40 @@ test('accepts other safety-prefixed read-only probe shapes', () => {
   assert.equal(forgeGitQuery(['git', '--no-optional-locks', 'push', 'origin', 'main']), null);
   assert.equal(forgeGitQuery(['git', '--no-optional-locks', 'diff', '--output=/tmp/x']), null);
   assert.equal(forgeGitQuery(['git', '--no-optional-locks', 'symbolic-ref', 'HEAD', 'refs/heads/other']), null);
+});
+
+test('Windows native ACL sandbox wrapper accepts canonical DSH Forge Git probes', () => {
+  const sandbox = [
+    'C:\\Program Files\\nodejs\\node.exe', 'C:\\DSH\\sandbox\\runner.js',
+    '--workspace', 'C:\\Users\\user\\.dsh\\remote-ssh-workspaces\\w0123456789abcdef',
+    '--temp', 'C:\\Users\\user\\AppData\\Local\\Temp',
+    '--mode', 'read-only', '--',
+    'C:\\Program Files\\Git\\cmd\\git.exe',
+  ];
+  const root = [...sandbox, '--no-optional-locks', '-c', 'core.hooksPath=/dev/null',
+    '-c', 'core.fsmonitor=false'];
+  assert.ok(forgeGitQuery([...root, 'rev-parse', '--show-toplevel']));
+  assert.ok(forgeGitQuery([...root, 'rev-parse', '--path-format=absolute', '--git-common-dir']));
+  assert.ok(forgeGitQuery([...root, 'symbolic-ref', '--quiet', '--short', 'HEAD']));
+  assert.ok(forgeGitQuery([...root, 'remote', '-v']));
+  assert.ok(forgeGitQuery([...root, 'for-each-ref', '--sort=-committerdate',
+    '--count=50', '--format=%(refname:lstrip=2)', 'refs/heads/']));
+  assert.equal(forgeGitQuery([...root, 'remote', 'remove', 'origin']), null);
+  assert.equal(forgeGitQuery([...root, 'reset', '--hard']), null);
+});
+
+test('safe bare Git checks can be routed without version-specific Forge prefix', () => {
+  assert.deepEqual(forgeGitQuery(['git', 'rev-parse', '--show-toplevel']),
+    ['rev-parse', '--show-toplevel']);
+  assert.deepEqual(forgeGitQuery(['C:\\Program Files\\Git\\cmd\\git.exe', 'status', '--short']),
+    ['status', '--short']);
+  assert.deepEqual(forgeGitQuery(['git.cmd', 'log', '-5']), ['log', '-5']);
+  assert.equal(forgeGitQuery(['git', '-c', 'core.fsmonitor=!evil', 'status']), null);
+  assert.equal(forgeGitQuery(['git', '-c', 'include.path=/tmp/unsafe', 'status']), null);
+  assert.equal(forgeGitQuery(['git', '--git-dir=/tmp/other', 'status']), null);
+  assert.equal(forgeGitQuery(['git', '-C', '/tmp/other', 'status']), null);
+  assert.equal(forgeGitQuery(['git', 'diff', '--output=/tmp/other']), null);
+  assert.equal(forgeGitQuery(['gh', 'pr', 'list']), null);
 });
 
 test('rejected probe shapes are logged for later whitelisting', () => {
@@ -66,10 +100,10 @@ test('rejected probe shapes are logged for later whitelisting', () => {
     info() {}, warn(message) { warnings.push(message); },
   });
   try {
-    assert.throws(() => runtime.spawn(spec(cwd, ['git', 'status'])), /not an authorized read-only Git query/);
+    assert.throws(() => runtime.spawn(spec(cwd, ['git', 'push', 'origin', 'main'])), /Remote Git\/Forge query blocked/);
   } finally { router.dispose(); }
   assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /\["git","status"\]/);
+  assert.match(warnings[0], /\["git","push","origin","main"\]/);
 });
 
 test('native Forge Git reaches SSH repo without leaking into local placeholder', async () => {
@@ -99,8 +133,8 @@ test('native Forge Git reaches SSH repo without leaking into local placeholder',
     assert.equal(localCalls, 0);
     assert.deepEqual(runtime.spawn(spec('/tmp/local')), { local: true });
     assert.equal(localCalls, 1);
-    assert.throws(() => runtime.spawn(spec(cwd, [...prefix, 'reset', '--hard'])), /not an authorized read-only Git query/);
-    assert.throws(() => runtime.spawn(spec(cwd, ['ls', '-la'])), /not an authorized read-only Git query/);
+    assert.throws(() => runtime.spawn(spec(cwd, [...prefix, 'reset', '--hard'])), /Remote Git\/Forge query blocked/);
+    assert.throws(() => runtime.spawn(spec(cwd, ['ls', '-la'])), /Remote Git\/Forge query blocked/);
     assert.equal(localCalls, 1);
     assert.equal(await remote.waitForExit(), true);
   } finally { router.dispose(); }
