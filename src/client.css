@@ -639,3 +639,12 @@ body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block
 .rss-native-terminal-output,.rss-native-git-output{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;white-space:pre-wrap;word-break:break-word;min-height:0;flex:1;overflow:auto;margin:0;padding:14px 18px;background:rgba(127,127,127,.05);color:inherit}
 .rss-native-tool-input{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--rss-border)}
 .rss-native-tool-input input{flex:1;min-width:0;min-height:35px;border:1px solid var(--rss-border);border-radius:7px;padding:7px 10px;background:transparent;color:inherit}
+
+
+/* A native Workspace launches straight into its own Linux Backend conversation.
+ * The original large standalone Remote Sessions header is intentionally gone. */
+.rss-native-contextbar{display:flex;align-items:center;gap:9px;min-height:42px;padding:6px 14px;border-bottom:1px solid var(--rss-border);min-width:0}
+.rss-native-contextbar strong{font-weight:650;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rss-native-contextbar code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px ui-monospace,Consolas,monospace;color:var(--rss-muted)}
+.rss-native-contextbar .rss-btn{flex:none}
+@media(max-width:650px){.rss-native-contextbar strong{max-width:95px}.rss-native-contextbar{gap:6px;padding:6px 8px}}
