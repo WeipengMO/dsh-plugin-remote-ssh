@@ -879,8 +879,11 @@ window.__ModuleLoader__.load({
     const NATIVE_PANEL_ID = 'remote-ssh-sessions';
     const nativePanelListeners = new Set();
     let nativePanelSelection = null;
-    function openNativeHostSessions(host, path) {
-      nativePanelSelection = {host, path: path || '~'};
+    function openNativeHostSessions(host, path, options = {}) {
+      nativePanelSelection = {host, path: path || '~',
+        workspaceId:options.workspaceId || null,
+        intent:options.intent || 'browse',
+        nonce:(nativePanelSelection?.nonce || 0)+1};
       for (const listener of [...nativePanelListeners]) listener(nativePanelSelection);
     }
     function NativeHostPanelIcon({size}) {
@@ -1169,6 +1172,93 @@ window.__ModuleLoader__.load({
                 h('p',null,'消息和任务按 SSH Host + Session 绑定；本地 DSH 会话保持独立。')))));
     }
 
+    /**
+     * One stable Desktop Workspace -> authoritative remote Host routing seam.
+     *
+     * Yan-Zero's TUI backend switches one Channel via the advertised
+     * tuiBackends service. Desktop does not expose that interface. Intercept
+     * only two *navigation methods*, never the root Connection or Sessions.
+     * Local Workspace methods are delegated unchanged. When a remote mapping
+     * cannot be checked, a reserved SSH Workspace fails closed rather than
+     * silently starting a Windows Agent against an empty placeholder folder.
+     *
+     * This is an explicit compatibility adapter until Desktop ships a
+     * public workspace-backend interface; it is not a Core Client Context.
+     */
+    function installRemoteBackendWorkspaceNavigation(ctx, options) {
+      const navigation=ctx.uiWorkspace;
+      if(!navigation || typeof navigation.openWorkspace!=='function') return ()=>{};
+      const originalOpen=navigation.openWorkspace;
+      const originalStart=typeof navigation.startSession==='function'?navigation.startSession:null;
+      const originalConnect=typeof navigation.connectWorkspace==='function'?navigation.connectWorkspace:null;
+      const knownRemoteIds=new Set();
+      let disposed=false, generation=0;
+      function isReservedWorkspace(id) {
+        const workspaces=ctx.workspaces || ctx.get?.('workspaces');
+        const snapshot=workspaces?.list?.getSnapshot?.();
+        const item=snapshot?.items?.find(w=>w.workspaceId===id||w.id===id);
+        return typeof item?.path==='string' &&
+          /[\\/]remote-ssh-workspaces[\\/]w[0-9a-f]{16}(?:[\\/]|$)/i.test(item.path);
+      }
+      async function resolve(id) {
+        if(disposed)throw Error('Remote backend navigation stopped');
+        let state;
+        try { state=await options.getState(); }
+        catch(error) {
+          if(knownRemoteIds.has(id)||isReservedWorkspace(id))
+            throw Error('无法验证 SSH Workspace 的 Linux Host；为防止在 Windows 误运行 Agent，已拒绝本地回退。'+
+              (error?.message||String(error)));
+          return null; // A normal local Workspace remains usable offline.
+        }
+        if(disposed)throw Error('Remote backend navigation stopped');
+        const rows=Array.isArray(state.registeredWorkspaces)?state.registeredWorkspaces:[];
+        const match=rows.find(row=>row.workspaceId===id);
+        if(match && typeof match.host==='string' && typeof match.remoteRoot==='string') {
+          knownRemoteIds.add(id);
+          return {host:match.host,path:match.remoteRoot,workspaceId:id};
+        }
+        if(knownRemoteIds.has(id)||isReservedWorkspace(id))
+          throw Error('此 SSH Workspace 已失去远端 Host 映射；请在 Remote SSH 设置重新登记。');
+        return null;
+      }
+      async function openWorkspace(workspaceId,...args) {
+        const op=++generation;
+        const remote=await resolve(workspaceId);
+        if(disposed||op!==generation)return;
+        if(!remote)return originalOpen.call(navigation,workspaceId,...args);
+        if(args[0]!==undefined || args[1]!==undefined)
+          throw Error('远端 Workspace 尚不支持本地 Session 回调或 Agent preset；拒绝错误路由。');
+        options.openRemote(remote,{intent:'resume'});
+      }
+      function startSession(workspaceId,...args) {
+        if(typeof workspaceId!=='string')
+          return originalStart?.call(navigation,workspaceId,...args);
+        const op=++generation;
+        void resolve(workspaceId).then(remote=>{
+          if(disposed||op!==generation)return;
+          if(!remote)return originalStart?.call(navigation,workspaceId,...args);
+          if(args.length&&args[0]?.prompt)
+            throw Error('远端新 Session 带初始 prompt 的流程尚未适配，不能回退本地执行');
+          options.openRemote(remote,{intent:'new'});
+        }).catch(error=>options.onError?.(error));
+      }
+      async function connectWorkspace(workspaceId,...args) {
+        const remote=await resolve(workspaceId);
+        if(remote)throw Error('SSH Workspace 不能通过本地 connectWorkspace 创建 Agent；请打开远端工作区。');
+        return originalConnect?.call(navigation,workspaceId,...args);
+      }
+      navigation.openWorkspace=openWorkspace;
+      if(originalStart)navigation.startSession=startSession;
+      if(originalConnect)navigation.connectWorkspace=connectWorkspace;
+      return ()=>{
+        disposed=true;generation++;
+        if(navigation.openWorkspace===openWorkspace)navigation.openWorkspace=originalOpen;
+        if(navigation.startSession===startSession)navigation.startSession=originalStart;
+        if(navigation.connectWorkspace===connectWorkspace)navigation.connectWorkspace=originalConnect;
+      };
+    }
+    exports.installRemoteBackendWorkspaceNavigation=installRemoteBackendWorkspaceNavigation;
+
     /* -------------------------------------------------------------------- *
      * Remote DSH Host isolation.
      *
@@ -1183,7 +1273,13 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       nativeWorkspaceNavigation = workspaceId => ctx.uiWorkspace.openWorkspace(workspaceId);
       ctx.effect(() => {
-        return () => { nativeWorkspaceNavigation = null; };
+        const unroute=installRemoteBackendWorkspaceNavigation(ctx, {
+          getState:()=>api('/state'),
+          openRemote:(remote, mode)=>openNativeHostSessions(remote.host,remote.path,
+            {workspaceId:remote.workspaceId,intent:mode.intent}),
+          onError:error=>console.error('[Remote SSH] Workspace backend routing refused:',error),
+        });
+        return ()=>{unroute();nativeWorkspaceNavigation=null;};
       }, 'remote-ssh:workspace-navigation');
       ctx.effect(() => {
         const style = document.createElement('style'); style.id = 'dsh-remote-ssh-style'; style.textContent = CSS;
