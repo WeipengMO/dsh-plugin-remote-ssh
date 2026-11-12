@@ -1,6 +1,6 @@
 # 安装、使用与故障排查
 
-适用于 **DSH Remote SSH v1.0.0**。本页按当前可复现的问题组织，不再保留早期开发版本的迁移记录。
+适用于 DSH Remote SSH v1.0.0 及 `main` 分支的开发更新；正式发布版功能取决于实际安装包。
 
 ## 安装后找不到 Remote SSH 设置
 
@@ -36,6 +36,16 @@ DSH CLI 支持 Git 来源安装，但 Git 构建脚本可能受到 pnpm 安全�
 文件路由走 `ssh2`/SFTP，而 Agent Shell 走运行 DSH Host 的本地 OpenSSH 客户端，因此可能出现 SFTP 成功但 Shell 失败。
 
 在运行 DSH Host 的机器上检查 `ssh -V`；Windows 需要安装 OpenSSH Client，并确认 `ssh.exe` 可被 DSH 进程找到。必要时用环境变量 `DSH_SSH_BIN` 指向其路径。目标 Linux 主机需要 Bash；远程工作区执行的 Shell 语法是 Bash/POSIX，**不是 Windows PowerShell**。
+
+## 远程工作区的工具卡片仍显示 pwsh
+
+v1.0.0 的兼容实现拦截原生 `pwsh` 的执行，却不会改写原生工具 Schema，因此历史工具卡片会显示 Windows PowerShell 描述。未发布的新代码新增了 `remote_bash` 的 Linux/POSIX Schema，并在 DSH 支持 Agent scoped `tools.restrict()` 时只对远程 Agent 隐藏 `pwsh`。本地项目保留原生 `pwsh`。
+
+- 确认已安装包含该改动的开发构建（v1.0.0 正式发布包不会自动更新），完全退出 DSH Host 后重启并新建远程会话。
+- 新的远程命令应优先调用 `remote_bash`，历史 `pwsh` 调用卡片不会重命名；在不支持条件工具或 Agent 限制的宿主上，两个工具可能同时显示。
+- `remote_bash` 只支持前台命令执行，长时间运行的任务仍可按宿主支持情况使用兼容 shell/job 功能。
+- 可让 Agent 调用 `remote_ssh_status` 确认 `remote: true`，并在 `remote_bash` 中执行 `pwd; uname -s` 验证实际平台。
+- 如果 `remote_bash` 提示当前不是 SSH 工作区，检查会话的当前工作目录是否已正确切换；工具不会静默退回本地执行。
 
 ## 右侧原生终端或 Git 面板不显示远程内容
 

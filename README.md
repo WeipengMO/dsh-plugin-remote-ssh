@@ -15,7 +15,7 @@
 
 - **远程项目 / 工作区**：在 DSH 的新建项目与工作区目录选择流程中选择 SSH 主机和远程 Linux 目录。
 - **Agent 远程文件操作**：在已激活的远程工作区中，将文件读取、写入、编辑及 `glob`/`grep` 搜索路由到 SSH/SFTP；本地工作区继续使用 DSH 原有实现。
-- **远程命令**：Agent 的 Shell 操作经本机 OpenSSH 在远端以 Bash 执行；SSH 路由失败不会静默改为本地运行。
+- **Agent 专用 Linux 命令工具（开发分支）**：远程 SSH 会话优先使用 `remote_bash`（模型看到 Bash/POSIX Schema），并在宿主支持 Agent 级工具限制时隐藏 Windows `pwsh`；切回本地时恢复 `pwsh`。旧的 `pwsh` → SSH Shell 路由仍保留兼容，但不会在 SSH 失败时转为本地执行。
 - **原生终端**：在宿主提供 `subprocess.spawnTerminal()` 时，将 DSH 右侧终端的远程工作区会话连接到 SSH PTY；不新增独立终端窗口。
 - **Git 状态**：在 Remote SSH 设置页查看远程 `git status`、Diff 统计和近期提交；在兼容的宿主版本中也会尝试适配原生 Git 子进程入口。
 - **SSH 主机管理**：支持 `~/.ssh/config`、密钥文件与 ssh-agent、显式主机指纹确认，以及受限的 Cloudflare Access `cloudflared` ProxyCommand。
@@ -62,8 +62,12 @@ Git 安装路径尚未在本项目的干净 Windows Desktop 环境完成端到�
 
 1. 进入 **设置 → Remote SSH**，添加 SSH 主机或读取 `~/.ssh/config` 中的主机别名，测试连接。首次连接请通过可信渠道核对并确认完整 SSH Host Key SHA256 指纹。
 2. 在 **新建项目 → 源文件夹 → 远程 SSH** 中选择主机和 Linux 路径。插件创建的是本机空占位工作区，真实文件不会复制到这里。
-3. 打开该项目对应的 DSH 会话；Agent 的文件操作与 Shell 走远端。可在终端执行 `pwd; uname -s; hostname` 核实执行位置。
+3. 打开该项目对应的 DSH 会话；Agent 的文件操作与 Shell 走远端。新代码中远程 Shell 工具应显示为 `remote_bash`，而不是 `pwsh`（历史调用仍保留原名称）。可在终端执行 `pwd; uname -s; hostname` 核实执行位置。
 4. 通过设置页中的 **Git 状态** 查看未提交文件、Diff 统计和提交历史。DSH 的 **变更请求** 面板主要面向 Pull Request，不能当作工作区未提交文件列表的唯一依据。
+
+## 开发分支与正式版本
+
+本仓库 `main` 后续代码可能包含尚未发布的改进；**v1.0.0 Release 不会因为代码更新自动改变**。测试新功能请使用 CI 构建产物或自行构建安装包，并完全重启 DSH Host。`remote_bash` 当前仅支持前台执行；需要 DSH 原生后台任务功能时保留旧的 `pwsh` 路由作为兼容路径。
 
 ## 工作原理
 
