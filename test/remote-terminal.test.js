@@ -41,6 +41,26 @@ test('remote terminal opens actual SSH channel, quotes cwd and streams output', 
   assert.equal(channel.closed, true);
   assert.throws(() => pool.read(result.id, 0), /unknown SSH terminal/);
 });
+test('editing one SSH Host closes only its terminal channels', async () => {
+  const channels=[];
+  const manager={
+    async openWorkspace(hostId,remotePath){return {workspace:{remoteRoot:remotePath}};},
+    async connection(hostId){return {async shell(){
+      const ch=new FakeChannel();ch.hostId=hostId;channels.push(ch);return ch;
+    }};},
+  };
+  const pool=new RemoteTerminalPool(manager);
+  const first=await pool.open('alpha','/alpha');
+  const second=await pool.open('beta','/beta');
+  assert.equal(pool.read(first.id,0).closed,false);
+  pool.closeAllFor('alpha');
+  assert.equal(channels[0].closed,true);
+  assert.equal(channels[1].closed,false);
+  assert.throws(()=>pool.read(first.id,0),/unknown SSH terminal/);
+  assert.equal(pool.read(second.id,0).closed,false);
+  pool.closeAll();
+});
+
 test('remote terminal refuses excessively large input and caps terminal count', async () => {
   const { pool } = fixture();
   const ids = [];

@@ -371,6 +371,7 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
         deps.dshWebTunnels?.closeAllFor(id);
         deps.remoteRuntime?.clear(id);
         deps.nativeSessions?.clear(id);
+        deps.remoteTerminals?.closeAllFor(id);
         return send(res, 200, { ok: true, host: manager.updateHost(id, hostPatch(body)) });
       }
       if (route === '/host/remove') {
@@ -378,6 +379,7 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
         deps.dshWebTunnels?.closeAllFor(id);
         deps.remoteRuntime?.clear(id);
         deps.nativeSessions?.clear(id);
+        deps.remoteTerminals?.closeAllFor(id);
         manager.removeHost(id);
         return send(res, 200, { ok: true });
       }

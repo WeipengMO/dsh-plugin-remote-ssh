@@ -87,6 +87,12 @@ export class RemoteTerminalPool {
     try { t.channel.close(); } catch { /* already closed */ }
   }
 
+  closeAllFor(hostId: string): void {
+    for (const [id, terminal] of this.terminals) {
+      if (terminal.hostId === hostId) this.close(id);
+    }
+  }
+
   closeAll(): void {
     for (const id of [...this.terminals.keys()]) this.close(id);
   }
