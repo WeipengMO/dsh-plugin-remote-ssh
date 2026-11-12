@@ -14,8 +14,10 @@ test('Windows DSH source picker is native and supports configured SSH alias impo
   assert.match(source, /host\/quick-add/);
   assert.match(source, /在 Desktop 打开工作区/);
   const picker = source.slice(source.indexOf('function RemoteProjectDirectoryFlow'), source.indexOf('// DSH\'s built-in right-sidebar terminal'));
-  assert.match(picker, /openEmbeddedDsh/);
-  assert.doesNotMatch(picker, /workspace\/prepare/);
+  assert.match(picker, /workspace\/prepare/);
+  assert.match(picker, /openNativeHostSessions/);
+  assert.doesNotMatch(picker, /onPicked\(prepared\.localPath\)/,
+    'remote directory picker must not create a Windows Agent for a Linux Backend');
   assert.match(picker, /currentPath !== listing\.path/);
   assert.match(picker, /const selectionId = \+\+requestId\.current/);
   assert.match(source, /setHostProbe/);
