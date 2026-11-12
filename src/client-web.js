@@ -194,6 +194,8 @@ window.__ModuleLoader__.load({
       const [buildWarning, setBuildWarning] = useState('');
       const [command, setCommand] = useState('pwd && git status --short');
       const [log, setLog] = useState([]);
+      const [gitSnapshot, setGitSnapshot] = useState(null);
+      const [gitLoading, setGitLoading] = useState(false);
       const [loading, setLoading] = useState(false);
       const [recentExpanded, setRecentExpanded] = useState(false);
       const currentHost = state.hosts.find(host => host.id === selected);
@@ -218,7 +220,7 @@ window.__ModuleLoader__.load({
         setLoading(true); setError('');
         try {
           const listing = await api('/browse?host=' + encodeURIComponent(host) + '&path=' + encodeURIComponent(value));
-          setBrowse(listing); setDir(listing.path);
+          setBrowse(listing); setDir(listing.path); setGitSnapshot(null);
         } catch (e) { setBrowse(null); setDir(value); setError(e.message); }
         finally { setLoading(false); }
       }, []);
@@ -255,6 +257,21 @@ window.__ModuleLoader__.load({
           setSuccess('已添加到 DSH 工作区：' + prepared.title + '。现在可从工作区列表中创建或打开会话。');
           refresh();
         } catch (e) { setError('添加工作区失败：' + (e.message || String(e))); }
+      };
+      // Read-only Git overview is resolved exclusively on the Linux host.
+      // It does not need a local .git directory or an installed Windows Git.
+      const loadGit = async () => {
+        if (!selected || !dir) return;
+        const host = selected, directory = browse?.path || dir;
+        setGitLoading(true); setGitSnapshot(null);
+        try {
+          const result = await api('/git/overview', { host, path: directory, limit: 20 });
+          setGitSnapshot(result);
+        } catch (e) {
+          setGitSnapshot({ error: e.message || String(e) });
+        } finally {
+          setGitLoading(false);
+        }
       };
       const execute = async e => {
         e.preventDefault();
@@ -326,9 +343,10 @@ window.__ModuleLoader__.load({
             h('div', { className: 'rss-host-address' },
               (status?.user || currentHost.user || 'ssh') + '@' + (status?.hostName || currentHost.host) + ':' + (status?.port || currentHost.port || 22)),
             h('div', { className: 'rss-tabs', role: 'tablist', 'aria-label': '远程 SSH 工具' },
-              [['files', '文件浏览', 'folder'], ['terminal', '快速命令', 'terminal'], ['info', '连接信息', 'shield']].map(([id, label, glyph]) =>
+              [['files', '文件浏览', 'folder'], ['git', 'Git 历史', 'clock'], ['terminal', '快速命令', 'terminal'], ['info', '连接信息', 'shield']].map(([id, label, glyph]) =>
                 h('button', { key: id, role: 'tab', type: 'button', 'aria-selected': tab === id,
-                    className: 'rss-tab ' + (tab === id ? 'rss-tab-active' : ''), onClick: () => setTab(id) },
+                    className: 'rss-tab ' + (tab === id ? 'rss-tab-active' : ''),
+                    onClick: () => { setTab(id); if (id === 'git') void loadGit(); } },
                   h(Icon, { name: glyph, size: 15 }), label))),
             tab === 'files' && h('div', { className: 'rss-files-tab', role: 'tabpanel' },
               h('div', { className: 'rss-pathbar' },
@@ -359,6 +377,36 @@ window.__ModuleLoader__.load({
                   h('p', null, '添加后在 DSH 左侧工作区中打开，Agent 文件与命令会自动使用此远程目录。')),
                 h(Button, { variant: 'primary', icon: 'arrow', disabled: !!busy || loading || !browse,
                   onClick: openWorkspace }, busy === 'prepare' ? '正在添加…' : '添加此文件夹'))),
+            tab === 'git' && h('div', { className: 'rss-git-tab', role: 'tabpanel' },
+              h('div', { className: 'rss-git-toolbar' },
+                h('div', null,
+                  h('strong', null, 'Linux Git 状态与提交历史'),
+                  h('p', null, '从 SSH 服务器的真实仓库读取；不使用本地 Git 或 .git 镜像。')),
+                h(Button, { icon: 'refresh', small: true, disabled: gitLoading || !selected,
+                  onClick: loadGit }, gitLoading ? '读取中…' : '刷新')),
+              gitLoading
+                ? h('p', { className: 'rss-git-help' }, '正在读取远程 Git…')
+                : gitSnapshot?.error
+                  ? h('p', { className: 'rss-git-error', role: 'alert' }, gitSnapshot.error)
+                  : !gitSnapshot
+                    ? h('p', { className: 'rss-git-help' }, '选择远程目录查看 Git 状态。')
+                    : !gitSnapshot.isRepository
+                      ? h('p', { className: 'rss-git-help' }, '当前目录不在 Git 仓库内。')
+                      : h(React.Fragment, null,
+                          h('h4', null, '工作区变更'),
+                          h('pre', { className: 'rss-git-output' }, gitSnapshot.status || '工作区干净'),
+                          h('h4', null, '未提交改动统计'),
+                          h('pre', { className: 'rss-git-output' }, gitSnapshot.diffStat || '暂无未暂存改动'),
+                          h('h4', null, '最近提交'),
+                          (gitSnapshot.history || []).length
+                            ? h('div', { className: 'rss-git-history' },
+                                gitSnapshot.history.map(entry =>
+                                  h('div', { className: 'rss-git-commit',
+                                    key: entry.hash + ':' + entry.date },
+                                    h('code', null, entry.hash),
+                                    h('time', null, entry.date),
+                                    h('span', null, entry.subject))))
+                            : h('p', { className: 'rss-git-help' }, '尚无提交历史'))),
             tab === 'terminal' && h('div', { className: 'rss-terminal-tab', role: 'tabpanel' },
               h('p', { className: 'rss-hint' }, '在服务器执行一次性命令（30 秒超时）；交互式 Shell 请使用 DSH 右侧原生终端。'),
               h('p', { className: 'rss-hint' }, '在 DSH 右侧点击「新建终端」即可打开当前 SSH 工作区的原生远程终端（完整 ANSI/xterm）。'),

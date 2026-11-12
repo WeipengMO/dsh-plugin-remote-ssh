@@ -526,3 +526,19 @@ body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block
 body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block.xterm-cursor-blink {
   animation: rss-terminal-bar-blink 1s step-end infinite !important;
 }
+
+
+/* Read-only Git history and worktree state from the Linux SSH workspace. */
+.rss-settings-container .rss-git-tab{display:flex;flex-direction:column;gap:8px;padding:15px 18px;overflow:auto;max-height:430px;min-height:160px}
+.rss-settings-container .rss-git-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.rss-settings-container .rss-git-toolbar strong{font-size:13px}
+.rss-settings-container .rss-git-toolbar p,.rss-settings-container .rss-git-help{font-size:12px;color:var(--rss-secondary);margin:5px 0}
+.rss-settings-container .rss-git-tab h4{font-size:12px;margin:11px 0 1px}
+.rss-settings-container .rss-git-output{margin:0;max-height:140px;overflow:auto;white-space:pre-wrap;word-break:break-word;font:12px ui-monospace,Consolas,monospace;background:var(--rss-hover);border-radius:6px;padding:10px}
+.rss-settings-container .rss-git-history{display:flex;flex-direction:column;gap:0}
+.rss-settings-container .rss-git-commit{display:grid;grid-template-columns:72px 85px 1fr;gap:8px;padding:9px 0;border-bottom:1px solid var(--rss-border);font-size:12px;align-items:baseline}
+.rss-settings-container .rss-git-commit code{font:12px ui-monospace,Consolas,monospace}
+.rss-settings-container .rss-git-commit time{white-space:nowrap;color:var(--rss-secondary)}
+.rss-settings-container .rss-git-commit span{min-width:0;overflow-wrap:anywhere}
+.rss-settings-container .rss-git-error{color:#b91c1c;font-size:12px}
+@media(max-width:560px){.rss-settings-container .rss-git-commit{grid-template-columns:65px 1fr}.rss-settings-container .rss-git-commit span{grid-column:1/-1}}
