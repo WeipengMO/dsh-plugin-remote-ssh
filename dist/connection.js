@@ -305,27 +305,6 @@ export class SshConnection {
             });
         });
     }
-    /**
-     * One verified SSH TCP forward to a remote loopback-only DSH Web process.
-     * This carries raw HTTP and WebSocket bytes without inspecting access tokens.
-     */
-    async forwardLoopback(remotePort) {
-        if (!Number.isSafeInteger(remotePort) || remotePort < 1024 || remotePort > 65535) {
-            throw new RemoteSshError('SSH_PATH_INVALID', 'invalid remote DSH Web port');
-        }
-        await this.ensure();
-        const client = this.client;
-        if (!client)
-            throw new RemoteSshError('SSH_CONNECTION_LOST', 'SSH client is not connected');
-        return await new Promise((resolve, reject) => {
-            client.forwardOut('127.0.0.1', 0, '127.0.0.1', remotePort, (err, channel) => {
-                if (err || !channel)
-                    reject(new RemoteSshError('SSH_CHANNEL_FAILED', 'SSH direct-tcpip forwarding failed: ' + (err?.message || 'no channel')));
-                else
-                    resolve(channel);
-            });
-        });
-    }
     async exec(command, options = {}) {
         await this.ensure();
         const client = this.client;

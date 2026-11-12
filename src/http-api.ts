@@ -8,11 +8,9 @@ import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { RemoteSshManager } from './manager.js';
 import { prepareRemoteWorkspace, type WorkspaceRegistry } from './workspace-registration.js';
+import { inspectRemoteGit } from './remote-git.js';
 import type { RemoteTerminalPool } from './remote-terminal.js';
-import { DEFAULT_DSH_WEB_PORT, type RemoteDshWebTunnelPool } from './dsh-web-tunnel.js';
-import type { RemoteHostRuntimePool } from './remote-host-runtime.js';
-import { errorMessage } from './errors.js';
-import { looksVirtual, shellQuote, workspaceToken } from './paths.js';
+import { looksVirtual, shellQuote } from './paths.js';
 import type { HostRecord } from './types.js';
 import { listSshConfigAliases, resolveSshConfig } from './ssh-config.js';
 
@@ -34,10 +32,6 @@ export interface NativeApiDeps {
   /** Native DSH project registry; optional when only the built-in project picker is available. */
   workspaceRegistry?: WorkspaceRegistry | (() => WorkspaceRegistry | undefined);
   remoteTerminals?: RemoteTerminalPool;
-  dshWebTunnels?: RemoteDshWebTunnelPool;
-  remoteRuntime?: RemoteHostRuntimePool;
-  /** Loopback tunnels can only be opened by the desktop Host on the browser machine. */
-  desktopProfile?: boolean;
   /** DSH Connection's signed-cookie and Host/Origin admission, fail closed. */
   requestRejection(req: IncomingMessage): number | undefined;
 }
@@ -193,9 +187,7 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
           latest: index === agentEntries.length - 1,
         }));
         return send(res, 200, { ok: true, version: PACKAGE_VERSION, hosts, effective, statuses: manager.statuses(),
-          recent: manager.recent(), sessions, aliases: listSshConfigAliases(),
-          remoteDsh: { desktopProfile: deps.desktopProfile === true, tunnels: deps.dshWebTunnels?.list() ?? [] },
-          remoteRuntime: { phase: 'bootstrap-v1', connected: deps.remoteRuntime?.list() ?? [] } });
+          recent: manager.recent(), sessions, aliases: listSshConfigAliases() });
       }
       // Accept GET (current client) and POST (older clients) so a stale UI never
       // turns config preview into an opaque 405 while the host build catches up.
@@ -232,92 +224,6 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
         throw error(405, `method not allowed: ${req.method} ${route.slice(0, 120)} — the running DSH host plugin build is older than this UI; fully restart the DSH client to reload it`);
       }
       const body = await readBody(req);
-      if (route === '/runtime/connect') {
-        if (!deps.remoteRuntime) throw error(503, 'remote runtime is not installed in this DSH Host');
-        const host = text(body.host, 'host');
-        manager.getHost(host);
-        const runtime = await deps.remoteRuntime.connect(host);
-        const remoteDsh = await deps.remoteRuntime.dshVersion(host);
-        return send(res, 200, { ok: true, runtime, remoteDsh });
-      }
-      if (route === '/runtime/inspect') {
-        if (!deps.remoteRuntime) throw error(503, 'remote runtime is unavailable');
-        const token = text(body.token, 'workspace token', 64);
-        // Never accept an arbitrary cwd from a browser; use only an already
-        // registered SSH workspace's canonical Linux root.
-        const workspace = manager.workspaceByToken(token);
-        const inspection = await deps.remoteRuntime.inspect(workspace.connectionId, workspace.remoteRoot);
-        return send(res, 200, { ok: true, inspection, host: workspace.connectionId, token });
-      }
-      if (route === '/runtime/web/open') {
-        // This is a Desktop-owned SSH loopback connection. A Web profile Host
-        // cannot assume the browser shares its 127.0.0.1.
-        if (deps.desktopProfile !== true || !deps.remoteRuntime || !deps.dshWebTunnels) {
-          throw error(409, 'Embedded Remote DSH requires the Windows Desktop Host and native WebView');
-        }
-        const host = text(body.host, 'host');
-        const requestedPath = text(body.path ?? '~', 'path');
-        manager.getHost(host);
-        const opened = await manager.openWorkspace(host, requestedPath);
-        // User chose "Connect remote DSH"; this authorizes fetching the pinned
-        // official CLI with npx if there is no existing dsh executable.
-        const remote = await deps.remoteRuntime.ensureWeb(host, opened.workspace.remoteRoot,
-          body.installIfMissing !== false);
-        if (remote.phase === 'failed') {
-          return send(res, 200, {ok:true, phase:'failed', host,
-            message:remote.message || 'remote DSH failed to start'});
-        }
-        if (remote.phase !== 'ready' || !remote.url) {
-          return send(res, 200, { ok:true, phase:'starting', host,
-            path:opened.workspace.remoteRoot, installation:remote.installation || 'unknown' });
-        }
-        const from = new URL(remote.url);
-        if (from.protocol !== 'http:' || !['127.0.0.1','localhost'].includes(from.hostname)
-            || from.username || from.password || Number(from.port) !== remote.port || !from.searchParams.has('token')) {
-          throw error(502, 'remote DSH Web authentication URL is not trusted');
-        }
-        const key = `web:${workspaceToken(host, opened.workspace.remoteRoot)}`;
-        const existing = deps.dshWebTunnels.list().find(t => t.key === key);
-        if (existing && existing.remotePort !== remote.port) deps.dshWebTunnels.close(key);
-        const tunnel = await deps.dshWebTunnels.openScoped(key, host, remote.port);
-        const to = new URL(tunnel.localUrl);
-        to.pathname = from.pathname;
-        to.search = from.search;
-        to.hash = from.hash;
-        // The URL contains a process launch credential. Never log, persist,
-        // include in GET /state, or pass through Session/Agent messages.
-        return send(res, 200, {
-          ok:true, phase:'ready', host, path:opened.workspace.remoteRoot,
-          url:to.href, installation:remote.installation || 'existing',
-        });
-      }
-      if (route === '/dsh/check') {
-        const host = text(body.host, 'host');
-        const connection = await manager.connection(host);
-        // All fields are fixed literals, never model/user-supplied code.
-        const script = "printf 'DSH_ENV_START\\n'; uname -s; node --version 2>&1 || true; command -v dsh || true; git --version 2>&1 || true; command -v gh || true; printf 'DSH_ENV_END\\n'";
-        const result = await connection.exec(script, { timeoutMs: 12000, maxBytes: 12000 });
-        return send(res, 200, { ok: true, code: result.code,
-          output: result.stdout.slice(0, 10000), stderr: result.stderr.slice(0, 1000),
-          truncated: result.truncated });
-      }
-      if (route.startsWith('/dsh/tunnel/')) {
-        if (deps.desktopProfile !== true || !deps.dshWebTunnels) {
-          throw error(409, 'Managed local tunnels require DSH Desktop on the same computer as the browser; use manual ssh -L for remote Web profiles');
-        }
-        const host = text(body.host, 'host');
-        manager.getHost(host);
-        const tunnels = deps.dshWebTunnels;
-        if (route === '/dsh/tunnel/open') {
-          const port = body.port === undefined ? DEFAULT_DSH_WEB_PORT : Number(body.port);
-          if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) throw error(400, 'invalid DSH Web remote port');
-          return send(res, 200, { ok: true, tunnel: await tunnels.open(host, port) });
-        }
-        if (route === '/dsh/tunnel/close') {
-          return send(res, 200, { ok: true, closed: tunnels.close(host) });
-        }
-        throw error(404, 'unknown DSH Web tunnel operation');
-      }
       if (route === '/recent/clear') {
         // Deleting history is an explicit action, independent of deleting any
         // DSH workspace or its server-side folder. Use the authenticated
@@ -326,17 +232,6 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
         const removed = manager.clearRecentHistory();
         return send(res, 200, { ok: true, removed });
       }
-      if (route === '/host/quick-add') {
-        // Auto-import only an exact Host listed by the operator's OpenSSH config.
-        // Registering an alias never trusts an unknown SSH host key.
-        const alias = text(body.alias, 'alias', 253);
-        if (alias.startsWith('-') || /[\s\0*?]/.test(alias) || !listSshConfigAliases().includes(alias)) {
-          throw error(400, 'alias must match a concrete ~/.ssh/config Host');
-        }
-        const existing = manager.hosts().find(host => host.host === alias || host.sshAlias === alias);
-        const host = existing ?? manager.addHost({ host: alias, label: alias, useSshConfig: true, useAgent: true });
-        return send(res, 200, { ok: true, host });
-      }
       if (route === '/host/add') {
         const patch = hostPatch(body);
         const host = manager.addHost({ ...patch, host: text(patch.host, 'host') });
@@ -344,14 +239,10 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
       }
       if (route === '/host/update') {
         const id = text(body.id, 'id');
-        deps.dshWebTunnels?.closeAllFor(id);
-        deps.remoteRuntime?.clear(id);
         return send(res, 200, { ok: true, host: manager.updateHost(id, hostPatch(body)) });
       }
       if (route === '/host/remove') {
         const id = text(body.id, 'id');
-        deps.dshWebTunnels?.closeAllFor(id);
-        deps.remoteRuntime?.clear(id);
         manager.removeHost(id);
         return send(res, 200, { ok: true });
       }
@@ -383,22 +274,7 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
         const remote = text(body.path ?? '~', 'path');
         const registry = typeof deps.workspaceRegistry === 'function' ? deps.workspaceRegistry() : deps.workspaceRegistry;
         const prepared = await prepareRemoteWorkspace(manager, hostId, remote, registry);
-        // Automatically stage the version-verified helper on the same SSH
-        // connection. A Node-less host may still use the legacy SFTP bridge;
-        // failures are explicit, never silently interpreted as a remote DSH
-        // Agent Session or full Forge availability.
-        let runtime: { state: string; protocol?: number; git?: unknown; message?: string };
-        if (!deps.remoteRuntime) runtime = { state: 'unavailable', message: 'helper runtime not registered' };
-        else {
-          try {
-            const info = await deps.remoteRuntime.connect(hostId);
-            const inspection = await deps.remoteRuntime.inspect(hostId, prepared.remoteRoot);
-            runtime = { state: 'verified-helper', protocol: info.protocol, git: inspection.git };
-          } catch (err) {
-            runtime = { state: 'unavailable', message: errorMessage(err).slice(0, 300) };
-          }
-        }
-        return send(res, 200, { ok: true, ...prepared, runtime });
+        return send(res, 200, { ok: true, ...prepared });
       }
       if (route === '/workspace/open') {
         const { id, agent } = resolveSession(deps, body.sessionId);
@@ -452,6 +328,16 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
           return send(res, 200, { ok: true });
         }
         throw error(404, 'unknown terminal operation');
+      }
+      if (route === '/git/overview') {
+        const hostId = text(body.host, 'host');
+        const remoteDirectory = text(body.path ?? '~', 'path');
+        const count = body.limit === undefined ? 20 : Number(body.limit);
+        // Verify and canonicalize the chosen Linux directory via SFTP before
+        // invoking Git; never query the Windows placeholder or local Git.
+        const opened = await manager.openWorkspace(hostId, remoteDirectory);
+        const snapshot = await inspectRemoteGit(manager, hostId, opened.workspace.remoteRoot, count);
+        return send(res, 200, { ok: true, ...snapshot });
       }
       if (route === '/exec') {
         const hostId = text(body.host, 'host');

@@ -31,6 +31,12 @@ export interface ShellRouterHandle {
   dispose(): void;
 }
 
+/** Detect unmistakable PowerShell-only syntax before sending it to Linux. */
+export function usesPowerShellSyntax(command: string): boolean {
+  return /\$env:[A-Za-z_]/i.test(command)
+    || /(?:^|[;&|]\s*|\n\s*)(?:Get-ChildItem|Set-Location|Select-String|Get-Content|Set-Content|Out-File|Remove-Item|New-Item|Write-Output|Get-Location|Test-Path)(?=\s|$)/i.test(command);
+}
+
 /**
  * Build the exact non-interactive OpenSSH argv. `-F none` prevents user config
  * from re-introducing password prompts or a different host/port; all effective
@@ -78,15 +84,23 @@ export function buildSshArgv(connection: SshConnection, knownHostsPath: string, 
   for (const key of config.identityFiles) args.push('-i', key);
   args.push(config.hostName);
 
+  // The *local* Windows pwsh tool can supply host PowerShell variables such as
+  // PATH/PSModulePath. Never forward them to the Linux execution environment:
+  // they would override Linux binaries and make bash commands fail mysteriously.
+  const remoteUserEnv = Object.fromEntries(Object.entries(spec.env ?? {}).filter(([key]) =>
+    !/^(?:PATH|PATHEXT|PSMODULEPATH|COMSPEC|SYSTEMROOT|WINDIR|USERPROFILE|HOMEDRIVE|HOMEPATH|APPDATA|LOCALAPPDATA|TEMP|TMP|PWD|SHELL|HOME)$/i.test(key)));
   const remoteEnv = encodeRemoteEnv({
+    ...remoteUserEnv,
     NO_COLOR: '1',
     TERM: 'dumb',
     PAGER: 'cat',
     GIT_PAGER: 'cat',
-    ...spec.env,
+    DSH_REMOTE_PLATFORM: 'linux',
+    DSH_REMOTE_SHELL: 'bash',
   });
-  const remoteShell = process.env.DSH_REMOTE_SSH_SHELL ?? 'bash';
-  const command = `${remoteEnv.length > 0 ? `env ${remoteEnv} ` : ''}${remoteShell} -lc ${shellQuote(spec.command)}`;
+  // A Windows pwsh tool's *command text* is dispatched using Linux Bash.
+  // Do not let the Windows host shell setting select PowerShell remotely.
+  const command = `${remoteEnv.length > 0 ? `env ${remoteEnv} ` : ''}bash -lc ${shellQuote(spec.command)}`;
   const remote = `cd -- ${shellQuote(spec.workdir)} && exec ${command}`;
   args.push(remote);
   return args;
@@ -129,6 +143,10 @@ export function installShellRouter(
     if (!looksVirtual(spec.workdir)) return await originalExecute(spec);
     const route = manager.routeFor(spec.workdir, spec.workdir);
     if (route === null) throw new RemoteSshError('SSH_PATH_INVALID', `cannot route remote workdir: ${spec.workdir}`);
+    if (usesPowerShellSyntax(spec.command)) {
+      throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED',
+        'Remote Linux workspace uses Bash, not PowerShell. Rewrite this command using Bash/POSIX syntax (ls, grep, $HOME), then retry.');
+    }
     const connection = await manager.connection(route.workspace.connectionId);
     const knownHostsPath = await manager.ensureKnownHostsFile(connection);
     try {

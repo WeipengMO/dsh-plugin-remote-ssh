@@ -1,34 +1,108 @@
 # DSH Remote SSH
 
-在 Windows DSH Desktop 中通过 SSH 打开 Linux 上的完整 DSH。每个远程项目使用独立的内嵌界面、连接和会话；本地 DSH 保持独立。无需修改或重新打包 Desktop Core。
+[![Build](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml/badge.svg)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml)
+[![MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## 使用
+**直接在 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 中打开远程 Linux 项目。** v1.4.0 回归 **1.x 轻量 SSH/SFTP** 模式：Windows DSH 管理 Agent，通过 SSH 将文件、代码搜索和 Bash/终端指令执行在 Linux；不运行 Linux DSH Host、无需在远端安装 DSH CLI，不开远端 WebView，也不需要同步仓库到 Windows。
 
-1. 在 **设置 → Remote SSH** 添加服务器或从 Windows `~/.ssh/config` 导入。首次连接时，通过独立可信渠道核对完整 SHA-256 主机密钥指纹并确认。
-2. 在设置页选择服务器，浏览 Linux 目录，点击 **打开远程 DSH**。也可以在新建项目的目录选择器中选择 **SSH 服务器**，再打开所选目录。
-3. 插件验证并部署 helper，启动或复用该目录的 Linux DSH Web，并经 SSH 建立本机回环隧道。首次未安装 DSH 时会使用固定版本的官方 CLI，可能需要下载。
-4. 远程界面的顶部标签可在已经打开的项目之间切换；**返回本地**保留远程页面，在右下角点击相应项目可再次进入。**重新连接**重新建立该页面的连接，关闭标签不会停止 Linux DSH 进程。
+## 主要功能
 
-远程界面中的工作区、会话、Agent、Git、worktree、终端和文件监视由对应 Linux DSH 管理。Windows 与 Linux 的会话列表不合并，切换标签不会迁移会话。关闭 Desktop 后，下次需重新从项目目录打开远程界面；Linux DSH 的持久会话由远端保存。
+- **原生工作区**：新建 DSH 项目时选择「远程 SSH」主机和源文件夹，之后像本地项目一样从侧边栏打开。
+- **SSH 主机管理**：支持导入 `~/.ssh/config`、SSH 密钥与 ssh-agent、服务器指纹核验；支持受限的 Cloudflare Access 代理。
+- **远程开发**：Agent 的 `read`、`write`、`edit`、`glob`、`grep`、Shell 和右侧 xterm 终端访问同一个远程文件系统。
+- **Linux Bash**：远端工具使用 `bash -lc`，不会在服务器上执行 PowerShell；过滤 Windows `PATH`/`PSModulePath` 等不兼容环境变量，提示 Agent 使用 `ls`、`grep`、`$HOME` 等 Bash 语法。Windows 本地工作区不受影响。
+- **Git 状态与历史**：设置里的「Git 历史」可通过 SSH 查看仓库分支/工作区状态、最近提交、未提交 Diff 统计；Agent 可用只读 `remote_ssh_git` 查询。DSH 原生 Forge 的安全 Git 状态/历史探测也转发到远端实际仓库。无需本机伪造 `.git`。
+- **本地/远程隔离**：只有已确认属于远程 SSH 项目的终端才走 SSH；本地项目仍使用 DSH 原来的 Windows/WSL 终端。
+- **安全清理**：从 DSH 删除远程工作区时，仅尝试清理已识别且为空的本机占位目录，不删除服务器上的项目。
 
-## 前提与安全
+## 安装
 
-- Linux 主机需要 Node.js ≥24.9、Git、可用的 DSH CLI 或访问 npm 的能力；SSH 服务需允许 `direct-tcpip` 转发。
-- 远端 DSH 和本地转发均绑定回环地址。首次信任或密钥变更必须认真核验；插件不会自动信任新密钥。
-- DSH 的启动 URL 含进程级认证令牌，会经受认证的插件 API 传到 Desktop 渲染进程并加载到隔离的 WebView；不要将 URL 或远端启动日志分享给他人。令牌不是一次性的。插件不将其写入配置或状态接口。
-- 旧版本地占位目录与 SSH 文件桥接仍保留以兼容已有工作区，新建项目不再使用它。打开已有旧工作区不会自动迁移到远端 DSH。
+在 [GitHub Releases](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases) 下载最新的 `dsh-plugin-remote-ssh-X.Y.Z.tgz`（预览版 Release 也包含安装包）。
 
-## 构建和验证
+完全退出 DSH 桌面客户端（包括托盘进程），在 Windows PowerShell 中运行：
 
-```sh
-pnpm build
-pnpm run test:inprocess
-node scripts/package-plugin.mjs
-dsh plugin --profile desktop add /path/to/dsh-plugin-remote-ssh-2.1.3.tgz
+```powershell
+dsh plugin --profile desktop add "C:\path\to\dsh-plugin-remote-ssh-X.Y.Z.tgz"
 ```
 
-完全退出 Desktop 后，用其自带的 `dsh` 插件管理器安装打包脚本输出的绝对路径，再重新打开 Desktop；单纯刷新页面不会重载 Host 的 ESM 模块。插件管理器会更新 profile 的依赖与锁文件，不会替换 Desktop Core。保留安装包，以便以后重新安装依赖。
+如果使用 DSH Web 服务，则在运行 Web 服务的电脑上安装：
 
-可用 `DSH_REMOTE_SSH_E2E=1 node scripts/verify-real-ssh.mjs` 对已保存的 SSH 主机运行真实连接、helper、Web 认证与会话恢复检查。脚本默认不运行真实连接；目标没有会话时可能创建一个空测试会话。该脚本不代替 Desktop 界面、Git、worktree、沙箱和文件监视验收。
+```bash
+dsh plugin --profile web add /path/to/dsh-plugin-remote-ssh-X.Y.Z.tgz
+```
 
-详细信息：[使用与故障排查](docs/remote-dsh-host.md) · [架构](docs/architecture.md) · [Helper 协议](docs/remote-runtime-protocol.md) · [旧工作区兼容说明](docs/desktop-ssh-runtime.md)。
+`desktop` 与 `web` 是独立的插件 profile。安装或更新后，**完全重启对应的 DSH 进程**；如果界面和 Host 版本不一致，检查是否安装到了正确的 profile。
+
+## 使用方法
+
+**1. 添加服务器。** 打开 **设置 → Remote SSH → 添加主机**。可以选择 `~/.ssh/config` 中的别名，也可以手动填写地址、用户名、端口和私钥路径。点击「测试连接」，首次连接时核对主机 SHA256 指纹。
+
+示例 SSH Config：
+
+```sshconfig
+Host nansha
+    HostName 192.0.2.10
+    User researcher
+    IdentityFile ~/.ssh/id_ed25519
+```
+
+**2. 打开远程项目。** 点击 DSH **新建项目 → 源文件夹 → 远程 SSH**，选择主机和 Linux 目录（如 `/home/researcher/project`），点击「使用此远程文件夹」并创建项目。也可从设置页浏览远程目录后添加为工作区。「最近使用的远程目录」支持**清空历史**，只删除访问记录，不影响已添加的工作区或服务器文件。
+
+**3. 使用原生终端。** 打开远程项目，在 DSH 右侧点击 **「+」新建终端**。终端应直接进入所选 Linux 项目目录。用 `pwd; uname -s; hostname` 核对位置；本地工作区应打开本地终端，而不是连接 SSH。
+
+### 终端快捷键
+
+| 操作 | 行为 |
+| --- | --- |
+| Ctrl+C（选中了终端文本） | 复制选中文本 |
+| Ctrl+C（没有选中） | 向正在运行的命令发送中断 |
+| Ctrl+V | 从系统剪贴板粘贴到终端 |
+| Ctrl+Shift+V | 保留 xterm/系统原生粘贴方式 |
+| 光标 | DSH 右侧原生终端显示竖线光标 |
+
+快捷键处理仅在 DSH 原生**终端区域**生效，不覆盖聊天输入框或其他页面。剪贴板读写须获得桌面客户端/浏览器允许；如果 Ctrl+V 受系统权限限制，可尝试 Ctrl+Shift+V。
+
+## 工作原理与安全限制
+
+DSH 需要本地项目路径，因此插件会登记一个 **本机占位目录**（`~/.dsh/remote-ssh-workspaces/<token>`），将它映射到 SSH 服务器上的真实目录。**占位目录不是源码副本**；不要在其中存放自己的文件。
+
+插件使用已认证的 SSH/SFTP 连接路由文件、搜索及 Shell 操作。原生终端按会话与工作区身份决定运行位置，避免误将本地命令发到服务器。SSH 映射失效时不会静默回退为本地执行。
+
+注意以下边界：
+
+- 使用前核对 SSH 服务器指纹；Windows 私钥路径必须对当前运行 DSH 的系统有效。
+- 远程账号可能读取工作区以外的服务器文件；SSH 账户权限才是真正的访问控制。
+- SSH 断线后可能需要重新打开终端；本插件不是完整的 VS Code Server/远程 DSH Host。
+- DSH Host 如果运行在 WSL，原生 Shell 列表可能只显示 Linux Shell；本插件不会修改 PowerShell 等本地 Shell 的发现逻辑。
+- 当前未提供完整远程调试器、扩展宿主或可视化端口转发管理。避免与其他接管同一 DSH 工作区选择器的 Remote SSH 插件同时启用。
+
+## 开发与发布
+
+环境：Node.js 22、pnpm 10。
+
+```bash
+corepack enable
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm test
+pnpm pack
+```
+
+GitHub Actions 在 **PR** 中构建并测试；推送 `main` 成功后自动发布附带 `.tgz` 的 **GitHub Releases 预览版**；推送与 `package.json` 版本一致的 `vX.Y.Z` 标签会生成正式 Release。**不使用 GitHub Packages**。
+
+进一步了解：[架构](docs/architecture.md) · [常见问题](docs/troubleshooting.md) · [第三方组件](docs/THIRD_PARTY.md)
+
+[MIT License](LICENSE)
+
+### 远程 Git 与命令环境
+
+**v1.4.0 变更：** 基于 v1.3.4，移除了所有 2.x 远端 DSH Host、Core RPC、WebView、多 Backend 组件。仅使用 SSH/SFTP 与 Linux 自带的 `bash`、`git`。DSH Agent 主体仍在 Windows 本地（这是 1.x 架构的边界）。
+
+设置中选择 SSH Host 和 Linux 项目目录，点击「Git 历史」可以直接读取 `git status --short --branch`、`git log` 和 `git diff --stat`。对 Agent，`remote_ssh_git` 会输出同样的只读信息。仅支持 Git 查询，不在本地占位目录构造虚假 Git 仓库；提交、推送等写入通过现有 SSH Bash Shell 在明确授权后执行。
+
+远端操作的**命令语言为 Bash，不是 PowerShell**。即使当前 Windows DSH 模型工具名为 `pwsh`，SSH 工作区仍通过 Linux `bash -lc` 执行；Agent 的 Remote SSH 系统提示会说明 Linux Shell 语法。无需在 Linux 端安装 DSH CLI，但本机安装/升级插件仍使用 Windows DSH 自带的 `dsh plugin` 管理命令。
+
+---
+
+
+Git 只读查询经 SSH 直达真实 Linux Git 仓库，原生面板可进行安全探测，设置页可查看状态与提交历史。终端保持原生 SSH PTY 和闪烁竖线光标。
+

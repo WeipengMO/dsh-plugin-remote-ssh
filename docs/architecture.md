@@ -1,11 +1,25 @@
-# Remote SSH 架构
+# Native Web 架构 / 技术审查
 
-插件 Host 使用经主机密钥校验的 SSH 连接部署内容寻址 helper，并通过 `/runtime/web/open` 启动或复用真实 Linux DSH Web。按 SSH 主机和规范化项目目录生成的 key 为每个远程项目分配独立的 `127.0.0.1` TCP listener；字节通过 SSH `direct-tcpip` 转发到 Linux 回环地址。多个项目即使属于同一 SSH 主机，也不会因为打开另一个项目而替换隧道。
+## 两部分不可混用
 
-Desktop Client 在 `shell.overlay` 中为每个打开的项目保留一个由 `dshDesktop.browser.acquire` 创建的受控 Electron WebView。每个项目使用自己的 guest partition 和 DSH Client，切换时隐藏而不卸载页面。返回本地只隐藏远程视图；关闭标签释放 guest，插件卸载时关闭其隧道。远端 DSH 进程和持久会话不由标签生命周期删除。
+Host Cordis 插件通过 `dist/index.js` 装载，与 DSH Agent 共享 `ctx.fs`、`ctx.shell`、`ctx.workingDirectory` 和单个 RemoteSshManager。Web Client 通过 `lib/client.js` 装载，使用 DSH `slots` 注入，不直接建立 SSH 连接。Host/Client 之间由 Host 的同源 HTTP API 连通。
 
-所有远程 DSH 请求由相应 WebView 直接经过自己的 SSH 隧道到达 Linux DSH。插件不包装本地 Desktop 的 `fetch`、WebSocket 或 Connection，不合并本地与远端会话，也不按会话猜测 Host。Git、worktree、沙箱、终端和文件监视由 Linux DSH 的对应服务负责，是否可用取决于远端版本和环境。
+`ctx.webServer.register({kind:'prefix', path:'/api/remote-ssh', handler})` 会比 DSH 的 `/api` 通配路由更具体。**WebServer 的路由本身不附带登录认证**。必须先调用 DSH `ctx.connection.requestRejection(req)` 才能继续处理 API；之后再做 `sec-fetch-site`、Origin/Host 比对、自定义请求头和 JSON 输入约束。本实现添加了 `connection` 的硬依赖，认证服务不存在就拒绝加载。
 
-`/api/remote-ssh` 在处理请求前调用 DSH `Connection.requestRejection()`，再检查 Origin、Host、`sec-fetch-site`、修改请求头和 JSON。启动 URL 中的进程级令牌经认证 API 传到本地渲染进程并用于 WebView 登录；它不出现在状态接口或插件配置中。该令牌可以复用，必须作为凭证保护。
+## Agent 切换逻辑
 
-已有本地占位目录使用的文件、Shell、终端和 Git 兼容路由暂时保留，确保升级不破坏已有工作区；新的项目选择流程不再创建此类工作区。两种模式的会话不自动迁移。
+`agent/created` 事件收集真实的 Agent 对象。Web UI 列出可用 session ID；`/workspace/open` 首先通过 `manager.openWorkspace(hostId,path)` 校验 remote directory，再调用 `workingDirectory.set(agent, opened.virtualPath)`；仅当 set 成功才返回 `ok: true`。`previousCwd` 只保存第一次从本地切远程前的本地目录；`/workspace/close` 恢复并清理记录。未知 session 直接返回 409，不伪造“切换成功”。
+
+## 旧代码清理
+
+- 删除原 `ui/` 的独立网页及 `src/web-plugin.ts` loopback companion。
+- 删除需要直接写入本机 DSH profile 的 `install.mjs`；改为官方 `dsh plugin --profile web add` 管理。
+- 旧的 `test/ui.test.js` / `test/loader.test.js` 面向旧连接/安装架构，替换为 `test/native.test.js`。
+
+## 安全边界
+
+- SFTP 路由使用经过验证的 Host Key 和已连接的 ssh2 transport。
+- Agent 文件操作继续使用远程文件根目录 containment 与版本检查。
+- Shell Router 使用 OpenSSH `StrictHostKeyChecking=yes`、`BatchMode=yes`，禁用密码、交互认证与端口转发。
+- 远程目录不可用时，插件通过 workingDirectory.set() 显式恢复会话原始本地目录（提交事件并保留 DSH 通知），而不是静默回退，也不会让 system-prompt 组装失败。
+- 本插件不是浏览器多用户访问控制系统；拥有可写 Agent 会话的已授权 DSH operator 自然拥有相应远程 SSH 执行权限。

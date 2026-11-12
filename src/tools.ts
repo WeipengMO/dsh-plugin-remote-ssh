@@ -4,6 +4,7 @@ import { RemoteSshError, errorMessage } from './errors.js';
 import type { RemoteSshManager, TestResult } from './manager.js';
 import { encodeVirtualPath, expandRemoteTilde, looksVirtual } from './paths.js';
 import { RemoteFileSystem } from './remote-fs.js';
+import { inspectRemoteGit } from './remote-git.js';
 import type { HostRecord } from './types.js';
 
 interface ToolContext {
@@ -357,6 +358,43 @@ export function registerManagementTools(
   });
 
   register(ctx, {
+    name: 'remote_ssh_git',
+    description:
+      'Read the REAL Linux SSH workspace Git status, recent commit history and diff summary. Never inspect the Windows placeholder or require local Git. Read-only, no Git writes. Prefer this for remote Git history/status.',
+    parameters: object({
+      limit: integer('Recent Git commits to display (1–50; defaults to 20).'),
+    }),
+    timeoutMs: 45000,
+    isConcurrencySafe: () => true,
+    output: {
+      schema: object({
+        directory: string('Remote Linux Git cwd.'),
+        isRepository: boolean('Whether this Linux directory belongs to a Git repository.'),
+        status: string('Remote git status --short --branch.'),
+        history: { type: 'array', items: object({
+          hash:string('Abbreviated commit hash.'),
+          date:string('Commit date.'),
+          subject:string('Commit subject.'),
+        }) },
+        diffStat: string('Unstaged Git diff stat.'),
+        stagedDiffStat: string('Staged Git diff stat.'),
+      }),
+      render: textRender,
+    },
+    async execute(args, exec) {
+      const cwd = ctx.workingDirectory.get(exec.agent.session);
+      if (!looksVirtual(cwd)) {
+        throw new RemoteSshError('SSH_PATH_INVALID',
+          'remote_ssh_git is available only in an active SSH workspace');
+      }
+      const route = manager.routeFor(cwd, cwd);
+      if (!route) throw new RemoteSshError('SSH_WORKSPACE_UNKNOWN', 'SSH Git workspace mapping is unavailable');
+      const limit = args.limit === undefined ? 20 : Number(args.limit);
+      return await inspectRemoteGit(manager, route.workspace.connectionId, route.remotePath, limit);
+    },
+  });
+
+  register(ctx, {
     name: 'remote_ssh_status',
     description:
       'Show connection status, the current cwd, recent remote workspaces, and whether the session is currently in a remote workspace. Never returns secrets.',
@@ -471,5 +509,5 @@ export function registerManagementTools(
 /** A remote-only shell hint avoids wasting tokens on local DSH sessions. */
 export function remoteWorkspaceShellGuidance(cwd: string): string {
   if (!looksVirtual(cwd)) return '';
-  return 'ACTIVE WORKSPACE: remote Linux via SSH. The shell executor is POSIX (bash by default), even on Windows or when DSH names the tool pwsh. Use Linux/POSIX commands from the FIRST call; do not probe with PowerShell cmdlets or Windows paths. For Git run git rev-parse --show-toplevel and git status --short --branch in the remote workdir, not the local DSH placeholder. Native file tools and shell target the remote host. Create directories before writing files. Never run local Git against the placeholder.';
+  return 'ACTIVE EXECUTION SYSTEM: Linux over SSH. SHELL LANGUAGE: Bash/POSIX, not Windows PowerShell, even if the Windows DSH tool is named pwsh. EVERY command is executed via Linux bash -lc on the remote host. Write Bash syntax from the FIRST command: pwd; ls -la; find . -maxdepth 2 -type f; grep -R; git status --short --branch. Use $HOME and $PATH, NOT $env:HOME, Get-ChildItem, Select-String, Set-Location, Out-File or Windows drive paths. File tools read and edit the real remote Linux directory. For remote Git status/history/diff, prefer remote_ssh_git; do not inspect the Windows placeholder or run local Git. Create directories before writing files. This instruction applies ONLY while the active workspace is an SSH virtual path.';
 }
