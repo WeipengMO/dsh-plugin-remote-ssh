@@ -3,6 +3,15 @@ import os from 'node:os';
 import { RemoteSshError, errorMessage } from './errors.js';
 import { encodeRemoteEnv, looksVirtual, shellQuote } from './paths.js';
 /** Detect unmistakable PowerShell-only syntax before sending it to Linux. */
+// Authorize only the exact resolved ShellSpec from a policy-gated remote_bash call.
+const approvedRemoteSpecs = new WeakSet();
+export function authorizeRemoteBashSpec(spec) {
+  if (!looksVirtual(spec.workdir)) {
+    throw new RemoteSshError('SSH_PATH_INVALID', 'cannot authorize a local command as remote_bash');
+  }
+  approvedRemoteSpecs.add(spec);
+}
+
 export function usesPowerShellSyntax(command) {
     return /\$env:[A-Za-z_]/i.test(command)
         || /(?:^|[;&|]\s*|\n\s*)(?:Get-ChildItem|Set-Location|Select-String|Get-Content|Set-Content|Out-File|Remove-Item|New-Item|Write-Output|Get-Location|Test-Path)(?=\s|$)/i.test(command);
@@ -95,7 +104,7 @@ function sshFailure(result) {
  * Wrap `ctx.shell` so a virtual workdir transparently executes over SSH while
  * every local command still uses the untouched local sandbox executor.
  */
-export function installShellRouter(ctx, manager) {
+export function installShellRouter(ctx, manager, options = {}) {
     const shell = ctx.shell;
     const originalResolve = shell.resolve.bind(shell);
     const originalExecute = shell.execute.bind(shell);
@@ -110,6 +119,12 @@ export function installShellRouter(ctx, manager) {
         const route = manager.routeFor(spec.workdir, spec.workdir);
         if (route === null)
             throw new RemoteSshError('SSH_PATH_INVALID', `cannot route remote workdir: ${spec.workdir}`);
+        if (spec.sandboxPolicy?.mode === 'read-only') {
+            throw new RemoteSshError('SSH_APPROVAL_DENIED', 'remote Bash is disabled in a read-only DSH session');
+        }
+        if (!approvedRemoteSpecs.delete(spec) && options.allowLegacyRemoteShell !== true) {
+            throw new RemoteSshError('SSH_APPROVAL_DENIED', 'unapproved native shell call to remote SSH was blocked; use the remote_bash tool (or explicitly enable legacy remote shell compatibility)');
+        }
         if (usesPowerShellSyntax(spec.command)) {
             throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED', 'Remote Linux workspace uses Bash, not PowerShell. Rewrite this command using Bash/POSIX syntax (ls, grep, $HOME), then retry.');
         }

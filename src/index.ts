@@ -22,6 +22,10 @@ export const inject = ['fs', 'shell', 'tools', 'workingDirectory', 'systemPrompt
 export interface Config {
   storageDir?: string;
   maxRecent?: number;
+  /** Approval for the unrestricted remote SSH shell (default: once per session/workspace). */
+  remoteBashApproval?: 'session' | 'command' | 'off';
+  /** Unsafe legacy compatibility: allow native pwsh to route to SSH without the remote_bash gate (default false). */
+  allowLegacyRemoteShell?: boolean;
 }
 
 interface PluginContext {
@@ -135,7 +139,8 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
       },
     });
     const fsHandle = installFsRouter(ctx as unknown as { fs: Record<string, unknown>; effect?: (fn: () => () => void) => void }, manager);
-    const shellHandle = installShellRouter(ctx as unknown as { shell: Record<string, unknown>; effect?: (fn: () => () => void) => void }, manager);
+    const shellHandle = installShellRouter(ctx as unknown as { shell: Record<string, unknown>; effect?: (fn: () => () => void) => void }, manager,
+      { allowLegacyRemoteShell: config.allowLegacyRemoteShell === true });
     const remoteFs = fsHandle.remoteFs;
     const restoreSearch = installRemoteSearchShadow(
       ctx as unknown as Parameters<typeof installRemoteSearchShadow>[0],
@@ -144,7 +149,7 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
     );
     const restoreWorkingDirectory = guardWorkingDirectory(ctx);
     registerManagementTools(ctx as unknown as Parameters<typeof registerManagementTools>[0], manager, remoteFs);
-    registerRemoteBashTool(ctx as unknown as Parameters<typeof registerRemoteBashTool>[0], manager);
+    registerRemoteBashTool(ctx as unknown as Parameters<typeof registerRemoteBashTool>[0], manager, config.remoteBashApproval ?? 'session');
     const restoreRemoteShellScope = installRemoteShellScope(ctx as unknown as Parameters<typeof installRemoteShellScope>[0]);
     // `subprocess` is deliberately an OPTIONAL service. inject (above) is a
     // hard dependency list: adding it there would refuse to load the entire

@@ -43,9 +43,19 @@ v1.0.0 的兼容实现拦截原生 `pwsh` 的执行，却不会改写原生工�
 
 - 确认已安装包含该改动的开发构建（v1.0.0 正式发布包不会自动更新），完全退出 DSH Host 后重启并新建远程会话。
 - 新的远程命令应优先调用 `remote_bash`，历史 `pwsh` 调用卡片不会重命名；在不支持条件工具或 Agent 限制的宿主上，两个工具可能同时显示。
-- `remote_bash` 只支持前台命令执行，长时间运行的任务仍可按宿主支持情况使用兼容 shell/job 功能。
+- `remote_bash` 仅支持前台命令执行，超时会返回 `timedOut: true`；旧 `pwsh` 远端执行默认阻止。
 - 可让 Agent 调用 `remote_ssh_status` 确认 `remote: true`，并在 `remote_bash` 中执行 `pwd; uname -s` 验证实际平台。
 - 如果 `remote_bash` 提示当前不是 SSH 工作区，检查会话的当前工作目录是否已正确切换；工具不会静默退回本地执行。
+
+## remote_bash 报 SSH_APPROVAL_DENIED 或 read-only
+
+远端 Linux Bash 不受本机 DSH Sandbox 保护，因此新代码默认首次运行时请求 Agent 会话/SSH 工作区级别的审批。审批策略为 never、无交互审批服务或用户拒绝时会拒绝执行，不会回退本地命令。DSH read-only 模式始终拒绝通过远端 Bash 执行任何命令。
+
+插件配置：`remoteBashApproval: 'session' | 'command' | 'off'`，默认 session；off 关闭额外审批但仍执行只读限制。旧原生 pwsh SSH 兼容需显式设置 `allowLegacyRemoteShell: true`，可能绕过插件的会话审批，不推荐。
+
+## 远程 read/write 结果里显示的路径
+
+远端文件读写工具会展示 Linux POSIX 路径供 Agent 后续使用，路由内部仍采用 Windows UNC / 虚拟路径标识；不要修改本地空占位目录。若路径不匹配，先调用 remote_ssh_status 检查工作区归属。
 
 ## 右侧原生终端或 Git 面板不显示远程内容
 

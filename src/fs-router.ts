@@ -217,7 +217,9 @@ export function installFsRouter(ctx: { fs: AnyRecord; effect?: (fn: () => () => 
 
   fs.processPath = (target: unknown) => {
     const remote = remoteTargetOf(target);
-    if (remote !== null) return remote.displayPath;
+    // Display true POSIX paths to the model; keep virtual routing tokens in
+    // targetKey/displayPath for subsequent filesystem operations and the UI.
+    if (remote !== null) return remote.requestedRemotePath ?? remote.remotePath;
     return originalProcessPath(target);
   };
 
