@@ -65,11 +65,6 @@ export declare class SshConnection {
      */
     terminalInDirectory(remoteCwd: string, columns?: number, rows?: number, terminalType?: string): Promise<import('ssh2').ClientChannel>;
     shell(columns?: number, rows?: number): Promise<import('ssh2').ClientChannel>;
-    /**
-     * One verified SSH TCP forward to a remote loopback-only DSH Web process.
-     * This carries raw HTTP and WebSocket bytes without inspecting access tokens.
-     */
-    forwardLoopback(remotePort: number): Promise<import('ssh2').ClientChannel>;
     exec(command: string, options?: ExecOptions): Promise<ExecResult>;
     remoteHome(): Promise<string>;
     mapSftpError(error: {

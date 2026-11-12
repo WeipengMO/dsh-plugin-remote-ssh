@@ -11,22 +11,22 @@ import { registerManagementTools } from './tools.js';
 import { agentFromCreatedEvent, createNativeHttpHandler } from './http-api.js';
 import { installWorkspaceCleanup } from './workspace-cleanup.js';
 import { RemoteTerminalPool } from './remote-terminal.js';
-import { RemoteDshWebTunnelPool } from './dsh-web-tunnel.js';
-import { RemoteHostRuntimePool } from './remote-host-runtime.js';
 import { installNativeTerminalRouter } from './native-terminal-router.js';
 import { installNativeGitRouter } from './native-git-router.js';
 export const name = 'remote-ssh';
 /** The plugin needs the native tool seams before it can route remote work. */
 export const inject = ['fs', 'shell', 'tools', 'workingDirectory', 'systemPrompt', 'webServer', 'connection'];
 /**
- * Fail closed when an SSH workspace is temporarily unavailable. Never change
- * the session to a Windows LOCAL cwd without an explicit user request.
+ * Keep remote cwds from being silently discarded, but never break the session
+ * when the remote host becomes unreachable.
  *
- * DSH calls workingDirectory.ensure() while constructing agent prompts.
- * Throwing would strand those prompts, so return the unchanged virtual cwd;
- * subsequent remote file/process calls will surface the SSH failure.
+ * The fs router already makes resolve/stat of a virtual cwd succeed over SFTP,
+ * so DSH's original ensure() keeps a healthy remote cwd. When SFTP fails, this
+ * wrapper recovers to the session's original LOCAL cwd with a real set() (a
+ * committed change plus DSH's own notice) instead of throwing: ensure() runs
+ * while assembling every system prompt, so throwing would strand the session.
  */
-export function guardWorkingDirectory(ctx) {
+function guardWorkingDirectory(ctx) {
     const workingDirectory = ctx.workingDirectory;
     const originalEnsure = workingDirectory.ensure.bind(workingDirectory);
     workingDirectory.ensure = async (agent, signal) => {
@@ -41,14 +41,27 @@ export function guardWorkingDirectory(ctx) {
                 return await originalEnsure(agent, signal);
         }
         catch (error) {
-            ctx.logger.warn('remote-ssh: remote workspace is temporarily unavailable; preserving SSH cwd: ' +
-                (error?.message ?? String(error)));
+            ctx.logger.warn(`remote-ssh: remote workspace ${current} is unavailable: ${error?.message ?? String(error)}`);
         }
-        // The only safe automatic recovery is to retain the remote identity.
-        // User-controlled remote_workspace_close is the explicit local transition.
-        return current;
+        // The remote workspace is gone. Recover with a real workingDirectory.set()
+        // to the session's original LOCAL cwd: that commits a
+        // working-directory/change event and injects DSH's own notice. Never
+        // throw here -- DSH calls ensure() while assembling every system prompt,
+        // and a thrown error leaves the session unable to continue at all.
+        const original = sessionAgent.session?.header?.cwd;
+        if (typeof original === 'string' && !looksVirtual(original)) {
+            try {
+                return await workingDirectory.set(agent, original, signal);
+            }
+            catch (error) {
+                ctx.logger.warn(`remote-ssh: could not restore local cwd ${original}: ${error?.message ?? String(error)}`);
+            }
+        }
+        return await originalEnsure(agent, signal);
     };
-    return () => { workingDirectory.ensure = originalEnsure; };
+    return () => {
+        workingDirectory.ensure = originalEnsure;
+    };
 }
 export function apply(ctx, config = {}) {
     const storageDir = config.storageDir !== undefined ? expandUserPath(config.storageDir) : path.join(os.homedir(), '.dsh', 'remote-ssh');
@@ -124,24 +137,16 @@ export function apply(ctx, config = {}) {
             ctx.logger.warn('remote-ssh: native Git subprocess router unavailable (no subprocess service or spawn()); ' +
                 'sidebar Changes / Code Review will not see remote Git data');
         const remoteTerminals = new RemoteTerminalPool(manager);
-        const dshWebTunnels = new RemoteDshWebTunnelPool(manager);
-        const remoteRuntime = new RemoteHostRuntimePool(manager);
-        const desktopProfile = ctx.get('profileContext')?.name === 'desktop';
         const workspaceRegistry = () => ctx.get('workspaceRegistry');
-        const requestRejection = (request) => connection.requestRejection(request);
         const unregisterHttp = webServer.register({
             kind: 'prefix',
             path: '/api/remote-ssh',
-            handler: createNativeHttpHandler({ manager, workingDirectory: ctx.workingDirectory, agents, previousCwd, workspaceRegistry,
-                remoteTerminals, dshWebTunnels, remoteRuntime, desktopProfile,
-                requestRejection }),
+            handler: createNativeHttpHandler({ manager, workingDirectory: ctx.workingDirectory, agents, previousCwd, workspaceRegistry, remoteTerminals, requestRejection: request => connection.requestRejection(request) }),
         });
         ctx.logger.info(`remote-ssh: ready (storage ${storageDir})`);
         return () => {
             nativeGit?.dispose();
             nativeTerminal?.dispose();
-            remoteRuntime.closeAll();
-            dshWebTunnels.closeAll();
             remoteTerminals.closeAll();
             workspaceCleanup.dispose();
             unregisterHttp?.();

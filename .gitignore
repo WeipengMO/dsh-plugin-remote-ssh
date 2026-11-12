@@ -29,13 +29,6 @@ tmp/
 .pkg-check/
 .pack-verify/
 
-# --- 本地参考副本与临时测试输出（不属于本仓库）---
-# 上游 deepseek-harness Core 的本地克隆，自带 .git，仅用于开发时查阅。
-/dsh-core/
-# scripts/run-tests.mjs 等脚本重定向产生的临时输出。
-test/.final-out.txt
-test/.final-err.txt
-
 # --- 本地配置与凭据 ---
 # 本插件处理 SSH 私钥，严禁把密钥或本机配置提交进仓库。
 .env

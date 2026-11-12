@@ -53,9 +53,6 @@ jobs:
           tar -tzf "$file" > "$RUNNER_TEMP/plugin-files.txt"
           grep -qx 'package/package.json' "$RUNNER_TEMP/plugin-files.txt"
           grep -qx 'package/dist/index.js' "$RUNNER_TEMP/plugin-files.txt"
-          grep -qx 'package/dist/dsh-web-tunnel.js' "$RUNNER_TEMP/plugin-files.txt"
-          grep -qx 'package/dist/remote-host-runtime.js' "$RUNNER_TEMP/plugin-files.txt"
-          grep -qx 'package/runtime/agent.mjs' "$RUNNER_TEMP/plugin-files.txt"
           grep -qx 'package/lib/client.js' "$RUNNER_TEMP/plugin-files.txt"
           grep -qx 'package/cordis.patch.yml' "$RUNNER_TEMP/plugin-files.txt"
           grep -q '^package/vendor/ssh2/' "$RUNNER_TEMP/plugin-files.txt"
@@ -69,20 +66,9 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  web-launcher:
-    name: Linux DSH Web launch smoke (Node 24.9)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.9.0'
-      - name: Verify private remote Web launcher and token handoff
-        run: node --test test/remote-web-launcher.node24.test.js
-
   release:
     name: Publish GitHub Release
-    needs: [build, web-launcher]
+    needs: build
     if: >-
       github.event_name == 'push' &&
       github.repository == 'WeipengMO/dsh-plugin-remote-ssh' &&
