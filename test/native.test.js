@@ -204,6 +204,14 @@ test('SFTP browse and remote command use the shared host connection', async () =
     assert.equal(listing.status, 200);
     assert.equal(listing.data.path, '/home/research');
     assert.equal(listing.data.entries[0].name, 'project');
+    const git = await call('/git/overview', { host: 'h1', path: '/home/research/project', limit: 10 });
+    assert.equal(git.status, 200);
+    assert.equal(git.data.isRepository, true);
+    assert.equal(git.data.directory, '/home/research/project');
+    assert.match(git.data.status, /\/home\/research\/project/);
+    assert.ok(Array.isArray(git.data.history));
+    const invalidGit = await call('/git/overview', {host:'h1',path:'/home/research/project',limit:100});
+    assert.notEqual(invalidGit.status, 200);
     const command = await call('/exec', { host: 'h1', path: '/home/research/project', command: 'git status --short' });
     assert.equal(command.status, 200);
     assert.match(command.data.stdout, /git status --short/);
@@ -238,6 +246,8 @@ test('compact Settings UI keeps a single-column, theme-safe, accessible structur
   assert.match(css, /@container remote-ssh-settings \(max-width:440px\)/);
   assert.doesNotMatch(source, /rss-topbar-sub|rss-layout|rss-hero-kicker|rss-session-bar/);
   assert.match(source, /role: 'tablist'/);
+  assert.match(source, /'Git 历史'/);
+  assert.match(source, /api\('\/git\/overview'/);
   assert.match(source, /'aria-pressed': selected === item.id/);
   assert.doesNotMatch(source, /'aria-label': '选择 DSH Agent 会话'/);
   assert.match(source, /'aria-label': '远程源目录'/);

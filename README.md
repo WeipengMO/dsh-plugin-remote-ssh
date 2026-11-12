@@ -3,13 +3,15 @@
 [![Build](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml/badge.svg)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml)
 [![MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**直接在 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 中打开远程 Linux 项目。** 通过 SSH/SFTP 让 Agent 的文件读写、代码搜索和 Shell 操作运行在服务器上；同时将 DSH 右侧的原生终端连接到当前远程项目。无需把源码同步到本机，也不需要 VS Code Server。
+**直接在 [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) 中打开远程 Linux 项目。** v1.4.0 回归 **1.x 轻量 SSH/SFTP** 模式：Windows DSH 管理 Agent，通过 SSH 将文件、代码搜索和 Bash/终端指令执行在 Linux；不运行 Linux DSH Host、无需在远端安装 DSH CLI，不开远端 WebView，也不需要同步仓库到 Windows。
 
 ## 主要功能
 
 - **原生工作区**：新建 DSH 项目时选择「远程 SSH」主机和源文件夹，之后像本地项目一样从侧边栏打开。
 - **SSH 主机管理**：支持导入 `~/.ssh/config`、SSH 密钥与 ssh-agent、服务器指纹核验；支持受限的 Cloudflare Access 代理。
 - **远程开发**：Agent 的 `read`、`write`、`edit`、`glob`、`grep`、Shell 和右侧 xterm 终端访问同一个远程文件系统。
+- **Linux Bash**：远端工具使用 `bash -lc`，不会在服务器上执行 PowerShell；过滤 Windows `PATH`/`PSModulePath` 等不兼容环境变量，提示 Agent 使用 `ls`、`grep`、`$HOME` 等 Bash 语法。Windows 本地工作区不受影响。
+- **Git 状态与历史**：设置里的「Git 历史」可通过 SSH 查看仓库分支/工作区状态、最近提交、未提交 Diff 统计；Agent 可用只读 `remote_ssh_git` 查询。DSH 原生 Forge 的安全 Git 状态/历史探测也转发到远端实际仓库。无需本机伪造 `.git`。
 - **本地/远程隔离**：只有已确认属于远程 SSH 项目的终端才走 SSH；本地项目仍使用 DSH 原来的 Windows/WSL 终端。
 - **安全清理**：从 DSH 删除远程工作区时，仅尝试清理已识别且为空的本机占位目录，不删除服务器上的项目。
 
@@ -93,5 +95,14 @@ GitHub Actions 在 **PR** 中构建并测试；推送 `main` 成功后自动发�
 
 ### 远程 Git 与命令环境
 
-远程工作区的原生 Git 状态查询通过 SSH 访问服务器上的实际仓库，不会在本地占位目录创建假 `.git`。当前仅路由 DSH 原生面板的只读 Git 探测；涉及 Git 写入、worktree 创建等操作请使用远端 Agent Shell。SSH 会话的 Agent 会自动收到 POSIX 环境提示，本地会话不注入此提示。终端使用闪烁竖线光标。
+**v1.4.0 变更：** 基于 v1.3.4，移除了所有 2.x 远端 DSH Host、Core RPC、WebView、多 Backend 组件。仅使用 SSH/SFTP 与 Linux 自带的 `bash`、`git`。DSH Agent 主体仍在 Windows 本地（这是 1.x 架构的边界）。
+
+设置中选择 SSH Host 和 Linux 项目目录，点击「Git 历史」可以直接读取 `git status --short --branch`、`git log` 和 `git diff --stat`。对 Agent，`remote_ssh_git` 会输出同样的只读信息。仅支持 Git 查询，不在本地占位目录构造虚假 Git 仓库；提交、推送等写入通过现有 SSH Bash Shell 在明确授权后执行。
+
+远端操作的**命令语言为 Bash，不是 PowerShell**。即使当前 Windows DSH 模型工具名为 `pwsh`，SSH 工作区仍通过 Linux `bash -lc` 执行；Agent 的 Remote SSH 系统提示会说明 Linux Shell 语法。无需在 Linux 端安装 DSH CLI，但本机安装/升级插件仍使用 Windows DSH 自带的 `dsh plugin` 管理命令。
+
+---
+
+
+Git 只读查询经 SSH 直达真实 Linux Git 仓库，原生面板可进行安全探测，设置页可查看状态与提交历史。终端保持原生 SSH PTY 和闪烁竖线光标。
 
