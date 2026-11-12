@@ -13,6 +13,9 @@
 
 ## Windows 原生多 Host Sessions（实验性）
 
+**v2.3.1 认证修复**：原生会话通过 DSH 官方 `GET /connect?token=…&interactions=none` 领取含签名的 v2 API Cookie；不再误判带英文句点的真实 Cookie。出现 `Remote DSH Host refused native Session authentication` 请升级为 v2.3.1、**完全退出并重启 Windows DSH Desktop**，不是只刷新页面。
+
+
 DSH Desktop 左侧新增「远端 Sessions」原生导航入口。此界面是同一 Windows React/Cordis Shell 内的 `main` 面板，**不是** WebView/iframe；支持选择不同 SSH Host、创建真实 Linux Session、查看最近历史、发送 prompt 和取消任务；同一 Host 的 15 秒连接缓存减少了重复 SSH Helper 调用。同一 Linux Host 保留共享进程和 SSH tunnel，远端的 Agent 在 Linux 上执行。插件 Host 通过 DSH 官方 `/api/session/*` Connection RPC 协议与远端交互，短期签名 Cookie 仅保留在 Windows Node 进程内，浏览器只持有绑定 Host+Session 的不透明引用。SSH PTY 简易终端及只读 Git 状态已作为原生面板的工作区工具接入（不是官方 Session 的 `terminalController`、Git/worktree UI）。完整任务流式推送、工具审批和原生 Session 级 Git/终端仍需 Core API 适配，目前不是与官方内置 `ctx.sessions` 的统一列表。
 
 ## Core Connection 集成边界
@@ -32,7 +35,7 @@ DSH Desktop 左侧新增「远端 Sessions」原生导航入口。此界面是�
 pnpm build
 pnpm run test:inprocess
 node scripts/package-plugin.mjs
-dsh plugin --profile desktop add /path/to/dsh-plugin-remote-ssh-2.3.0.tgz
+dsh plugin --profile desktop add /path/to/dsh-plugin-remote-ssh-2.3.1.tgz
 ```
 
 完全退出 Desktop 后，用其自带的 `dsh` 插件管理器安装打包脚本输出的绝对路径，再重新打开 Desktop；单纯刷新页面不会重载 Host 的 ESM 模块。插件管理器会更新 profile 的依赖与锁文件，不会替换 Desktop Core。保留安装包，以便以后重新安装依赖。
