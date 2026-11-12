@@ -126,9 +126,18 @@ export class NativeHostSessions {
   }
 
   private async call(host: string, remoteRoot: string, endpoint: Endpoint, request: Json): Promise<unknown | Starting> {
+    const revision = this.checkHost(host);
     const info = await this.ready(host, remoteRoot);
+    if (revision !== this.checkHost(host)) {
+      this.clear(host);
+      throw fail('SSH Host changed during remote Session connection', 409);
+    }
     if (info.phase !== 'ready') return info;
     const cookie = await this.authenticate(host, info);
+    if (revision !== this.checkHost(host)) {
+      this.clear(host);
+      throw fail('SSH Host changed during remote Session authentication', 409);
+    }
     const rpcId = randomUUID();
     const response = await fetch(info.origin + '/api/' + endpoint, {
       method:'POST',
@@ -137,6 +146,10 @@ export class NativeHostSessions {
       redirect:'manual',
       signal:AbortSignal.timeout(20000),
     });
+    if (revision !== this.checkHost(host)) {
+      this.clear(host);
+      throw fail('SSH Host changed during remote Session RPC', 409);
+    }
     if (response.status === 401 || response.status === 403) {
       this.cookies.delete(host);
       throw fail('Remote DSH Core authentication lost; reconnect this Host', 401);
@@ -151,6 +164,10 @@ export class NativeHostSessions {
     let reply: unknown;
     try { reply = JSON.parse(Buffer.from(buffer).toString('utf8')); }
     catch { throw fail('Remote DSH Core response is not valid JSON'); }
+    if (revision !== this.checkHost(host)) {
+      this.clear(host);
+      throw fail('SSH Host changed while decoding remote Session RPC', 409);
+    }
     if (!record(reply) || reply.type !== 'server-response' || reply.rpcId !== rpcId
       || !record(reply.result) || typeof reply.result.ok !== 'boolean') {
       throw fail('Remote DSH Core RPC correlation or response validation failed');
