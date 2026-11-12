@@ -939,14 +939,14 @@ window.__ModuleLoader__.load({
           if(result.phase!=='ready')throw Error('远端 Host 尚未启动，请刷新后重试');
           setListRevision(n=>n+1);
           // The newly created Session is selected after the fresh Host list.
-          nativeCreatedRef=result.ref;
+          setCreatedRef(result.ref);
         }catch(e){setError(e.message||String(e));}
         finally{setBusy('');}
       }
       const [createdRef,setCreatedRef]=useState('');
       // A newly created Session is not selected until it appears in the refreshed
       // list: never bind UI to an ID not returned by the Host's own list.
-      let nativeCreatedRef=createdRef;
+      const nativeCreatedRef=createdRef;
       useEffect(()=>{
         if(!nativeCreatedRef||phase!=='ready')return;
         if(sessions.some(s=>s.ref===nativeCreatedRef)){
