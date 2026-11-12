@@ -204,7 +204,8 @@ export function installNativeGitRouter(
     const command = 'cd -- ' + shellQuote(route.remotePath) +
       ' && unset ' + GIT_UNSET +
       ' && exec env GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 GIT_NO_LAZY_FETCH=1 LC_ALL=C GIT_PAGER=cat GIT_CONFIG_COUNT=0 git ' +
-      args.map(shellQuote).join(' ');
+      ['--no-optional-locks', '-c', 'core.hooksPath=/dev/null',
+        '-c', 'core.fsmonitor=false', ...args].map(shellQuote).join(' ');
     logger?.info('remote-ssh: native Git inspection routed to ' + route.workspace.token);
     const done = (async () => {
       const connection = await manager.connection(route.workspace.connectionId);
