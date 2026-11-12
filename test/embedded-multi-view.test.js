@@ -79,4 +79,12 @@ test('remote project views remain mounted while switching between hosts and loca
   assert.equal(views[1].props.visible, false);
   open('one', '/project-a');
   assert.equal(pages(view()).length, 2, 'reopening a project reuses its view');
+  const originalHostPage = pages(view())[0];
+  open('one','/another-project');
+  const reusedHostPages = pages(view());
+  assert.equal(reusedHostPages.length, 2, 'switching projects on one SSH Host reuses Core Client/Connection');
+  assert.equal(reusedHostPages[0].props.key, originalHostPage.props.key);
+  assert.equal(reusedHostPages[0].props.selection.id, originalHostPage.props.selection.id);
+  assert.equal(reusedHostPages[0].props.selection.path, '/project-a', 'do not silently retarget an existing Session');
+  assert.equal(reusedHostPages[0].props.selection.requestedPath, '/another-project');
 });

@@ -134,10 +134,13 @@ function fromLog(content, port) {
     return uri.href;
   } catch { return null; }
 }
-function webRootFor(cwd) {
+function webRootFor() {
   const home = process.env.HOME;
   if (!home || !home.startsWith('/') || home === '/') throw new Error('private Linux home directory unavailable');
-  return join(home, '.cache', 'dsh-remote-ssh', 'web', 'v1', createHash('sha256').update(cwd).digest('hex'));
+  // One DSH Host per remote OS user; all its workspaces and Sessions share
+  // this Host's official Core Connection rather than starting a DSH per cwd.
+  // v2 intentionally does not adopt the old per-project v1 registries.
+  return join(home, '.cache', 'dsh-remote-ssh', 'web', 'v2', 'host');
 }
 async function webEnsure(cwdValue, installIfMissing) {
   const major = Number(process.versions.node.split('.')[0] || 0);
@@ -147,12 +150,16 @@ async function webEnsure(cwdValue, installIfMissing) {
   }
   const cwd = await realpath(cwdValue);
   if (!(await stat(cwd)).isDirectory()) throw new Error('remote DSH cwd is not a directory');
-  const root = webRootFor(cwd);
   const home = process.env.HOME;
+  // A project path is only a validated Workspace choice, not the DSH Host
+  // identity. Launch from HOME, so reconnects to another folder reuse it.
+  const hostCwd = await realpath(home);
+  if (!(await stat(hostCwd)).isDirectory()) throw new Error('remote DSH HOME is not a directory');
+  const root = webRootFor();
   for(const directory of [
     join(home,'.cache'),join(home,'.cache','dsh-remote-ssh'),
     join(home,'.cache','dsh-remote-ssh','web'),
-    join(home,'.cache','dsh-remote-ssh','web','v1'),root
+    join(home,'.cache','dsh-remote-ssh','web','v2'),root
   ]) await secureDir(directory, directory.includes('/web/'));
   const metadataPath = join(root, 'state.json');
   const logPath = join(root, 'output.log');
@@ -163,7 +170,7 @@ async function webEnsure(cwdValue, installIfMissing) {
       throw new Error('remote DSH registry has unsafe file permissions');
     previous = JSON.parse(await readFile(metadataPath, 'utf8'));
   } catch (e) { if (e.code !== 'ENOENT') throw e; }
-  if (previous?.cwd === cwd && Number.isSafeInteger(previous.port) &&
+  if (previous?.cwd === hostCwd && Number.isSafeInteger(previous.port) &&
       previous.port >= 1024 && previous.port <= 65535 && isAlive(previous.pid)) {
     let log = '';
     try {
@@ -207,7 +214,7 @@ async function webEnsure(cwdValue, installIfMissing) {
   try {
     // The user's explicit 'Connect with remote DSH' action authorizes
     // a pinned official npx install when no DSH executable is on PATH.
-    const dsh = await run('sh', ['-c', 'command -v dsh'], cwd, 512);
+    const dsh = await run('sh', ['-c', 'command -v dsh'], hostCwd, 512);
     const installed = dsh.code === 0 && dsh.stdout.trim().startsWith('/');
     if (!installed && !installIfMissing) throw new Error('DSH CLI missing; installation was not approved');
     const port = await localPort();
@@ -218,13 +225,13 @@ async function webEnsure(cwdValue, installIfMissing) {
     let child;
     try {
       child = spawn(command,args,{
-        cwd, detached:true, stdio:['ignore',file.fd,file.fd], shell:false,
+        cwd:hostCwd, detached:true, stdio:['ignore',file.fd,file.fd], shell:false,
         env:{...process.env, SSH_CONNECTION:process.env.SSH_CONNECTION || 'dsh-remote-ssh'}
       });
       await new Promise((resolve,reject)=>{ child.once('spawn',resolve); child.once('error',reject); });
       child.unref();
     } finally { await file.close(); }
-    const registry = { cwd, port, pid:child.pid, startedAt:Date.now(),
+    const registry = { cwd:hostCwd, port, pid:child.pid, startedAt:Date.now(),
       installation: installed?'existing':'official-npx-pinned', officialVersion:OFFICIAL_DSH_VERSION };
     await writeFile(metadataPath, JSON.stringify(registry), { mode:0o600 });
     return {phase:'starting',cwd,port,installation:registry.installation};

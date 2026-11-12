@@ -4,7 +4,6 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const helper=fileURLToPath(new URL('../runtime/agent.mjs',import.meta.url));
@@ -24,8 +23,10 @@ test('remote DSH auto-start launches private loopback and reuses its verified UR
   if (major<24||(major===24&&minor<9)) {t.skip('requires Node >=24.9');return;}
   const home=mkdtempSync(join(tmpdir(),'dsh-web-host-test-'));
   const repo=join(home,'source');
+  const secondRepo=join(home,'other-project');
   const bin=join(home,'bin');
   mkdirSync(repo);
+  mkdirSync(secondRepo);
   mkdirSync(bin);
   const fake=join(bin,'dsh');
   writeFileSync(fake,[
@@ -53,9 +54,16 @@ test('remote DSH auto-start launches private loopback and reuses its verified UR
     assert.match(response.result.url,/^http:\/\/127\.0\.0\.1:\d+\/\?token=test-secret$/);
     const body=await (await fetch('http://127.0.0.1:'+response.result.port)).text();
     assert.equal(body,'remote agent host');
-    const digest=createHash('sha256').update(repo).digest('hex');
-    const state=JSON.parse(readFileSync(join(home,'.cache','dsh-remote-ssh','web','v1',digest,'state.json'),'utf8'));
-    assert.equal(state.port,response.result.port);
+    const firstPort=response.result.port;
+    const second=invoke('web.ensure',secondRepo,env);
+    assert.equal(second.ok,true,JSON.stringify(second.error));
+    assert.equal(second.result.phase,'ready','another project must reuse the same DSH Host');
+    assert.equal(second.result.cwd,secondRepo,'validate and preserve the requested project identity');
+    assert.equal(second.result.port,firstPort,'one remote OS user has one Host listener');
+    assert.equal(second.result.url,response.result.url,'all Sessions use the same Core Host');
+    const state=JSON.parse(readFileSync(join(home,'.cache','dsh-remote-ssh','web','v2','host','state.json'),'utf8'));
+    assert.equal(state.port,firstPort);
+    assert.equal(state.cwd,home,'Host lifecycle is independent of the selected project');
     pid=state.pid;
   } finally {
     if(pid){try{process.kill(-pid,'SIGTERM');}catch{};try{process.kill(pid,'SIGTERM');}catch{}}

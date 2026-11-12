@@ -1,15 +1,19 @@
 # DSH Remote SSH
 
-在 Windows DSH Desktop 中通过 SSH 打开 Linux 上的完整 DSH。每个远程项目使用独立的内嵌界面、连接和会话；本地 DSH 保持独立。无需修改或重新打包 Desktop Core。
+在 Windows DSH Desktop 中通过 SSH 打开 Linux 上的完整 DSH。每台 SSH 主机使用一个内嵌远端 DSH Client/Core Connection；远端 Host 的多个 Workspace 与 Session 由同一个 Linux DSH 进程管理。本地 DSH 保持独立。无需修改或重新打包 Desktop Core。
 
 ## 使用
 
 1. 在 **设置 → Remote SSH** 添加服务器或从 Windows `~/.ssh/config` 导入。首次连接时，通过独立可信渠道核对完整 SHA-256 主机密钥指纹并确认。
 2. 在设置页选择服务器，浏览 Linux 目录，点击 **打开远程 DSH**。也可以在新建项目的目录选择器中选择 **SSH 服务器**，再打开所选目录。
-3. 插件验证并部署 helper，启动或复用该目录的 Linux DSH Web，并经 SSH 建立本机回环隧道。首次未安装 DSH 时会使用固定版本的官方 CLI，可能需要下载。
-4. 远程界面的顶部标签可在已经打开的项目之间切换；**返回本地**保留远程页面，在右下角点击相应项目可再次进入。**重新连接**重新建立该页面的连接，关闭标签不会停止 Linux DSH 进程。
+3. 插件验证并部署 helper，启动或复用该 SSH 账户的**唯一 Linux DSH Web Host**，并经 SSH 建立本机回环隧道。首次未安装 DSH 时会使用固定版本的官方 CLI，可能需要下载。
+4. 同一 SSH 主机仅保留一个远端页面。打开该主机的另一个目录会复用页面和 Core Connection；**必须在远端 DSH 内选择目标 Workspace**，不会自动改动既有 Session 的工作目录。**返回本地**保留远端页面，**重新连接**重建页面连接，关闭标签不会停止 Linux DSH 进程。
 
-远程界面中的工作区、会话、Agent、Git、worktree、终端和文件监视由对应 Linux DSH 管理。Windows 与 Linux 的会话列表不合并，切换标签不会迁移会话。关闭 Desktop 后，下次需重新从项目目录打开远程界面；Linux DSH 的持久会话由远端保存。
+远程界面中的工作区、会话、Agent、Git、worktree、终端和文件监视由同一 SSH 账户的 Linux DSH Host 管理。Windows 与 Linux 的会话列表不合并，切换标签不会迁移会话。关闭 Desktop 后，下次需重新从项目目录打开远程界面；Linux DSH 的持久会话由远端保存。
+
+## Core Connection 集成边界
+
+此版本复用的是**远端 DSH Client 树内的 Core Connection**，不是把 Windows Desktop 原生 Session 直接绑定到远端 Host。官方 `ctx.connection` 属于整个 Client Context、只允许一个 Generation Source；原生 Windows 会话的透明跨 Host 切换仍需要 Core 提供 Session → Host 选择/多 Context 装载接口，不能依靠修改插件 HTTP 路由实现。本仓库不会偷偷全局替换连接、拦截 RPC 或声称完成此功能。
 
 ## 前提与安全
 
@@ -24,7 +28,7 @@
 pnpm build
 pnpm run test:inprocess
 node scripts/package-plugin.mjs
-dsh plugin --profile desktop add /path/to/dsh-plugin-remote-ssh-2.1.3.tgz
+dsh plugin --profile desktop add /path/to/dsh-plugin-remote-ssh-2.2.0.tgz
 ```
 
 完全退出 Desktop 后，用其自带的 `dsh` 插件管理器安装打包脚本输出的绝对路径，再重新打开 Desktop；单纯刷新页面不会重载 Host 的 ESM 模块。插件管理器会更新 profile 的依赖与锁文件，不会替换 Desktop Core。保留安装包，以便以后重新安装依赖。

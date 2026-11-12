@@ -276,7 +276,7 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
             || from.username || from.password || Number(from.port) !== remote.port || !from.searchParams.has('token')) {
           throw error(502, 'remote DSH Web authentication URL is not trusted');
         }
-        const key = `web:${workspaceToken(host, opened.workspace.remoteRoot)}`;
+        const key = `web:host:${host}`;
         const existing = deps.dshWebTunnels.list().find(t => t.key === key);
         if (existing && existing.remotePort !== remote.port) deps.dshWebTunnels.close(key);
         const tunnel = await deps.dshWebTunnels.openScoped(key, host, remote.port);
