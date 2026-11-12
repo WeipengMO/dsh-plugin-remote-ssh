@@ -14,6 +14,8 @@ jobs:
   build:
     name: Test and package (Node 22)
     runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.version.outputs.tag }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -33,6 +35,11 @@ jobs:
       - name: Install dependencies without build scripts
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      - name: Read package version
+        id: version
+        run: |
+          echo "tag=v$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+
       - name: Validate version tag
         if: startsWith(github.ref, 'refs/tags/v')
         env:
@@ -48,8 +55,9 @@ jobs:
         run: |
           mkdir -p artifacts
           pnpm pack --pack-destination artifacts
-          file="$(find artifacts -maxdepth 1 -name 'dsh-plugin-remote-ssh-*.tgz' -type f -print -quit)"
-          test -n "$file"
+          package_version="$(node -p 'require("./package.json").version')"
+          file="artifacts/dsh-plugin-remote-ssh-${package_version}.tgz"
+          test -s "$file"
           tar -tzf "$file" > "$RUNNER_TEMP/plugin-files.txt"
           grep -qx 'package/package.json' "$RUNNER_TEMP/plugin-files.txt"
           grep -qx 'package/dist/index.js' "$RUNNER_TEMP/plugin-files.txt"
@@ -72,24 +80,54 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       github.repository == 'WeipengMO/dsh-plugin-remote-ssh' &&
-      startsWith(github.ref, 'refs/tags/v')
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - name: Check whether the version tag exists
+        id: tag_check
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.release_tag }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Version $TAG is already tagged; skipping automatic release."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "Creating a new release for $TAG."
+          fi
+
+      - name: Tag the tested main commit
+        if: github.ref == 'refs/heads/main' && steps.tag_check.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.build.outputs.release_tag }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA"
+
       - name: Download tested installer
+        if: github.ref != 'refs/heads/main' || steps.tag_check.outputs.publish == 'true'
         uses: actions/download-artifact@v4
         with:
           name: dsh-remote-ssh-${{ github.sha }}
           path: artifacts
 
-      - name: Publish stable release from version tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish stable release from the validated version
+        if: github.ref != 'refs/heads/main' || steps.tag_check.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: DSH Remote SSH ${{ github.ref_name }}
+          tag_name: ${{ needs.build.outputs.release_tag }}
+          name: DSH Remote SSH ${{ needs.build.outputs.release_tag }}
           prerelease: false
+          body: |
+            Official DSH Remote SSH release. Install the attached verified .tgz package using:
+            `dsh plugin --profile desktop add <path-to-downloaded-tgz>`
+
+            See [CHANGELOG](https://github.com/WeipengMO/dsh-plugin-remote-ssh/blob/${{ needs.build.outputs.release_tag }}/CHANGELOG.md) for this version's features, security behavior, and migration notes.
           generate_release_notes: true
           files: artifacts/*.tgz
           fail_on_unmatched_files: true

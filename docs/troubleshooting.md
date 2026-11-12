@@ -1,6 +1,6 @@
 # 安装、使用与故障排查
 
-适用于 DSH Remote SSH v1.0.0 及 `main` 分支的开发更新；正式发布版功能取决于实际安装包。
+适用于 DSH Remote SSH v1.1.0；正式发布版功能以实际安装的版本为准。
 
 ## 安装后找不到 Remote SSH 设置
 
@@ -19,7 +19,7 @@ DSH Host 可能仍在运行旧版插件的 ESM 模块，而页面已经读取新
 
 DSH CLI 支持 Git 来源安装，但 Git 构建脚本可能受到 pnpm 安全策略限制。本项目的 Git 地址安装尚未完成独立 Windows Desktop 端到端验证。
 
-推荐从 [v1.0.0 Release](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/tag/v1.0.0) 下载正式 `.tgz` 安装包。不要为了规避构建保护而全局放宽 pnpm 的安全策略。
+推荐从 [v1.1.0 Release](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/tag/v1.1.0) 下载正式 `.tgz` 安装包。不要为了规避构建保护而全局放宽 pnpm 的安全策略。
 
 若错误出现 `ECONNREFUSED`、`ETIMEDOUT` 或 `registry.npmjs.org` 连接失败，通常是 npm Registry 网络访问问题；即使下载了本地 `.tgz`，安装器仍可能需要联网解析依赖。先检查系统代理、网络防火墙、Registry 可达性与 DSH 进程实际使用的代理设置，再重试；这不是 SSH 远程服务器连接错误。
 
@@ -39,9 +39,9 @@ DSH CLI 支持 Git 来源安装，但 Git 构建脚本可能受到 pnpm 安全�
 
 ## 远程工作区的工具卡片仍显示 pwsh
 
-v1.0.0 的兼容实现拦截原生 `pwsh` 的执行，却不会改写原生工具 Schema，因此历史工具卡片会显示 Windows PowerShell 描述。未发布的新代码新增了 `remote_bash` 的 Linux/POSIX Schema，并在 DSH 支持 Agent scoped `tools.restrict()` 时只对远程 Agent 隐藏 `pwsh`。本地项目保留原生 `pwsh`。
+v1.1.0 为远程 Agent 注册 `remote_bash` Linux/POSIX Schema，并在 DSH 支持 Agent scoped `tools.restrict()` 时只对远程 Agent 隐藏 `pwsh`。本地项目继续使用原生 `pwsh`；v1.0.0 历史工具卡片依然可能显示旧名称。
 
-- 确认已安装包含该改动的开发构建（v1.0.0 正式发布包不会自动更新），完全退出 DSH Host 后重启并新建远程会话。
+- 确认安装的是 v1.1.0 正式包（v1.0.0 不包含这一改动），完全退出 DSH Host 后重启并新建远程会话。
 - 新的远程命令应优先调用 `remote_bash`，历史 `pwsh` 调用卡片不会重命名；在不支持条件工具或 Agent 限制的宿主上，两个工具可能同时显示。
 - `remote_bash` 仅支持前台命令执行，超时会返回 `timedOut: true`；旧 `pwsh` 远端执行默认阻止。
 - 可让 Agent 调用 `remote_ssh_status` 确认 `remote: true`，并在 `remote_bash` 中执行 `pwd; uname -s` 验证实际平台。

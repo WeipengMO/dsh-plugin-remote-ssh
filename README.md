@@ -9,13 +9,13 @@
 
 *Remote Linux workspaces for DeepSeek Harness, with SSH/SFTP file operations, Agent shell routing, and integration with the native DSH UI.*
 
-> **稳定版本：v1.0.0。** 当前项目为社区插件，不是 DeepSeek Harness 官方内置功能。兼容性取决于 DSH 宿主暴露的插件接口；请在重要项目上使用前自行验证。
+> **最新正式版本：v1.1.0。** 当前项目为社区插件，不是 DeepSeek Harness 官方内置功能。兼容性取决于 DSH 宿主暴露的插件接口；请在重要项目上使用前自行验证。
 
 ## 功能
 
 - **远程项目 / 工作区**：在 DSH 的新建项目与工作区目录选择流程中选择 SSH 主机和远程 Linux 目录。
 - **Agent 远程文件操作**：在已激活的远程工作区中，将文件读取、写入、编辑及 `glob`/`grep` 搜索路由到 SSH/SFTP；本地工作区继续使用 DSH 原有实现。
-- **Agent 专用 Linux 命令工具（开发分支）**：远程 SSH 会话优先使用 `remote_bash`（模型看到 Bash/POSIX Schema），并在宿主支持 Agent 级工具限制时隐藏 Windows `pwsh`；切回本地时恢复 `pwsh`。旧的 `pwsh` → SSH Shell 执行默认禁止，以防绕过远端审批（可显式开启兼容选项）。
+- **Agent 专用 Linux 命令工具**：远程 SSH 会话优先使用 `remote_bash`（模型看到 Bash/POSIX Schema），并在宿主支持 Agent 级工具限制时隐藏 Windows `pwsh`；切回本地时恢复 `pwsh`。旧的 `pwsh` → SSH Shell 执行默认禁止，以防绕过远端审批（可显式开启兼容选项）。
 - **原生终端**：在宿主提供 `subprocess.spawnTerminal()` 时，将 DSH 右侧终端的远程工作区会话连接到 SSH PTY；不新增独立终端窗口。
 - **Git 状态**：在 Remote SSH 设置页查看远程 `git status`、Diff 统计和近期提交；在兼容的宿主版本中也会尝试适配原生 Git 子进程入口。
 - **SSH 主机管理**：支持 `~/.ssh/config`、密钥文件与 ssh-agent、显式主机指纹确认，以及受限的 Cloudflare Access `cloudflared` ProxyCommand。
@@ -32,18 +32,18 @@
 
 **推荐：安装经过 CI 打包检查的正式版压缩包。**
 
-1. 从 [v1.0.0 Release](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/tag/v1.0.0) 下载 `dsh-plugin-remote-ssh-1.0.0.tgz`。
+1. 从 [v1.1.0 Release](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/tag/v1.1.0) 下载 `dsh-plugin-remote-ssh-1.1.0.tgz`。
 2. 完全退出 DSH（Windows 需同时退出托盘进程）。
 3. 在运行 DSH 的机器上执行：
 
 ```powershell
 # Windows DSH Desktop
-dsh plugin --profile desktop add "C:\path\to\dsh-plugin-remote-ssh-1.0.0.tgz"
+dsh plugin --profile desktop add "C:\path\to\dsh-plugin-remote-ssh-1.1.0.tgz"
 ```
 
 ```bash
 # DSH Web Host
-dsh plugin --profile web add /path/to/dsh-plugin-remote-ssh-1.0.0.tgz
+dsh plugin --profile web add /path/to/dsh-plugin-remote-ssh-1.1.0.tgz
 ```
 
 4. 完全重启对应 DSH 进程；Web 页面如显示旧前端内容，再刷新浏览器。
@@ -51,7 +51,7 @@ dsh plugin --profile web add /path/to/dsh-plugin-remote-ssh-1.0.0.tgz
 **从 GitHub 安装（仓库公开后可尝试）：** DSH CLI 支持 Git 来源，示例：
 
 ```powershell
-dsh plugin --profile desktop add "github:WeipengMO/dsh-plugin-remote-ssh#v1.0.0"
+dsh plugin --profile desktop add "github:WeipengMO/dsh-plugin-remote-ssh#v1.1.0"
 ```
 
 Git 安装路径尚未在本项目的干净 Windows Desktop 环境完成端到端验收。若 pnpm 阻止 Git 构建脚本，优先使用上面的正式 `.tgz` 包；不要为了安装插件而全局关闭构建脚本安全限制。**GitHub 公开并不等于插件自动进入 DSH 插件市场。**
@@ -65,11 +65,13 @@ Git 安装路径尚未在本项目的干净 Windows Desktop 环境完成端到�
 3. 打开远程项目的 DSH 会话；首次使用 `remote_bash` 会请求对当前 Agent 会话/SSH 工作区的 Bash 命令执行授权。可执行 `pwd; uname -s; hostname` 验证平台。
 4. 通过设置页中的 **Git 状态** 查看未提交文件、Diff 统计和提交历史。DSH 的 **变更请求** 面板主要面向 Pull Request，不能当作工作区未提交文件列表的唯一依据。
 
-## 开发分支与正式版本
+## 版本与更新
 
-本仓库 `main` 后续代码可能包含尚未发布的改进；**v1.0.0 Release 不会因为代码更新自动改变**。测试新功能请使用 CI 构建产物或自行构建安装包，并完全重启 DSH Host。`remote_bash` 当前仅支持前台执行；旧的 `pwsh` 远程入口默认拒绝，需显式启用不安全兼容选项才能继续使用。
+正式版以 [GitHub Releases](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases) 中的版本标签与 `.tgz` 附件为准。`main` 分支的后续代码不会自动改变已经发布的 Release。升级插件时应安装与 Release 版本一致的 `.tgz`，并**完全退出 DSH Desktop（含托盘进程）再启动**。
 
-## 远程命令执行权限（开发版）
+本版 `remote_bash` 只支持前台执行；旧的 `pwsh` 远程入口默认拒绝，需显式启用不安全兼容选项才能继续使用。更新详情请参阅 [CHANGELOG](CHANGELOG.md)。
+
+## 远程命令执行权限
 
 **本机 DSH Sandbox 不会隔离远端 Linux Bash。** 因此默认使用 DSH Approval 请求一次 Agent 会话与 SSH 工作区级别的授权，未批准或缺少审批服务时拒绝执行。会话处于 `read-only` 时一律禁止远端 Bash。切换到新 Agent 会话需要重新授权。远端 Bash 命令可访问该 SSH 用户有权限的文件，即使指定的工作目录位于工作区内，也不能视为远端文件系统沙箱。
 
