@@ -54,6 +54,7 @@ const SAFE_CONFIG: ReadonlyArray<readonly [string, RegExp]> = [
 /** Valueless global switches that never change where git looks for a repo. */
 const SAFE_GLOBAL_FLAGS = new Set([
   '--no-optional-locks', '--literal-pathspecs', '--no-replace-objects',
+  '--no-pager',
 ]);
 
 function safeConfigValue(value: string): boolean {
@@ -65,48 +66,54 @@ function safeConfigValue(value: string): boolean {
 }
 
 /**
- * Only native Forge's safety-prefixed, non-mutating Git probe shape is allowed.
+ * Accept only non-mutating Git commands after validating every global option
+ * and subcommand. Earlier versions demanded a --no-optional-locks / -c safety
+ * prefix, but not every installed Forge build supplies the same prefix. This
+ * incorrectly rejected even plain "git rev-parse" and "git status" reads.
  *
- * DSH releases differ in how many global options they prepend and in what order
- * (extra `-c` pairs, `-ccore.quotepath=false`, `--literal-pathspecs`, ...), so
- * validate the *kind* of each leading option instead of a fixed five-argument
- * prefix. At least one safety marker is still required -- a bare `git status`
- * must never be routed to the SSH host. `-C <dir>` is refused on purpose: the
- * remote command already `cd`s into the mapped repository, and a local/virtual
- * path would point git somewhere meaningless (or outside the workspace).
+ * Crucially, we NEVER execute the supplied argv: the SSH runner rebuilds a
+ * command with our own fixed read-only environment, hooks/fsmonitor disabled,
+ * and the authenticated Linux working directory. A missing caller prefix
+ * therefore cannot weaken these remote execution protections.
+ *
+ * DSH may wrap its executable using the native Windows ACL runner:
+ * [node.exe, runner.js, ..., '--', 'C:\\...\\git.exe', ...].
+ * Identify only a standalone Git executable token, not a substring in a
+ * wrapper option or a project directory. -C and alternate repository root
+ * selectors remain forbidden to keep reads scoped to the selected Workspace.
  */
 export function forgeGitQuery(argv: readonly string[]): readonly string[] | null {
   // A local sandbox wrapper may precede the executable; ignore the wrapper
   // only for the exact read-only Forge invocation validated below.
-  const gitIndex = argv.findIndex(arg => /^(?:git|git\.exe)$/i.test(arg.split(/[\\/]/).pop() || ''));
+  // With Windows ACL, the executable follows the runner's exact "--" token.
+  // Searching for the last standalone executable also handles older runners
+  // where no delimiter was present. We never forward wrapper arguments.
+  const isGit = (arg: string): boolean =>
+    /^(?:git|git\.exe|git\.cmd)$/i.test(arg.split(/[\\/]/).pop() || '');
+  const gitIndex = argv.findLastIndex(isGit);
   if (gitIndex < 0) return null;
   const args = argv.slice(gitIndex + 1);
   let i = 0;
-  let safetyPrefixed = false;
   while (i < args.length) {
     const arg = args[i];
     if (arg === undefined) return null;
     if (arg === '-c') {
       const value = args[i + 1];
       if (value === undefined || !safeConfigValue(value)) return null;
-      safetyPrefixed = true;
       i += 2;
       continue;
     }
     if (arg.startsWith('-c') && arg.length > 2) {
       if (!safeConfigValue(arg.slice(2))) return null;
-      safetyPrefixed = true;
       i += 1;
       continue;
     }
     if (SAFE_GLOBAL_FLAGS.has(arg)) {
-      if (arg === '--no-optional-locks') safetyPrefixed = true;
       i += 1;
       continue;
     }
     break;
   }
-  if (!safetyPrefixed) return null;
   const command = args[i];
   if (!command || command.startsWith('-')) return null;
   const rest = args.slice(i + 1);
@@ -160,13 +167,20 @@ export function installNativeGitRouter(
     if (!route) throw new RemoteSshError('SSH_WORKSPACE_UNKNOWN', 'Unknown SSH workspace for native Git query');
     const args = forgeGitQuery(spec.argv);
     if (!args) {
-      // Log the exact shape so a new DSH/Forge release can be whitelisted
-      // deliberately instead of guessing. The argv is local diagnostic data.
-      const message = 'remote-ssh: rejected native Git query (unsupported shape): ' +
+      // Not necessarily a Git command: other DSH features may share the same
+      // subprocess provider. Refuse to run them over SSH; never fall back to
+      // the local Windows placeholder. Include *only the executable category*
+      // in the error; the full (potentially sensitive) argv remains in logs.
+      const executable = spec.argv.findLast(arg =>
+        /(?:^|[\\/])(?:git|git\.exe|git\.cmd)$/i.test(arg)) ?? '';
+      const category = executable ? 'unsupported Git arguments' : 'unsupported subprocess executable';
+      const message = 'remote-ssh: rejected native subprocess (' + category + '): ' +
         JSON.stringify(spec.argv).slice(0, 600);
       if (logger?.warn) logger.warn(message); else logger?.info(message);
       throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED',
-        'Remote subprocess is not an authorized read-only Git query; use the Agent shell for remote commands');
+        'Remote Git/Forge query blocked (' + category + '). ' +
+        'Use Settings → Remote SSH → Git 历史 for read-only status/history; ' +
+        'see DSH Host logs for the exact rejected argv.');
     }
     if (spec.stdio.stdin !== 'ignore' ||
         typeof spec.stdio.stdout !== 'object' || spec.stdio.stdout === null ||
