@@ -12,6 +12,7 @@ async function mockCore(host, auth={}) {
   let authorized=true;
   let nextSessionId='same-id';
   let peerCookie='';
+  const dropNext=new Set();
   const server=http.createServer(async(req,res)=>{
     const url=new URL(req.url,'http://127.0.0.1');
     // Official DSH Core /connect exchanges the launch token for a *v2 API
@@ -49,6 +50,7 @@ async function mockCore(host, auth={}) {
     assert.ok(args && typeof args==='object');
     assert.deepEqual(Object.keys(args),[method==='session/list'?'_request':'request']);
     if(method==='session/list')assert.deepEqual(args._request,{});
+    if(dropNext.delete(method)) { req.socket.destroy(); return; }
     let value;
     switch(method){
       case 'session/list':
@@ -83,7 +85,8 @@ async function mockCore(host, auth={}) {
   server.listen(0,'127.0.0.1');
   await once(server,'listening');
   const port=server.address().port;
-  return {port,calls,setAuthorized:(v)=>{authorized=v},connections:()=>connected,
+  return {port,calls,setAuthorized:(v)=>{authorized=v},
+    dropOnce:method=>dropNext.add(method),connections:()=>connected,
     close:()=>new Promise(resolve=>server.close(resolve))};
 }
 function setup(coreHosts) {
@@ -184,6 +187,39 @@ test('remote Host auth failures fail closed, and clear revokes bound Session ref
   fx.pool.clear('alpha');
   await assert.rejects(()=>fx.pool.events(listed.sessions[0].ref),/binding has expired/);
 });
+test('Host Backend reconnects dropped read channel without losing opaque Session identity',async t=>{
+  const alpha=await mockCore('alpha'),beta=await mockCore('beta');
+  t.after(async()=>Promise.all([alpha.close(),beta.close()]));
+  const fx=setup(new Map([['alpha',alpha],['beta',beta]]));
+  t.after(()=>fx.pool.dispose());
+  const a=await fx.pool.list('alpha','~');
+  const b=await fx.pool.list('beta','~');
+  const ref=a.sessions[0].ref;
+  alpha.dropOnce('session/events');
+  const history=await fx.pool.events(ref);
+  assert.equal(history.phase,'ready');
+  assert.equal(history.messages[1].text,'Reply alpha');
+  assert.equal(alpha.calls.filter(x=>x.method==='session/events').length,2,
+    'read has one bounded replay after transport failure');
+  assert.equal(alpha.connections(),2,'Host A must reauthenticate a new logical channel');
+  assert.equal(beta.connections(),1,'Host B must not be reconnected');
+  assert.equal((await fx.pool.events(b.sessions[0].ref)).phase,'ready');
+  assert.equal((await fx.pool.events(ref)).phase,'ready',
+    'transport recovery must preserve the Session-to-Host binding');
+});
+test('ambiguous remote prompt does not silently run twice after lost acknowledgement',async t=>{
+  const alpha=await mockCore('alpha');
+  t.after(()=>alpha.close());
+  const fx=setup(new Map([['alpha',alpha]]));
+  t.after(()=>fx.pool.dispose());
+  const list=await fx.pool.list('alpha','~');
+  alpha.dropOnce('session/prompt');
+  await assert.rejects(()=>fx.pool.prompt(list.sessions[0].ref,'Run on alpha'),
+    /Acceptance is unknown; check Linux Session history/);
+  assert.equal(alpha.calls.filter(x=>x.method==='session/prompt').length,1,
+    'a disconnected mutation may have committed on Linux; never replay automatically');
+});
+
 test('native API login rejects browser v1 cookies and malformed /connect responses',async t=>{
   const variants=[
     {cookieVersion:1},
