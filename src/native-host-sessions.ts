@@ -161,7 +161,20 @@ export class NativeHostSessions {
     return cookie;
   }
 
-  private async call(host: string, remoteRoot: string, endpoint: Endpoint, request: Json): Promise<unknown | Starting> {
+  /**
+   * Logical Backend connection survives a failed physical SSH forwarding
+   * channel. Only passive reads may be repeated after a disconnect: a lost
+   * acknowledgement for prompt/create/cancel is an ambiguous write, not a
+   * license to issue the same mutation twice.
+   */
+  private dropCarrier(host: string): void {
+    this.cookies.delete(host);
+    this.readyCache.delete(host);
+    this.readyInflight.delete(host);
+    this.deps.tunnels.close('web:host:' + host);
+  }
+  private async call(host: string, remoteRoot: string, endpoint: Endpoint, request: Json, retry = 0): Promise<unknown | Starting> {
+    const passive = endpoint === 'session/list' || endpoint === 'session/events';
     const revision = this.checkHost(host);
     const info = await this.ready(host, remoteRoot);
     if (revision !== this.checkHost(host)) {
@@ -169,30 +182,56 @@ export class NativeHostSessions {
       throw fail('SSH Host changed during remote Session connection', 409);
     }
     if (info.phase !== 'ready') return info;
-    const cookie = await this.authenticate(host, info);
+    let cookie: string;
+    try { cookie = await this.authenticate(host, info); }
+    catch (error) {
+      if (revision !== this.checkHost(host)) {
+        this.clear(host);
+        throw fail('SSH Host changed during remote Session authentication', 409);
+      }
+      // Invalid credentials are not recoverable by blind retries; transient
+      // transport exceptions are retried only for a passive Session read.
+      if (!record(error) || typeof error.status !== 'number') {
+        this.dropCarrier(host);
+        if (passive && retry === 0) return this.call(host, remoteRoot, endpoint, request, 1);
+      }
+      throw error;
+    }
     if (revision !== this.checkHost(host)) {
       this.clear(host);
       throw fail('SSH Host changed during remote Session authentication', 409);
     }
     const rpcId = randomUUID();
-    const response = await fetch(info.origin + '/api/' + endpoint, {
-      method:'POST',
-      headers:{ 'cookie':cookie, 'content-type':'application/json', 'accept':'application/json' },
-      // The typed Gateway uses each method's *declared parameter name*.
-      // session/list declares "_request"; other covered methods declare "request".
-      // Never substitute a generic wrapper or the Host rejects arguments.
-      body:JSON.stringify({ type:'client-request', rpcId, method:endpoint,
-        payload:{ args: endpoint === 'session/list' ? { _request:request } : { request } } }),
-      redirect:'manual',
-      signal:AbortSignal.timeout(20000),
-    });
+    let response: Response;
+    try {
+      response = await fetch(info.origin + '/api/' + endpoint, {
+        method:'POST',
+        headers:{ 'cookie':cookie, 'content-type':'application/json', 'accept':'application/json' },
+        // The typed Gateway uses each method's *declared parameter name*.
+        // session/list declares "_request"; other covered methods declare "request".
+        body:JSON.stringify({ type:'client-request', rpcId, method:endpoint,
+          payload:{ args: endpoint === 'session/list' ? { _request:request } : { request } } }),
+        redirect:'manual',
+        signal:AbortSignal.timeout(20000),
+      });
+    } catch {
+      if (revision !== this.checkHost(host)) {
+        this.clear(host);
+        throw fail('SSH Host changed while sending remote Session RPC', 409);
+      }
+      this.dropCarrier(host);
+      if (passive && retry === 0) return this.call(host, remoteRoot, endpoint, request, 1);
+      if (!passive) throw fail('Remote Backend disconnected while sending ' + endpoint +
+        '. Acceptance is unknown; check Linux Session history before retrying this action.', 503);
+      throw fail('Remote Backend read unavailable after Host reconnect', 503);
+    }
     if (revision !== this.checkHost(host)) {
       this.clear(host);
       throw fail('SSH Host changed during remote Session RPC', 409);
     }
     if (response.status === 401 || response.status === 403) {
-      this.cookies.delete(host);
-      this.readyCache.delete(host);
+      this.dropCarrier(host);
+      if (passive && retry === 0) return this.call(host, remoteRoot, endpoint, request, 1);
       throw fail('Remote DSH Core authentication lost; reconnect this Host', 401);
     }
     if (response.status !== 200 || !response.headers.get('content-type')?.startsWith('application/json')) {
