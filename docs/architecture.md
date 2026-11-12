@@ -8,4 +8,6 @@ Desktop Client 在 `shell.overlay` 中为每个已打开的 SSH Host 保留一�
 
 `/api/remote-ssh` 在处理请求前调用 DSH `Connection.requestRejection()`，再检查 Origin、Host、`sec-fetch-site`、修改请求头和 JSON。启动 URL 中的进程级令牌经认证 API 传到本地渲染进程并用于 WebView 登录；它不出现在状态接口或插件配置中。该令牌可以复用，必须作为凭证保护。
 
+新增不使用 WebView 的「远端 Sessions」独立主面板：Windows Host 层按 SSH Host 隔离官方 DSH Connection HTTP RPC，验证响应 `rpcId`、将浏览器 Cookie 封存在 Node，并将会话绑定成不可跨 Host 复用的 opaque ref；页面使用 React 读取远端列表与历史、发送 prompt。该页面尚未替换官方 `ctx.sessions` 与 `ctx.workspaces` 的根服务，不能声称所有原生 Session 工具或完整事件流已接通。
+
 已有本地占位目录使用的文件、Shell、终端和 Git 兼容路由暂时保留，确保升级不破坏已有工作区；新的项目选择流程不再创建此类工作区。两种模式的会话不自动迁移。

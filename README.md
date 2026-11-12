@@ -11,6 +11,10 @@
 
 远程界面中的工作区、会话、Agent、Git、worktree、终端和文件监视由同一 SSH 账户的 Linux DSH Host 管理。Windows 与 Linux 的会话列表不合并，切换标签不会迁移会话。关闭 Desktop 后，下次需重新从项目目录打开远程界面；Linux DSH 的持久会话由远端保存。
 
+## Windows 原生多 Host Sessions（实验性）
+
+DSH Desktop 左侧新增「远端 Sessions」原生导航入口。此界面是同一 Windows React/Cordis Shell 内的 `main` 面板，**不是** WebView/iframe；支持选择不同 SSH Host、创建真实 Linux Session、查看最近历史、发送 prompt 和取消任务。同一 Linux Host 保留共享进程和 SSH tunnel，远端的 Agent 在 Linux 上执行。插件 Host 通过 DSH 官方 `/api/session/*` Connection RPC 协议与远端交互，短期签名 Cookie 仅保留在 Windows Node 进程内，浏览器只持有绑定 Host+Session 的不透明引用。完整任务推送、流式工具审批、终端和 Git 仍需原生 API 适配，目前不是与官方内置 `ctx.sessions` 的统一列表。
+
 ## Core Connection 集成边界
 
 此版本复用的是**远端 DSH Client 树内的 Core Connection**，不是把 Windows Desktop 原生 Session 直接绑定到远端 Host。官方 `ctx.connection` 属于整个 Client Context、只允许一个 Generation Source；原生 Windows 会话的透明跨 Host 切换仍需要 Core 提供 Session → Host 选择/多 Context 装载接口，不能依靠修改插件 HTTP 路由实现。本仓库不会偷偷全局替换连接、拦截 RPC 或声称完成此功能。
@@ -28,7 +32,7 @@
 pnpm build
 pnpm run test:inprocess
 node scripts/package-plugin.mjs
-dsh plugin --profile desktop add /path/to/dsh-plugin-remote-ssh-2.2.0.tgz
+dsh plugin --profile desktop add /path/to/dsh-plugin-remote-ssh-2.3.0.tgz
 ```
 
 完全退出 Desktop 后，用其自带的 `dsh` 插件管理器安装打包脚本输出的绝对路径，再重新打开 Desktop；单纯刷新页面不会重载 Host 的 ESM 模块。插件管理器会更新 profile 的依赖与锁文件，不会替换 Desktop Core。保留安装包，以便以后重新安装依赖。

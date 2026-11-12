@@ -14,6 +14,7 @@ import { installWorkspaceCleanup } from './workspace-cleanup.js';
 import { RemoteTerminalPool } from './remote-terminal.js';
 import { RemoteDshWebTunnelPool } from './dsh-web-tunnel.js';
 import { RemoteHostRuntimePool } from './remote-host-runtime.js';
+import { NativeHostSessions } from './native-host-sessions.js';
 import { installNativeTerminalRouter } from './native-terminal-router.js';
 import { installNativeGitRouter } from './native-git-router.js';
 
@@ -159,6 +160,7 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
     const remoteTerminals = new RemoteTerminalPool(manager);
     const dshWebTunnels = new RemoteDshWebTunnelPool(manager);
     const remoteRuntime = new RemoteHostRuntimePool(manager);
+    const nativeSessions = new NativeHostSessions({ manager, runtime:remoteRuntime, tunnels:dshWebTunnels });
     const desktopProfile = (ctx.get('profileContext') as { name?: string } | undefined)?.name === 'desktop';
     const workspaceRegistry = (): WorkspaceRegistry | undefined => ctx.get('workspaceRegistry') as WorkspaceRegistry | undefined;
     const requestRejection = (request: unknown): number | undefined => connection.requestRejection(request);
@@ -167,13 +169,14 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
       kind: 'prefix',
       path: '/api/remote-ssh',
       handler: createNativeHttpHandler({ manager, workingDirectory: ctx.workingDirectory, agents, previousCwd, workspaceRegistry,
-        remoteTerminals, dshWebTunnels, remoteRuntime, desktopProfile,
+        remoteTerminals, dshWebTunnels, remoteRuntime, nativeSessions, desktopProfile,
         requestRejection }) as (req: unknown, res: unknown) => Promise<void>,
     });
     ctx.logger.info(`remote-ssh: ready (storage ${storageDir})`);
     return () => {
       nativeGit?.dispose();
       nativeTerminal?.dispose();
+      nativeSessions.dispose();
       remoteRuntime.closeAll();
       dshWebTunnels.closeAll();
       remoteTerminals.closeAll();

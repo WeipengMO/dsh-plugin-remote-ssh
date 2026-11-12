@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-remote-ssh",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Remote Linux DSH interfaces in Windows Desktop over SSH.",
   "type": "module",
   "main": "dist/index.js",

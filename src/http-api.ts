@@ -11,6 +11,7 @@ import { prepareRemoteWorkspace, type WorkspaceRegistry } from './workspace-regi
 import type { RemoteTerminalPool } from './remote-terminal.js';
 import { DEFAULT_DSH_WEB_PORT, type RemoteDshWebTunnelPool } from './dsh-web-tunnel.js';
 import type { RemoteHostRuntimePool } from './remote-host-runtime.js';
+import type { NativeHostSessions } from './native-host-sessions.js';
 import { errorMessage } from './errors.js';
 import { looksVirtual, shellQuote, workspaceToken } from './paths.js';
 import type { HostRecord } from './types.js';
@@ -36,6 +37,7 @@ export interface NativeApiDeps {
   remoteTerminals?: RemoteTerminalPool;
   dshWebTunnels?: RemoteDshWebTunnelPool;
   remoteRuntime?: RemoteHostRuntimePool;
+  nativeSessions?: NativeHostSessions;
   /** Loopback tunnels can only be opened by the desktop Host on the browser machine. */
   desktopProfile?: boolean;
   /** DSH Connection's signed-cookie and Host/Origin admission, fail closed. */
@@ -249,6 +251,28 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
         const inspection = await deps.remoteRuntime.inspect(workspace.connectionId, workspace.remoteRoot);
         return send(res, 200, { ok: true, inspection, host: workspace.connectionId, token });
       }
+      if (route.startsWith('/runtime/native/')) {
+        if (deps.desktopProfile !== true || !deps.nativeSessions) {
+          throw error(409, 'Native remote Sessions require the Windows Desktop Host');
+        }
+        const bridge = deps.nativeSessions;
+        let result: unknown;
+        switch (route) {
+          case '/runtime/native/list':
+            result = await bridge.list(text(body.host, 'host', 256), text(body.path ?? '~', 'path')); break;
+          case '/runtime/native/create':
+            result = await bridge.create(text(body.host, 'host', 256), text(body.path ?? '~', 'path')); break;
+          case '/runtime/native/events':
+            result = await bridge.events(text(body.ref, 'Session reference', 128)); break;
+          case '/runtime/native/prompt':
+            result = await bridge.prompt(text(body.ref, 'Session reference', 128),
+              text(body.message, 'prompt', 12000)); break;
+          case '/runtime/native/cancel':
+            result = await bridge.cancel(text(body.ref, 'Session reference', 128)); break;
+          default: throw error(404, 'unknown native remote Session operation');
+        }
+        return send(res, 200, { ok:true, ...result as object });
+      }
       if (route === '/runtime/web/open') {
         // This is a Desktop-owned SSH loopback connection. A Web profile Host
         // cannot assume the browser shares its 127.0.0.1.
@@ -346,12 +370,14 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
         const id = text(body.id, 'id');
         deps.dshWebTunnels?.closeAllFor(id);
         deps.remoteRuntime?.clear(id);
+        deps.nativeSessions?.clear(id);
         return send(res, 200, { ok: true, host: manager.updateHost(id, hostPatch(body)) });
       }
       if (route === '/host/remove') {
         const id = text(body.id, 'id');
         deps.dshWebTunnels?.closeAllFor(id);
         deps.remoteRuntime?.clear(id);
+        deps.nativeSessions?.clear(id);
         manager.removeHost(id);
         return send(res, 200, { ok: true });
       }
