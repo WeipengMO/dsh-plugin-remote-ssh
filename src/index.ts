@@ -7,7 +7,7 @@ import { looksVirtual } from './paths.js';
 import { expandUserPath } from './ssh-config.js';
 import { installRemoteSearchShadow } from './remote-search.js';
 import { installShellRouter } from './shell-router.js';
-import { registerManagementTools } from './tools.js';
+import { registerManagementTools, registerRemoteBashTool, installRemoteShellScope } from './tools.js';
 import { agentFromCreatedEvent, createNativeHttpHandler, type AgentRef } from './http-api.js';
 import type { WorkspaceRegistry } from './workspace-registration.js';
 import { installWorkspaceCleanup } from './workspace-cleanup.js';
@@ -144,6 +144,8 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
     );
     const restoreWorkingDirectory = guardWorkingDirectory(ctx);
     registerManagementTools(ctx as unknown as Parameters<typeof registerManagementTools>[0], manager, remoteFs);
+    registerRemoteBashTool(ctx as unknown as Parameters<typeof registerRemoteBashTool>[0], manager);
+    const restoreRemoteShellScope = installRemoteShellScope(ctx as unknown as Parameters<typeof installRemoteShellScope>[0]);
     // `subprocess` is deliberately an OPTIONAL service. inject (above) is a
     // hard dependency list: adding it there would refuse to load the entire
     // plugin on any DSH build that does not expose this exact service name.
@@ -180,6 +182,7 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
       workspaceCleanup.dispose();
       unregisterHttp?.();
       restoreSearch();
+      restoreRemoteShellScope();
       restoreWorkingDirectory();
       shellHandle.dispose();
       fsHandle.dispose();

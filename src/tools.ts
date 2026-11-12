@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type { ShellRequest, ShellSpec } from './shell-router.js';
 import type { SshConnection } from './connection.js';
 import { RemoteSshError, errorMessage } from './errors.js';
 import type { RemoteSshManager, TestResult } from './manager.js';
@@ -8,11 +9,20 @@ import { inspectRemoteGit } from './remote-git.js';
 import type { HostRecord } from './types.js';
 
 interface ToolContext {
-  tools: { register(definition: unknown): unknown };
+  tools: { register(definition: unknown, options?: { when?: (selection: { agent?: { session?: unknown } }) => boolean }): unknown };
   workingDirectory: {
     get(session: unknown): string;
     set(agent: unknown, path: string, signal?: AbortSignal): Promise<string>;
     ensure(agent: unknown, signal?: AbortSignal): Promise<string>;
+  };
+  shell?: {
+    resolve(request: ShellRequest): ShellSpec;
+    execute(spec: ShellSpec): Promise<{ result(): Promise<{
+      exitCode?: number | null;
+      stdout?: { text?: string };
+      stderr?: { text?: string };
+      aborted?: boolean;
+    }> }>;
   };
   systemPrompt?: { section(definition: { name: string; order: number; text: string | ((context: { agent?: { session?: unknown } }) => string) }): unknown };
   logger?: { warn(message: string): void };
@@ -509,5 +519,163 @@ export function registerManagementTools(
 /** A remote-only shell hint avoids wasting tokens on local DSH sessions. */
 export function remoteWorkspaceShellGuidance(cwd: string): string {
   if (!looksVirtual(cwd)) return '';
-  return 'ACTIVE EXECUTION SYSTEM: Linux over SSH. SHELL LANGUAGE: Bash/POSIX, not Windows PowerShell, even if the Windows DSH tool is named pwsh. EVERY command is executed via Linux bash -lc on the remote host. Write Bash syntax from the FIRST command: pwd; ls -la; find . -maxdepth 2 -type f; grep -R; git status --short --branch. Use $HOME and $PATH, NOT $env:HOME, Get-ChildItem, Select-String, Set-Location, Out-File or Windows drive paths. File tools read and edit the real remote Linux directory. For remote Git status/history/diff, prefer remote_ssh_git; do not inspect the Windows placeholder or run local Git. Create directories before writing files. This instruction applies ONLY while the active workspace is an SSH virtual path.';
+  return 'ACTIVE EXECUTION SYSTEM: Linux over SSH. SHELL LANGUAGE: Bash/POSIX, not Windows PowerShell, and prefer the remote_bash tool; the native Windows pwsh tool is a compatibility fallback only. EVERY command is executed via Linux bash -lc on the remote host. Write Bash syntax from the FIRST command: pwd; ls -la; find . -maxdepth 2 -type f; grep -R; git status --short --branch. Use $HOME and $PATH, NOT $env:HOME, Get-ChildItem, Select-String, Set-Location, Out-File or Windows drive paths. File tools read and edit the real remote Linux directory. For remote Git status/history/diff, prefer remote_ssh_git; do not inspect the Windows placeholder or run local Git. Create directories before writing files. This instruction applies ONLY while the active workspace is an SSH virtual path.';
+}
+
+/**
+ * Model-facing Linux shell tool. Conditional registration ensures a local
+ * Windows project never receives this Bash schema. Existing pwsh routing is
+ * retained for old sessions and hosts that do not support conditional tools.
+ */
+export function registerRemoteBashTool(ctx: ToolContext, manager: RemoteSshManager): void {
+  const shell = ctx.shell;
+  if (!shell || typeof shell.resolve !== 'function' || typeof shell.execute !== 'function') {
+    throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'remote_bash requires the DSH shell service');
+  }
+  ctx.tools.register({
+    name: 'remote_bash',
+    description: 'Run a Bash command on the ACTIVE remote Linux SSH workspace. Paths are POSIX (/home/user/project), never Windows paths. Commands execute via bash -lc on the remote host. For a local Windows project use pwsh instead. Does not create a persistent terminal or background job.',
+    parameters: object({
+      command: string('Bash/POSIX command to execute on the remote Linux server.'),
+      workdir: string('Optional remote POSIX working directory, absolute or relative to the active remote directory. Must remain on the same SSH host.'),
+      timeoutMs: integer('Optional execution timeout in milliseconds (1000–600000; default 120000).'),
+      stdoutMaxBytes: integer('Optional maximum captured output bytes (1024–2000000; default 200000).'),
+    }, ['command']),
+    timeoutMs: 660000,
+    isConcurrencySafe: () => false,
+    output: {
+      schema: object({
+        cwd: string('Real POSIX working directory on the remote Linux host.'),
+        exitCode: integer('Remote process exit status (-1 if not available).'),
+        stdout: string('Captured stdout.'),
+        stderr: string('Captured stderr.'),
+      }, ['cwd', 'exitCode', 'stdout', 'stderr']),
+      render: textRender,
+    },
+    async execute(args: any, exec: ToolExecution) {
+      if (!exec.agent || !exec.agent.session) {
+        throw new RemoteSshError('SSH_PATH_INVALID', 'remote_bash requires an active Agent session');
+      }
+      const cwd = ctx.workingDirectory.get(exec.agent.session);
+      if (!looksVirtual(cwd)) {
+        throw new RemoteSshError('SSH_PATH_INVALID', 'remote_bash is only available in a remote SSH workspace; use pwsh in a local Windows workspace');
+      }
+      if (typeof args.command !== 'string' || !args.command.trim()) {
+        throw new RemoteSshError('SSH_PATH_INVALID', 'a non-empty Bash command is required');
+      }
+      const active = manager.routeFor(cwd, cwd);
+      const rawWorkdir = args.workdir === undefined ? '.' : args.workdir;
+      if (typeof rawWorkdir !== 'string' || !rawWorkdir.trim()) {
+        throw new RemoteSshError('SSH_PATH_INVALID', 'workdir must be a non-empty remote POSIX path');
+      }
+      const route = manager.routeFor(rawWorkdir, cwd);
+      if (!active || !route || route.workspace.token !== active.workspace.token) {
+        throw new RemoteSshError('SSH_PATH_INVALID', 'remote_bash workdir must belong to the active SSH workspace');
+      }
+      const timeout = args.timeoutMs === undefined ? 120000 : args.timeoutMs;
+      if (!Number.isInteger(timeout) || timeout < 1000 || timeout > 600000) {
+        throw new RemoteSshError('SSH_PATH_INVALID', 'timeoutMs must be between 1000 and 600000');
+      }
+      const stdoutMaxBytes = args.stdoutMaxBytes === undefined ? 200000 : args.stdoutMaxBytes;
+      if (!Number.isInteger(stdoutMaxBytes) || stdoutMaxBytes < 1024 || stdoutMaxBytes > 2000000) {
+        throw new RemoteSshError('SSH_PATH_INVALID', 'stdoutMaxBytes must be between 1024 and 2000000');
+      }
+      const spec = shell.resolve({
+        command: args.command,
+        workdir: route.virtualPath,
+        timeoutMs: timeout,
+        stdoutMaxBytes,
+        onExpiry: 'kill',
+        signal: exec.signal,
+      });
+      // Never fall back to a local shell if the host returns a non-SSH spec.
+      if (!looksVirtual(spec.workdir)) {
+        throw new RemoteSshError('SSH_PATH_INVALID', 'shell.resolve returned a local workdir for a remote command');
+      }
+      const outcome = await (await shell.execute(spec)).result();
+      if (outcome.aborted) {
+        throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED', 'remote Bash command was aborted');
+      }
+      return {
+        cwd: route.remotePath,
+        exitCode: typeof outcome.exitCode === 'number' ? outcome.exitCode : -1,
+        stdout: outcome.stdout && typeof outcome.stdout.text === 'string' ? outcome.stdout.text : '',
+        stderr: outcome.stderr && typeof outcome.stderr.text === 'string' ? outcome.stderr.text : '',
+      };
+    },
+  }, {
+    when: ({ agent }) => {
+      if (!agent || !agent.session) return false;
+      try { return looksVirtual(ctx.workingDirectory.get(agent.session)); }
+      catch { return false; }
+    },
+  });
+}
+
+/**
+ * In Agent scopes, hide the inherited Windows pwsh schema only while the
+ * session is remote. Scope changes are reversible on workdir changes.
+ */
+export function installRemoteShellScope(ctx: ToolContext): () => void {
+  const masks = new Map<string, { agent: any; dispose: () => void }>();
+  const warned = new Set<string>();
+  const wd = ctx.workingDirectory;
+  const savedSet = wd.set;
+  const originalSet = wd.set.bind(wd);
+  const unwrap = (event: any): any => event && typeof event === 'object' && 'agent' in event ? event.agent : event;
+  const clear = (id: string): void => {
+    const previous = masks.get(id);
+    if (previous) {
+      previous.dispose();
+      masks.delete(id);
+    }
+  };
+  const sync = (value: unknown): void => {
+    const agent = unwrap(value);
+    if (!agent || typeof agent.id !== 'string' || !agent.session) return;
+    const id = agent.id;
+    let remote = false;
+    try { remote = looksVirtual(wd.get(agent.session)); }
+    catch { return; }
+    const previous = masks.get(id);
+    if (!remote) { clear(id); return; }
+    if (previous && previous.agent === agent) return;
+    clear(id);
+    const restrict = agent.ctx && agent.ctx.tools && agent.ctx.tools.restrict;
+    if (typeof restrict !== 'function') {
+      if (!warned.has(id)) {
+        warned.add(id);
+        ctx.logger?.warn('remote-ssh: Agent-scoped tool restrictions unavailable; remote_bash is visible, but the host may also show pwsh');
+      }
+      return;
+    }
+    try {
+      const dispose = restrict.call(agent.ctx.tools, { deny: ['pwsh'] });
+      if (typeof dispose === 'function') masks.set(id, { agent, dispose });
+    } catch (error) {
+      if (!warned.has(id)) {
+        warned.add(id);
+        ctx.logger?.warn('remote-ssh: cannot hide native pwsh for Agent ' + id + ': ' + errorMessage(error));
+      }
+    }
+  };
+  wd.set = async (agent: unknown, next: string, signal?: AbortSignal): Promise<string> => {
+    const result = await originalSet(agent, next, signal);
+    sync(agent);
+    return result;
+  };
+  const offCreated = ctx.on?.('agent/created', sync, { global: true });
+  const offDisposed = ctx.on?.('agent/disposed', (payload: unknown) => {
+    const agent = unwrap(payload);
+    if (agent && typeof agent.id === 'string') {
+      clear(agent.id);
+      warned.delete(agent.id);
+    }
+  }, { global: true });
+  return () => {
+    wd.set = savedSet;
+    for (const id of [...masks.keys()]) clear(id);
+    if (typeof offCreated === 'function') offCreated();
+    if (typeof offDisposed === 'function') offDisposed();
+  };
 }
