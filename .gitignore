@@ -1,0 +1,66 @@
+# ===========================================================================
+# dsh-plugin-remote-ssh
+#
+# 重要：dist/、lib/、vendor/ 是**必须随包发布**的内容，必须纳入版本控制：
+#   - package.json#files 显式包含 dist、lib、vendor/ssh2
+#   - DSH 插件加载器要求包内含 dist/index.js、lib/client.js、cordis.patch.yml
+#   - 只把 src/ 复制进 profile 会导致插件无法启动（见 docs/troubleshooting.md）
+# 所以这里刻意【不忽略】dist/、lib/、vendor/，也不忽略 *.js.map / *.d.ts。
+# ===========================================================================
+
+# --- 依赖与包管理器 ---
+node_modules/
+.pnpm-store/
+*.log
+pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- 构建 / 打包产物 ---
+# pnpm pack 生成的插件 tgz。若希望把发布包一并提交进仓库，删掉下一行即可。
+*.tgz
+*.tsbuildinfo
+coverage/
+.nyc_output/
+.tmp/
+tmp/
+.build-tools/
+.pkg-check/
+.pack-verify/
+
+# --- 本地配置与凭据 ---
+# 本插件处理 SSH 私钥，严禁把密钥或本机配置提交进仓库。
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.ppk
+*.p12
+*.pfx
+id_rsa
+id_ecdsa
+id_ed25519
+# 若确实要提交测试用的假密钥，可加例外，例如：!test/fixtures/*.pem
+
+# --- 编辑器 / IDE ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.orig
+*.rej
+*.bak
+
+# --- 操作系统 ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
+
+# --- 有意保留（不要加入忽略）---
+# pnpm-lock.yaml : 锁文件，保证可复现构建
+# cordis.patch.yml、package.json、tsconfig.json、README.md、docs/、test/、src/

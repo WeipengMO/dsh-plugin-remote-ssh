@@ -1,0 +1,90 @@
+{
+  "name": "dsh-plugin-remote-ssh",
+  "version": "1.0.0",
+  "description": "DSH Remote SSH Settings plugin with compact native UI for Desktop and Web; pure-JS SSH transport.",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json",
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "dist",
+    "lib",
+    "vendor/ssh2",
+    "cordis.patch.yml",
+    "README.md",
+    "docs",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-fs-patch": "0.2.2-rc.1",
+    "asn1": "^0.2.6",
+    "balanced-match": "^4.0.4",
+    "bcrypt-pbkdf": "^1.0.2",
+    "brace-expansion": "^5.0.12",
+    "minimatch": "^10.0.1",
+    "safer-buffer": "^2.1.2",
+    "tweetnacl": "^0.14.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/ssh2": "^1.15.5",
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/build-client.mjs",
+    "test": "npm run build && node --test test/*.test.js && node --check lib/client.js",
+    "test:unit": "node test/unit.test.js",
+    "test:e2e": "node test/e2e.test.js",
+    "check:native": "node --check lib/client.js && node --test test/native.test.js"
+  },
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "ssh",
+    "remote-development",
+    "sftp",
+    "settings"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-client-runtime": "*",
+    "@deepseek-ai/dsh-client-ui-slots": "*",
+    "react": "^18.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-runtime": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-slots": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  }
+}
