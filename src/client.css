@@ -589,3 +589,42 @@ body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block
  .rss-remote-status{display:none}
  .rss-remote-title strong{max-width:98px}
 }
+
+
+/* Native multi-host Session shell. Uses DSH main panel, not an embedded browser. */
+.rss-native-panel{--rss-text:#222832;--rss-border:#dfe5ee;--rss-blue:#3268d7;--rss-muted:#64748b;display:flex;flex-direction:column;width:100%;min-width:0;height:100%;color:var(--rss-text);background:var(--color-background,#fff);font-family:inherit;font-size:13px}
+.rss-native-panel *{box-sizing:border-box}
+.rss-native-panel button,.rss-native-panel textarea,.rss-native-panel input,.rss-native-panel select{font-family:inherit}
+.rss-native-panel button{cursor:pointer}
+.rss-native-panel button:disabled{cursor:not-allowed;opacity:.5}
+.rss-native-header{display:flex;align-items:center;justify-content:space-between;padding:16px 22px 10px;border-bottom:1px solid var(--rss-border)}
+.rss-native-header h2{margin:0 0 4px;font-size:18px}
+.rss-native-header p{margin:0;color:var(--rss-muted)}
+.rss-native-hostbar{display:flex;align-items:end;gap:10px;flex-wrap:wrap;padding:12px 22px;border-bottom:1px solid var(--rss-border)}
+.rss-native-hostbar label{display:flex;flex-direction:column;gap:5px;font-weight:600;font-size:12px;min-width:120px}
+.rss-native-hostbar select,.rss-native-hostbar input{min-height:34px;border:1px solid var(--rss-border);border-radius:7px;min-width:130px;padding:5px 8px;background:transparent;color:inherit}
+.rss-native-hostbar input{width:min(30vw,330px)}
+.rss-native-panel .rss-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--rss-border);border-radius:7px;padding:7px 11px;background:transparent;color:inherit;min-height:33px}
+.rss-native-panel .rss-btn.rss-primary{background:var(--rss-blue);border-color:var(--rss-blue);color:#fff}
+.rss-native-body{display:grid;grid-template-columns:minmax(160px,240px) minmax(0,1fr);min-height:0;flex:1}
+.rss-native-sessions{border-right:1px solid var(--rss-border);padding:12px;overflow:auto;display:flex;flex-direction:column;align-items:stretch;gap:5px}
+.rss-native-sessions h3{font-size:12px;margin:0 0 8px;color:var(--rss-muted)}
+.rss-native-session{display:flex;flex-direction:column;gap:3px;align-items:flex-start;min-width:0;overflow:hidden;text-align:left;border:1px solid transparent;border-radius:8px;padding:10px;background:transparent;color:inherit}
+.rss-native-session:hover,.rss-native-session.rss-native-active{background:rgba(50,104,215,.08);border-color:rgba(50,104,215,.19)}
+.rss-native-session strong,.rss-native-session small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rss-native-session small{font-size:11px;color:var(--rss-muted)}
+.rss-native-session span{font-size:11px;color:#0d9488}
+.rss-native-conversation{display:flex;flex-direction:column;min-width:0;min-height:0}
+.rss-native-session-heading{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--rss-border)}
+.rss-native-session-heading code{font-size:11px;color:var(--rss-muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;flex:1}
+.rss-native-messages{flex:1;overflow:auto;min-height:0;display:flex;flex-direction:column;gap:14px;padding:18px}
+.rss-native-message{max-width:95%;border:1px solid var(--rss-border);padding:12px;border-radius:12px;align-self:flex-start}
+.rss-native-message.rss-native-user{align-self:flex-end;background:rgba(50,104,215,.07)}
+.rss-native-message strong{font-size:11px;color:var(--rss-muted)}
+.rss-native-message pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;margin:7px 0 0}
+.rss-native-composer{display:flex;gap:10px;padding:12px 16px;border-top:1px solid var(--rss-border);align-items:end}
+.rss-native-composer textarea{resize:vertical;min-height:58px;flex:1;min-width:0;border:1px solid var(--rss-border);border-radius:9px;padding:10px;background:transparent;color:inherit}
+.rss-native-error{margin:8px 16px;padding:10px;border-radius:7px;border:1px solid #f0b8b8;color:#af2525;background:rgba(225,45,45,.05)}
+.rss-native-empty{display:flex;flex:1;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:var(--rss-muted);padding:20px;text-align:center}
+.rss-native-empty strong{color:var(--rss-text)}
+@media(max-width:650px){.rss-native-body{grid-template-columns:130px minmax(0,1fr)}.rss-native-sessions{padding:6px}.rss-native-header{padding:12px}.rss-native-hostbar{padding:8px}}

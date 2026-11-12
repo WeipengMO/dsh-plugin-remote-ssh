@@ -42,15 +42,15 @@ test('client registers settings plus native remote project directory flows', () 
   };
   const source = fs.readFileSync(path.join(root, 'lib', 'client.js'), 'utf8');
   vm.runInNewContext(source, sandbox);
-  assert.deepEqual([...result.inject], ['slots', 'uiWorkspace']);
+  assert.deepEqual([...result.inject], ['slots', 'uiWorkspace', 'layout']);
   result.apply({
     effect(callback) { callback(); },
     slots: {
-      inject(slot, callback) { assert.ok(['shell.overlay', 'settings.section', 'conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow'].includes(slot)); const result = callback(); if (result && result[Symbol.iterator]) for (const _ of result) { /* Cordis effect iterator */ } },
+      inject(slot, callback) { assert.ok(['shell.overlay', 'settings.section', 'conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow', 'main', 'sidebar.panellist'].includes(slot)); const result = callback(); if (result && result[Symbol.iterator]) for (const _ of result) { /* Cordis effect iterator */ } },
       register(record, component) { registrations.push({ record, component }); return () => {}; },
     },
   });
-  assert.equal(registrations.length, 4);
+  assert.equal(registrations.length, 6);
   assert.deepEqual(registrations.slice(2, 4).map(x => x.record.name), ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow']);
   assert.ok(registrations.slice(2, 4).every(x => x.record.priority === -2));
   assert.ok(registrations.slice(2, 4).every(x => typeof x.record.inject === 'function'));
@@ -78,6 +78,12 @@ test('client registers settings plus native remote project directory flows', () 
   assert.match(source, /bridge\.acquire/);
   assert.match(source, /about:blank#/);
   assert.match(source, /在 Desktop 打开工作区/);
+  assert.equal(registrations[4].record.name,'main');
+  assert.equal(registrations[4].record.key,'remote-ssh-sessions');
+  assert.equal(registrations[5].record.name,'sidebar.panellist');
+  assert.equal(registrations[5].record.id,'remote-ssh-sessions');
+  assert.ok(source.includes("api('/runtime/native/prompt'"));
+  assert.ok(source.includes("api('/runtime/native/events'"));
 });
 
 function fixture() {

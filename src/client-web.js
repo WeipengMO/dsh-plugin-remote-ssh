@@ -417,6 +417,10 @@ window.__ModuleLoader__.load({
         const result = await run('runtime-connect', () => api('/runtime/connect', { host: selected }));
         if (result) { setRemoteRuntimeProbe(result); refresh(); }
       };
+      const openNativeSessions = () => {
+        if(!selected||!browse){setError('请先选择服务器与目录');return;}
+        openNativeHostSessions(selected,browse.path);
+      };
       const openRemoteDshInDesktop = () => {
         if (!selected || !browse) { setError('请先选择服务器和远端目录'); return; }
         openEmbeddedDsh(selected, browse.path, currentHost?.label || currentHost?.host);
@@ -517,7 +521,9 @@ window.__ModuleLoader__.load({
                     ? '远端 DSH 独立管理会话、Git、终端和文件；首次启动可能需要下载官方 CLI。'
                     : '打开远程 DSH 需要 Windows Desktop。')),
                 h(Button, { variant: 'primary', icon: 'arrow', disabled: !!busy || loading || !browse || !remoteDshDesktop,
-                  onClick: openRemoteDshInDesktop }, '打开远程 DSH'))),
+                  onClick: openRemoteDshInDesktop }, '打开远程 DSH'),
+                h(Button, { icon:'server', disabled: !!busy || loading || !browse || !remoteDshDesktop,
+                  onClick: openNativeSessions }, '原生远端 Sessions'))),
             tab === 'info' && h('div', { className: 'rss-info-tab', role: 'tabpanel' },
               h('section', { className: 'rss-runtime-info' },
                 h('strong', null, 'Linux Remote Helper · 自动部署'),
@@ -832,6 +838,192 @@ window.__ModuleLoader__.load({
       return () => root.removeEventListener('keydown', onKey, true);
     }
 
+
+    /* -------------------------------------------------------------------- *
+     * Native multi-Host DSH Session panel.
+     *
+     * This is a first-party DSH shell 'main' slot: no iframe and no WebView.
+     * Each remote Session is addressed by a server-side Host-bound ref.
+     * Never mutate root ctx.sessions or the Windows page's Connection.
+     * -------------------------------------------------------------------- */
+    const NATIVE_PANEL_ID = 'remote-ssh-sessions';
+    const nativePanelListeners = new Set();
+    let nativePanelSelection = null;
+    function openNativeHostSessions(host, path) {
+      nativePanelSelection = {host, path: path || '~'};
+      for (const listener of [...nativePanelListeners]) listener(nativePanelSelection);
+    }
+    function NativeHostPanelIcon({size}) {
+      return h(Icon,{name:'server',size:size || 18});
+    }
+    function NativeHostSessionsPanel() {
+      const [hosts,setHosts] = useState([]);
+      const [host,setHost] = useState(() => nativePanelSelection?.host || '');
+      const [path,setPath] = useState(() => nativePanelSelection?.path || '~');
+      const [listedPath,setListedPath] = useState(() => nativePanelSelection?.path || '~');
+      const [sessions,setSessions] = useState([]);
+      const [ref,setRef] = useState('');
+      const [messages,setMessages] = useState([]);
+      const [phase,setPhase] = useState('idle');
+      const [error,setError] = useState('');
+      const [busy,setBusy] = useState('');
+      const [draft,setDraft] = useState('');
+      const [listRevision,setListRevision] = useState(0);
+      const [messagesRevision,setMessagesRevision] = useState(0);
+      useEffect(() => {
+        let disposed=false;
+        api('/state').then(state=>{
+          if(disposed) return;
+          const items=state.hosts || [];
+          setHosts(items);
+          if(!host && items.length === 1) setHost(items[0].id);
+        }).catch(e=>{if(!disposed)setError(e.message || String(e));});
+        const listener=selection=>{
+          setHost(selection.host);
+          setPath(selection.path);
+          setListedPath(selection.path);
+          setRef('');
+          setMessages([]);
+          setListRevision(n=>n+1);
+        };
+        nativePanelListeners.add(listener);
+        return ()=>{disposed=true;nativePanelListeners.delete(listener);};
+      }, []);
+      useEffect(()=>{
+        if (!host) { setSessions([]);setPhase('idle');return; }
+        let disposed=false,timer;
+        const load=async()=>{
+          try {
+            const result=await api('/runtime/native/list',{host,path:listedPath});
+            if(disposed)return;
+            if(result.phase==='starting') {
+              setPhase('starting');
+              timer=setTimeout(load,2200);
+              return;
+            }
+            if(result.phase!=='ready')throw Error(result.message || '远端 Host 不可用');
+            setSessions(result.sessions || []);
+            setPhase('ready');
+            setError('');
+          } catch(e) {
+            if(!disposed){setPhase('error');setError(e.message||String(e));}
+          }
+        };
+        setPhase('loading');setSessions([]);setRef('');setMessages([]);
+        void load();
+        return ()=>{disposed=true;clearTimeout(timer);};
+      },[host,listedPath,listRevision]);
+      useEffect(()=>{
+        if(!ref)return;
+        let disposed=false,timer;
+        const poll=async()=>{
+          try {
+            const response=await api('/runtime/native/events',{ref});
+            if(disposed)return;
+            if(response.phase==='ready'){
+              setMessages(response.messages || []);
+              timer=setTimeout(poll,2500);
+            } else if(response.phase==='starting')timer=setTimeout(poll,2200);
+            else throw Error(response.message || '远端 Session 不可用');
+          }catch(e){if(!disposed)setError(e.message||String(e));}
+        };
+        void poll();
+        return ()=>{disposed=true;clearTimeout(timer);};
+      },[ref,messagesRevision]);
+      const current=sessions.find(s=>s.ref===ref);
+      async function createSession(){
+        if(!host||busy)return;
+        setBusy('create');setError('');
+        try {
+          const result=await api('/runtime/native/create',{host,path:listedPath});
+          if(result.phase!=='ready')throw Error('远端 Host 尚未启动，请刷新后重试');
+          setListRevision(n=>n+1);
+          // The newly created Session is selected after the fresh Host list.
+          nativeCreatedRef=result.ref;
+        }catch(e){setError(e.message||String(e));}
+        finally{setBusy('');}
+      }
+      const [createdRef,setCreatedRef]=useState('');
+      // A newly created Session is not selected until it appears in the refreshed
+      // list: never bind UI to an ID not returned by the Host's own list.
+      let nativeCreatedRef=createdRef;
+      useEffect(()=>{
+        if(!nativeCreatedRef||phase!=='ready')return;
+        if(sessions.some(s=>s.ref===nativeCreatedRef)){
+          setRef(nativeCreatedRef);
+          setCreatedRef('');
+        }
+      },[nativeCreatedRef,phase,sessions]);
+      async function sendPrompt(){
+        if(!ref||!draft.trim()||busy)return;
+        setBusy('prompt');setError('');
+        try {
+          const result=await api('/runtime/native/prompt',{ref,message:draft});
+          if(result.phase!=='ready'||result.accepted!==true)throw Error('远端 Host 未接受消息');
+          setDraft('');
+          setMessagesRevision(n=>n+1);
+        }catch(e){setError(e.message||String(e));}
+        finally{setBusy('');}
+      }
+      async function cancelTurn(){
+        if(!ref||busy)return;
+        setBusy('cancel');setError('');
+        try {await api('/runtime/native/cancel',{ref});setMessagesRevision(n=>n+1);}
+        catch(e){setError(e.message||String(e));}
+        finally{setBusy('');}
+      }
+      return h('section',{className:'rss-native-panel',role:'region','aria-label':'原生远端 DSH Sessions'},
+        h('header',{className:'rss-native-header'},
+          h('div',null,h('h2',null,'远端 Sessions'),
+            h('p',null,'Windows 原生面板 · 独立 Host 身份 · Linux 执行')),
+          h(Button,{icon:'refresh',small:true,onClick:()=>setListRevision(n=>n+1),title:'刷新远端会话'})),
+        h('div',{className:'rss-native-hostbar'},
+          h('label',null,'SSH Host ',
+            h('select',{value:host,onChange:e=>{
+              setHost(e.target.value);setPath('~');setListedPath('~');setRef('');setMessages([]);
+            }},h('option',{value:''},'选择已保存的主机'),
+              hosts.map(item=>h('option',{key:item.id,value:item.id},item.label || item.host)))),
+          h('label',null,'Linux Workspace ',
+            h('input',{value:path,onChange:e=>setPath(e.target.value),placeholder:'/home/user/project',
+              onKeyDown:e=>{if(e.key==='Enter')setListedPath(path);}})),
+          h(Button,{onClick:()=>setListedPath(path),disabled:!host},'打开目录'),
+          h(Button,{variant:'primary',onClick:createSession,disabled:phase!=='ready'||!!busy},'新建 Session')),
+        error&&h('div',{className:'rss-native-error',role:'alert'},error),
+        h('div',{className:'rss-native-body'},
+          h('nav',{className:'rss-native-sessions','aria-label':'此 Host 的 Sessions'},
+            h('h3',null,phase==='starting'?'正在启动远端 DSH…':
+              phase==='loading'?'正在加载…':phase==='ready'?'会话 · '+sessions.length:'Sessions'),
+            sessions.length
+              ?sessions.map(s=>h('button',{key:s.ref,type:'button',
+                className:'rss-native-session'+(ref===s.ref?' rss-native-active':''),
+                onClick:()=>{setRef(s.ref);setMessages([]);setError('');}},
+                  h('strong',null,s.title || 'Session'),
+                  h('small',null,s.cwd||''),
+                  s.running&&h('span',null,'运行中')))
+              :h('p',null,phase==='ready'?'此主机尚无 Session':'选择 Host 以加载远端会话')),
+          h('div',{className:'rss-native-conversation'},
+            current
+              ?h(React.Fragment,null,
+                h('div',{className:'rss-native-session-heading'},
+                  h('strong',null,current.title),
+                  h('code',null,current.cwd),
+                  h(Button,{icon:'x',small:true,onClick:cancelTurn,disabled:!!busy,title:'取消远端任务'})),
+                h('div',{className:'rss-native-messages',role:'log','aria-live':'polite'},
+                  messages.length?messages.map(m=>
+                    h('article',{key:m.seq+':'+m.role,className:'rss-native-message rss-native-'+m.role},
+                      h('strong',null,m.role==='user'?'You':'DSH'),
+                      h('pre',null,m.text)))
+                    :h('p',null,'暂无可显示的文本历史；刷新后查看最新消息。')),
+                h('form',{className:'rss-native-composer',onSubmit:e=>{e.preventDefault();void sendPrompt();}},
+                  h('textarea',{rows:3,value:draft,onChange:e=>setDraft(e.target.value),
+                    placeholder:'在 Linux 远端 Session 中执行任务…'}),
+                  h(Button,{variant:'primary',type:'submit',disabled:!!busy||!draft.trim()},busy==='prompt'?'发送中…':'发送')))
+              :h('div',{className:'rss-native-empty'},
+                h(Icon,{name:'server',size:36}),
+                h('strong',null,'选择远端 Session'),
+                h('p',null,'消息和任务按 SSH Host + Session 绑定；本地 DSH 会话保持独立。')))));
+    }
+
     /* -------------------------------------------------------------------- *
      * Remote DSH Host isolation.
      *
@@ -851,6 +1043,11 @@ window.__ModuleLoader__.load({
       }, 'remote-ssh:styles');
       ctx.effect(() => installTerminalClipboard(window, document, window.navigator?.clipboard),
         'remote-ssh:terminal-clipboard');
+      ctx.effect(() => {
+        const open = () => ctx.layout.selectPanel(NATIVE_PANEL_ID);
+        nativePanelListeners.add(open);
+        return () => nativePanelListeners.delete(open);
+      }, 'remote-ssh:native-panel-navigation');
       // Main-window remote Host surface is a first-class plugin overlay. Its
       // content is a lease-backed Electron WebView, not an iframe with broken
       // SameSite=Strict DSH cookies. It never replaces Core Connection.
@@ -887,9 +1084,16 @@ window.__ModuleLoader__.load({
             name: 'sidebar.workspaces.directoryFlow', priority: -2, inject: injectFlow,
           }, RemoteProjectDirectoryFlow);
         }));
+      // Official root-scoped Desktop panel seats (same as ui-plugin-manager).
+      ctx.slots.inject('main', () => ctx.slots.register({
+        name:'main', key:NATIVE_PANEL_ID,
+      }, NativeHostSessionsPanel));
+      ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+        name:'sidebar.panellist', id:NATIVE_PANEL_ID, order:35, label:()=> '远端 Sessions',
+      }, NativeHostPanelIcon));
     }
     exports.apply = apply;
-    exports.inject = ['slots', 'uiWorkspace'];
+    exports.inject = ['slots', 'uiWorkspace', 'layout'];
     return module.exports;
   }
 });
