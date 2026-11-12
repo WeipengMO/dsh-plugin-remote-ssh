@@ -95,6 +95,10 @@ GitHub Actions 在 **PR** 中构建并测试；推送 `main` 成功后自动发�
 
 ### 远程 Git 与命令环境
 
+**v1.4.1 修复（Windows 右侧「变更请求」）：** 原生 Forge 查询由 DSH Windows ACL 沙箱封装后可能不携带相同的 Git 安全参数前缀。此前 SSH 插件据此拒绝只读的 `git status`、`rev-parse` 等命令，出现 “Remote subprocess is not an authorized read-only Git query”。现在按 Git 子命令与危险选项进行白名单校验，并在 Linux 执行时**强制**追加 `--no-optional-locks`、`core.hooksPath=/dev/null` 与 `core.fsmonitor=false`；`push`、`reset`、`checkout` 等仍不会经由原生 Git 探测通道运行。拒绝未知命令时会标明类别并写入 DSH Host 日志。此修复不需要远端 DSH CLI。安装后**完全退出并重启 Windows DSH Desktop**，再次打开 SSH 工作区右侧「变更请求」验证。该修复经过自动化 Git/SSH 模拟测试，仍需要实际 Windows Desktop 验证。
+
+
+
 **v1.4.0 变更：** 基于 v1.3.4，移除了所有 2.x 远端 DSH Host、Core RPC、WebView、多 Backend 组件。仅使用 SSH/SFTP 与 Linux 自带的 `bash`、`git`。DSH Agent 主体仍在 Windows 本地（这是 1.x 架构的边界）。
 
 设置中选择 SSH Host 和 Linux 项目目录，点击「Git 历史」可以直接读取 `git status --short --branch`、`git log` 和 `git diff --stat`。对 Agent，`remote_ssh_git` 会输出同样的只读信息。仅支持 Git 查询，不在本地占位目录构造虚假 Git 仓库；提交、推送等写入通过现有 SSH Bash Shell 在明确授权后执行。
