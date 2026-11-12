@@ -95,7 +95,7 @@ GitHub Actions 在 **PR** 中构建并测试；推送 `main` 成功后自动发�
 
 ### 远程 Git 与命令环境
 
-**v1.4.1 修复（Windows 右侧「变更请求」）：** 原生 Forge 查询由 DSH Windows ACL 沙箱封装后可能不携带相同的 Git 安全参数前缀。此前 SSH 插件据此拒绝只读的 `git status`、`rev-parse` 等命令，出现 “Remote subprocess is not an authorized read-only Git query”。现在按 Git 子命令与危险选项进行白名单校验，并在 Linux 执行时**强制**追加 `--no-optional-locks`、`core.hooksPath=/dev/null` 与 `core.fsmonitor=false`；`push`、`reset`、`checkout` 等仍不会经由原生 Git 探测通道运行。拒绝未知命令时会标明类别并写入 DSH Host 日志。此修复不需要远端 DSH CLI。安装后**完全退出并重启 Windows DSH Desktop**，再次打开 SSH 工作区右侧「变更请求」验证。该修复经过自动化 Git/SSH 模拟测试，仍需要实际 Windows Desktop 验证。
+**v1.4.1 修复（Windows 右侧「变更请求」）：** 原生 Forge 查询由 DSH Windows ACL 沙箱封装后可能不携带相同的 Git 安全参数前缀。更直接的故障原因是旧校验把 Forge 必需的 `git rev-parse --git-dir`（读取仓库元数据目录）误当成全局 `git --git-dir=/other/repo`（切换目标仓库）而拒绝；另外也兼容不携带相同安全前缀的只读查询。这个错误会导致「变更请求」面板显示 “Remote subprocess is not an authorized read-only Git query”。现在按 Git 子命令与危险选项进行白名单校验，并在 Linux 执行时**强制**追加 `--no-optional-locks`、`core.hooksPath=/dev/null` 与 `core.fsmonitor=false`；`push`、`reset`、`checkout` 等仍不会经由原生 Git 探测通道运行。拒绝未知命令时会标明类别并写入 DSH Host 日志。此修复不需要远端 DSH CLI。安装后**完全退出并重启 Windows DSH Desktop**，再次打开 SSH 工作区右侧「变更请求」验证。该修复经过自动化 Git/SSH 模拟测试，仍需要实际 Windows Desktop 验证。
 
 
 
