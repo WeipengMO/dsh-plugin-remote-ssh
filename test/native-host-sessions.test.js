@@ -41,10 +41,11 @@ async function mockCore(host) {
       case 'session/prompt':
         assert.equal(request.payload.args.request.sessionId,'same-id');
         assert.equal(request.payload.args.request.mode,'queue');
-        assert.deepEqual(request.payload.args.request.content,[{type:'text',text:'Run on '+host}]);
+        assert.equal(request.payload.args.request.content[0].type,'text');
+        assert.equal(typeof request.payload.args.request.content[0].text,'string');
         value={accepted:true};break;
       case 'session/cancel':
-        value={cancelled:true};break;
+        value={accepted:true};break;
       default:
         res.writeHead(404);res.end();return;
     }
@@ -114,7 +115,8 @@ test('native Session RPC binds same ID to independent Hosts and keeps credential
   assert.equal(b.calls.filter(x=>x.method==='session/prompt').length,1);
   assert.equal(a.connections(),1,'Connection auth is reused within Host Sessions');
   assert.equal(fx.tunnels.size,2,'two hosts retain isolated listeners');
-  await fx.pool.cancel(first.sessions[0].ref);
+  const cancellation=await fx.pool.cancel(first.sessions[0].ref);
+  assert.equal(cancellation.accepted,true);
   assert.equal(a.calls.at(-1).method,'session/cancel');
 
   fx.hostRecords.set('alpha',{updatedAt:'v2'});
@@ -165,4 +167,8 @@ test('same-origin plugin native endpoints never expose arbitrary RPC or unauthen
   assert.equal(invalid.status,409);
   const attack=await call('list',{host:'alpha',path:'~'},{'sec-fetch-site':'cross-site'});
   assert.equal(attack.status,403);
+  // Larger UTF-8 prompts must not hit the former global 16-KiB configuration API cap.
+  const chinese=await call('prompt',{ref:listed.body.sessions[0].ref,message:'科研分析'.repeat(2000)});
+  assert.equal(chinese.status,200);
+  assert.equal(chinese.body.accepted,true);
 });

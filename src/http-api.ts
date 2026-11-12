@@ -95,13 +95,13 @@ function send(res: ServerResponse, status: number, data: unknown): void {
   });
   res.end(payload);
 }
-async function readBody(req: IncomingMessage): Promise<JsonObject> {
+async function readBody(req: IncomingMessage, maxBytes = 16 * 1024): Promise<JsonObject> {
   const chunks: Buffer[] = [];
   let bytes = 0;
   for await (const chunk of req) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     bytes += buffer.length;
-    if (bytes > 16 * 1024) throw error(413, 'request too large');
+    if (bytes > maxBytes) throw error(413, 'request too large');
     chunks.push(buffer);
   }
   try {
@@ -233,7 +233,7 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
       if (req.method !== 'POST') {
         throw error(405, `method not allowed: ${req.method} ${route.slice(0, 120)} — the running DSH host plugin build is older than this UI; fully restart the DSH client to reload it`);
       }
-      const body = await readBody(req);
+      const body = await readBody(req, route === '/runtime/native/prompt' ? 64 * 1024 : 16 * 1024);
       if (route === '/runtime/connect') {
         if (!deps.remoteRuntime) throw error(503, 'remote runtime is not installed in this DSH Host');
         const host = text(body.host, 'host');

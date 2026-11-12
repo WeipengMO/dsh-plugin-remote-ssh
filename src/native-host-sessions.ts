@@ -58,12 +58,16 @@ export class NativeHostSessions {
   private readonly bindings = new Map<string, Binding>();
   private readonly refBySession = new Map<string, string>();
   private readonly cookies = new Map<string, { origin: string; cookie: string }>();
+  private readonly readyCache = new Map<string, { revision: string; at: number; info: Ready }>();
+  private readonly readyInflight = new Map<string, { revision: string; task: Promise<Ready | Starting> }>();
   private disposed = false;
 
   constructor(private readonly deps: Dependency) {}
 
   clear(host: string): void {
     this.cookies.delete(host);
+    this.readyCache.delete(host);
+    this.readyInflight.delete(host);
     for (const [ref, item] of this.bindings) {
       if (item.host === host) {
         this.bindings.delete(ref);
@@ -76,6 +80,8 @@ export class NativeHostSessions {
     this.bindings.clear();
     this.refBySession.clear();
     this.cookies.clear();
+    this.readyCache.clear();
+    this.readyInflight.clear();
   }
   private checkHost(host: string): string {
     if (this.disposed) throw fail('Native Host session service stopped', 503);
@@ -83,7 +89,26 @@ export class NativeHostSessions {
     return revisionOf(this.deps.manager, host);
   }
   private async ready(host: string, remoteRoot: string): Promise<Ready | Starting> {
-    this.checkHost(host);
+    const revision = this.checkHost(host);
+    const cached = this.readyCache.get(host);
+    if (cached?.revision === revision && Date.now() - cached.at < 15000) return cached.info;
+    const existing = this.readyInflight.get(host);
+    if (existing?.revision === revision) return existing.task;
+    const task = this.prepareReady(host, remoteRoot);
+    this.readyInflight.set(host, { revision, task });
+    try {
+      const result = await task;
+      if (this.checkHost(host) !== revision) {
+        this.clear(host);
+        throw fail('SSH Host changed during native Connection setup', 409);
+      }
+      if (result.phase === 'ready') this.readyCache.set(host, { revision, at:Date.now(), info:result });
+      return result;
+    } finally {
+      if (this.readyInflight.get(host)?.task === task) this.readyInflight.delete(host);
+    }
+  }
+  private async prepareReady(host: string, remoteRoot: string): Promise<Ready | Starting> {
     const remote = await this.deps.runtime.ensureWeb(host, remoteRoot, true);
     if (remote.phase === 'failed') return { phase:'failed', message:'Remote DSH Host failed to start' };
     if (remote.phase !== 'ready' || !remote.url) return { phase:'starting' };
@@ -152,6 +177,7 @@ export class NativeHostSessions {
     }
     if (response.status === 401 || response.status === 403) {
       this.cookies.delete(host);
+      this.readyCache.delete(host);
       throw fail('Remote DSH Core authentication lost; reconnect this Host', 401);
     }
     if (response.status !== 200 || !response.headers.get('content-type')?.startsWith('application/json')) {
@@ -212,7 +238,7 @@ export class NativeHostSessions {
       phase:'ready', host, remoteRoot,
       sessions:result.items.filter(record).filter(x=>typeof x.sessionId === 'string' && x.origin !== 'subagent')
         .map(x=>({
-          ref:this.bind(host, x.sessionId as string, typeof x.cwd === 'string' && x.cwd.startsWith('/') ? x.cwd : remoteRoot),
+          ref:this.bind(host, x.sessionId as string, remoteRoot),
           title:typeof x.title === 'string' ? x.title : typeof x.cwd === 'string' ? path.posix.basename(x.cwd) : x.sessionId,
           cwd:typeof x.cwd === 'string' ? x.cwd : '',
           running:x.running === true,
@@ -269,6 +295,7 @@ export class NativeHostSessions {
     const bound = this.bound(ref);
     const result = await this.call(bound.host, bound.remoteRoot, 'session/cancel', {sessionId:bound.sessionId});
     if (record(result) && result.phase) return result;
-    return {phase:'ready', cancelled:true, ref};
+    if (!record(result) || result.accepted !== true) throw fail('Remote DSH did not accept cancellation');
+    return {phase:'ready', accepted:true, ref};
   }
 }

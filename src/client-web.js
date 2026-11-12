@@ -518,12 +518,12 @@ window.__ModuleLoader__.load({
               h('div', { className: 'rss-workspace-actions rss-workspace-primary' },
                 h('div', null, h('strong', null, '在 Linux DSH 中打开'),
                   h('p', null, remoteDshDesktop
-                    ? '远端 DSH 独立管理会话、Git、终端和文件；首次启动可能需要下载官方 CLI。'
+                    ? '优先使用 Windows 原生 Session 客户端；旧版 WebView 仍可作为兼容入口。'
                     : '打开远程 DSH 需要 Windows Desktop。')),
-                h(Button, { variant: 'primary', icon: 'arrow', disabled: !!busy || loading || !browse || !remoteDshDesktop,
-                  onClick: openRemoteDshInDesktop }, '打开远程 DSH'),
-                h(Button, { icon:'server', disabled: !!busy || loading || !browse || !remoteDshDesktop,
-                  onClick: openNativeSessions }, '原生远端 Sessions'))),
+                h(Button, { variant: 'primary', icon:'server', disabled: !!busy || loading || !browse || !remoteDshDesktop,
+                  onClick: openNativeSessions }, '原生远端 Sessions'),
+                h(Button, { icon: 'arrow', disabled: !!busy || loading || !browse || !remoteDshDesktop,
+                  onClick: openRemoteDshInDesktop }, '旧版 WebView'))),
             tab === 'info' && h('div', { className: 'rss-info-tab', role: 'tabpanel' },
               h('section', { className: 'rss-runtime-info' },
                 h('strong', null, 'Linux Remote Helper · 自动部署'),
@@ -883,6 +883,7 @@ window.__ModuleLoader__.load({
           setPath(selection.path);
           setListedPath(selection.path);
           setRef('');
+          setSessions([]);
           setMessages([]);
           setListRevision(n=>n+1);
         };
@@ -909,10 +910,15 @@ window.__ModuleLoader__.load({
             if(!disposed){setPhase('error');setError(e.message||String(e));}
           }
         };
-        setPhase('loading');setSessions([]);setRef('');setMessages([]);
+        setPhase('loading');
         void load();
         return ()=>{disposed=true;clearTimeout(timer);};
       },[host,listedPath,listRevision]);
+      useEffect(()=>{
+        if(phase!=='ready'||!host)return;
+        const timer=setInterval(()=>setListRevision(n=>n+1),15000);
+        return ()=>clearInterval(timer);
+      },[host,phase]);
       useEffect(()=>{
         if(!ref)return;
         let disposed=false,timer;
@@ -980,7 +986,7 @@ window.__ModuleLoader__.load({
         h('div',{className:'rss-native-hostbar'},
           h('label',null,'SSH Host ',
             h('select',{value:host,onChange:e=>{
-              setHost(e.target.value);setPath('~');setListedPath('~');setRef('');setMessages([]);
+              setHost(e.target.value);setPath('~');setListedPath('~');setRef('');setSessions([]);setMessages([]);
             }},h('option',{value:''},'选择已保存的主机'),
               hosts.map(item=>h('option',{key:item.id,value:item.id},item.label || item.host)))),
           h('label',null,'Linux Workspace ',
