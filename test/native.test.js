@@ -6,7 +6,7 @@ import vm from 'node:vm';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { agentFromCreatedEvent, createNativeHttpHandler } from '../dist/http-api.js';
-import { encodeVirtualPath, workspaceToken } from '../dist/paths.js';
+import { encodeVirtualPath, workspaceToken, workspacePlaceholderPath } from '../dist/paths.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -101,7 +101,16 @@ function fixture() {
   let probeFingerprint = 'SHA256:ABCDEFGHIJKLMNOP';
   const hosts = [{ id: 'h1', label: 'GPU host', host: 'gpu.example.com' }];
   const recentEntries = [];
-  const savedWorkspaces = [{ token: 'existing-workspace', connectionId: 'h1', remoteRoot: '/home/research/project' }];
+  const savedWorkspaces = [
+    { token: workspaceToken('h1', '/home/research/project'), connectionId: 'h1',
+      hostLabel:'GPU host', remoteRoot: '/home/research/project' },
+    { token: 'legacy-invalid', connectionId: 'h1', hostLabel:'Legacy',
+      remoteRoot:'/old' }, // malformed historical metadata must never break /state
+  ];
+  const workspaceRegistry = {
+    create(){ return { id:'native-ws-h1' }; },
+    list(){return [{id:'native-ws-h1',path:workspacePlaceholderPath(savedWorkspaces[0].token)}];},
+  };
   const conn = {
     async remoteHome() { return '/home/research'; },
     sftp: {
@@ -133,7 +142,7 @@ function fixture() {
       return { virtualPath: encodeVirtualPath(workspaceToken(host, selectedPath), selectedPath), workspace: { remoteRoot: selectedPath } };
     },
   };
-  const handler = createNativeHttpHandler({ manager,
+  const handler = createNativeHttpHandler({ manager, workspaceRegistry,
     agents: new Map([['session-1', agent]]),
     previousCwd: new Map(),
     requestRejection() { return authorized ? undefined : 401; },
@@ -168,7 +177,12 @@ test('native API rejects unauthenticated requests and browser CSRF before readin
     const noSession = await call('/state');
     assert.equal(noSession.status, 401);
     setAuthorized(true);
-    assert.equal((await call('/state')).data.sessions[0].id, 'session-1');
+    const state = (await call('/state')).data;
+    assert.equal(state.sessions[0].id, 'session-1');
+    assert.deepEqual(state.registeredWorkspaces, [{
+      host:'h1', remoteRoot:'/home/research/project', title:'GPU host',
+      workspaceId:'native-ws-h1',
+    }], 'registered Linux directory must appear in DSH native Workspace registry');
     const noHeader = await call('/host/add', { host: 'another.example.com' }, { headers: { 'x-dsh-remote-ssh': '' } });
     assert.equal(noHeader.status, 403);
     const crossSite = await call('/host/add', { host: 'another.example.com' }, { headers: { 'sec-fetch-site': 'cross-site' } });

@@ -203,7 +203,9 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
             let localPath: string;
             try { localPath = workspacePlaceholderPath(entry.token); }
             catch { return []; }
-            const native = nativeWorkspaces.find(item => item.path === localPath);
+            const native = nativeWorkspaces.find(item => item.path === localPath
+              || (process.platform === 'win32' && typeof item.path === 'string'
+                && item.path.toLowerCase() === localPath.toLowerCase()));
             return native === undefined ? [] : [{
               host:entry.connectionId, remoteRoot:entry.remoteRoot, title:entry.hostLabel,
               workspaceId:native.id,
