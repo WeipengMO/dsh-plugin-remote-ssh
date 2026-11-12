@@ -26,5 +26,14 @@ interface PluginContext {
     }): unknown;
     get(name: string): unknown;
 }
+/**
+ * Fail closed when an SSH workspace is temporarily unavailable. Never change
+ * the session to a Windows LOCAL cwd without an explicit user request.
+ *
+ * DSH calls workingDirectory.ensure() while constructing agent prompts.
+ * Throwing would strand those prompts, so return the unchanged virtual cwd;
+ * subsequent remote file/process calls will surface the SSH failure.
+ */
+export declare function guardWorkingDirectory(ctx: PluginContext): () => void;
 export declare function apply(ctx: PluginContext, config?: Config): void;
 export {};

@@ -67,6 +67,58 @@ test('tunnel refuses invalid ports and never binds a listener if remote forwardi
   await assert.rejects(pool.open('host1', 3080), /administratively prohibited/);
   assert.deepEqual(pool.list(), []);
 });
+test('pending tunnels are port-specific and closing one prevents a late listener', async t => {
+  const remote = await createServer();
+  t.after(() => remote.server.close());
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const manager = managerFor(remote.port);
+  const pool = new RemoteDshWebTunnelPool({ async connection(host) { await gate; return manager.connection(host); } });
+  t.after(() => pool.closeAll());
+  const first = pool.open('host1', remote.port);
+  await assert.rejects(pool.open('host1', remote.port + 1), /Close the existing/);
+  assert.equal(pool.close('host1'), true);
+  release();
+  await assert.rejects(first, /closed during connection/);
+  assert.deepEqual(pool.list(), []);
+  const replacement = await pool.open('host1', remote.port);
+  assert.equal(replacement.remotePort, remote.port);
+});
+test('closing an SSH host also cancels its pending scoped tunnel', async t => {
+  const remote = await createServer();
+  t.after(() => remote.server.close());
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const manager = managerFor(remote.port);
+  const pool = new RemoteDshWebTunnelPool({ async connection(host) { await gate; return manager.connection(host); } });
+  t.after(() => pool.closeAll());
+  const pending = pool.openScoped('project-one', 'host1', remote.port);
+  assert.equal(pool.closeAllFor('host1'), 1);
+  release();
+  await assert.rejects(pending, /closed during connection/);
+  assert.deepEqual(pool.list(), []);
+});
+test('scoped projects on one SSH host forward independently', async t => {
+  const first = await createServer();
+  const second = await createServer();
+  const pool = new RemoteDshWebTunnelPool({ async connection(host) {
+    assert.equal(host, 'host1');
+    return { async forwardLoopback(port) {
+      const socket = net.connect(port, '127.0.0.1');
+      try { await once(socket, 'connect'); } catch (error) { socket.destroy(); throw error; }
+      return socket;
+    } };
+  } });
+  t.after(() => { pool.closeAll(); first.server.close(); second.server.close(); });
+  const one = await pool.openScoped('one', 'host1', first.port);
+  const two = await pool.openScoped('two', 'host1', second.port);
+  assert.notEqual(one.localPort, two.localPort);
+  assert.equal(await (await fetch(one.localUrl + '/one')).text(), 'remote DSH: /one');
+  assert.equal(await (await fetch(two.localUrl + '/two')).text(), 'remote DSH: /two');
+  pool.close('one');
+  await assert.rejects(fetch(one.localUrl));
+  assert.equal(await (await fetch(two.localUrl + '/still-open')).text(), 'remote DSH: /still-open');
+});
 test('client rejects untrusted URLs and preserves only official token URL path/query over local tunnel', () => {
   let client;
   const source = fs.readFileSync(path.join(root, 'src/client-web.js'), 'utf8')

@@ -12,7 +12,7 @@ import type { RemoteTerminalPool } from './remote-terminal.js';
 import { DEFAULT_DSH_WEB_PORT, type RemoteDshWebTunnelPool } from './dsh-web-tunnel.js';
 import type { RemoteHostRuntimePool } from './remote-host-runtime.js';
 import { errorMessage } from './errors.js';
-import { looksVirtual, shellQuote } from './paths.js';
+import { looksVirtual, shellQuote, workspaceToken } from './paths.js';
 import type { HostRecord } from './types.js';
 import { listSshConfigAliases, resolveSshConfig } from './ssh-config.js';
 
@@ -271,14 +271,15 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
           return send(res, 200, { ok:true, phase:'starting', host,
             path:opened.workspace.remoteRoot, installation:remote.installation || 'unknown' });
         }
-        const existing = deps.dshWebTunnels.list().find(t => t.host === host);
-        if (existing && existing.remotePort !== remote.port) deps.dshWebTunnels.close(host);
-        const tunnel = await deps.dshWebTunnels.open(host, remote.port);
         const from = new URL(remote.url);
         if (from.protocol !== 'http:' || !['127.0.0.1','localhost'].includes(from.hostname)
-            || Number(from.port) !== remote.port || !from.searchParams.has('token')) {
+            || from.username || from.password || Number(from.port) !== remote.port || !from.searchParams.has('token')) {
           throw error(502, 'remote DSH Web authentication URL is not trusted');
         }
+        const key = `web:${workspaceToken(host, opened.workspace.remoteRoot)}`;
+        const existing = deps.dshWebTunnels.list().find(t => t.key === key);
+        if (existing && existing.remotePort !== remote.port) deps.dshWebTunnels.close(key);
+        const tunnel = await deps.dshWebTunnels.openScoped(key, host, remote.port);
         const to = new URL(tunnel.localUrl);
         to.pathname = from.pathname;
         to.search = from.search;
@@ -343,13 +344,13 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
       }
       if (route === '/host/update') {
         const id = text(body.id, 'id');
-        deps.dshWebTunnels?.close(id);
+        deps.dshWebTunnels?.closeAllFor(id);
         deps.remoteRuntime?.clear(id);
         return send(res, 200, { ok: true, host: manager.updateHost(id, hostPatch(body)) });
       }
       if (route === '/host/remove') {
         const id = text(body.id, 'id');
-        deps.dshWebTunnels?.close(id);
+        deps.dshWebTunnels?.closeAllFor(id);
         deps.remoteRuntime?.clear(id);
         manager.removeHost(id);
         return send(res, 200, { ok: true });

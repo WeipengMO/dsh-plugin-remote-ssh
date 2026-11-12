@@ -11,6 +11,7 @@ window.__ModuleLoader__.load({
     // Injected from package.json by scripts/build-client.mjs. Compared against
     // /state.version to detect a stale host plugin module in the running DSH.
     const CLIENT_VERSION = __PLUGIN_VERSION__;
+
     const iconPaths = {
       server: '<rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/>',
       terminal: '<rect x="2" y="3" width="20" height="18" rx="3"/><path d="m7 9 3 3-3 3m6 0h4"/>',
@@ -216,16 +217,11 @@ window.__ModuleLoader__.load({
     function openEmbeddedDsh(host, path, label) {
       for (const notify of [...remoteViewListeners]) notify({host, path, label, id: Date.now() + Math.random()});
     }
-    function RemoteDshDesktopView() {
-      const [selection, setSelection] = useState(null);
+    function RemoteDshPage({ selection, visible }) {
       const [view, setView] = useState({phase:'idle'});
       const [retry, setRetry] = useState(0);
       const container = React.useRef(null);
       const bridge = window.dshDesktop?.browser;
-      useEffect(() => {
-        remoteViewListeners.add(setSelection);
-        return () => remoteViewListeners.delete(setSelection);
-      }, []);
       useEffect(() => {
         if (!selection) return;
         let cancelled = false;
@@ -273,8 +269,8 @@ window.__ModuleLoader__.load({
           element.setAttribute('src', 'about:blank#' + reservation.lease);
           element.setAttribute('aria-label', 'Linux 远端 DSH');
           element.addEventListener('dom-ready', () => {
-            if (!disposed) void element.loadURL(url).catch(e => {
-              if (!disposed) setView({phase:'error', message:'加载远端 DSH 失败：' + (e.message || String(e))});
+            if (!disposed) void element.loadURL(url).catch(() => {
+              if (!disposed) setView({phase:'error', message:'无法加载远端 DSH，请检查 SSH 连接后重试。'});
             });
           }, {once:true});
           element.addEventListener('did-fail-load', e => {
@@ -293,20 +289,10 @@ window.__ModuleLoader__.load({
           if (reservation) void bridge.release(reservation.lease).catch(() => {});
         };
       }, [selection?.id, view.phase === 'ready' ? view.url : null]);
-      if (!selection) return null;
-      const close = () => { setSelection(null); setView({phase:'idle'}); };
-      return h('section', {className:'rss-remote-main',role:'dialog','aria-modal':true,
-        'aria-label':'Linux 远端 DSH Desktop 工作区'},
-        h('header', {className:'rss-remote-main-header'},
-          h('div', {className:'rss-remote-title'},
-            h(Icon,{name:'server',size:17}),
-            h('strong',null,selection.label || 'Linux DSH'),
-            h('code',null,selection.path)),
-          h('div', {className:'rss-remote-controls'},
-            h('span',{className:'rss-remote-status'},
-              view.phase === 'ready'?'远端 Agent · Linux':view.phase==='error'?'连接错误':'正在启动远端 DSH'),
-            h(Button,{icon:'refresh',small:true,title:'重新连接',onClick:()=>setRetry(n=>n+1)}),
-            h(Button,{icon:'x',small:true,title:'返回 Windows DSH',onClick:close},'返回本地'))),
+      return h('div', {className:'rss-remote-page', style:{display:visible?'flex':'none'}},
+        h('div', {className:'rss-remote-page-controls'},
+          h('code', null, selection.path),
+          h(Button,{icon:'refresh',small:true,title:'重新连接此远程界面',onClick:()=>setRetry(n=>n+1)},'重新连接')),
         view.phase === 'ready' && bridge
           ? h('div',{className:'rss-remote-viewport',ref:container})
           : h('div',{className:'rss-remote-splash'},
@@ -319,7 +305,41 @@ window.__ModuleLoader__.load({
                 view.phase==='error' && h(Button,{variant:'primary',onClick:()=>setRetry(n=>n+1)},'重试连接'))));
     }
 
-    function RemoteSSHSettings({ createWorkspace }) {
+    function RemoteDshDesktopView() {
+      const [pages, setPages] = useState([]);
+      const [active, setActive] = useState(null);
+      useEffect(() => {
+        const open = selection => {
+          const key = JSON.stringify([selection.host, selection.path]);
+          setPages(old => old.some(page => page.key === key) ? old : [...old, {...selection, key}]);
+          setActive(key);
+        };
+        remoteViewListeners.add(open);
+        return () => remoteViewListeners.delete(open);
+      }, []);
+      if (!pages.length) return null;
+      const close = key => {
+        setPages(old => old.filter(page => page.key !== key));
+        setActive(old => old === key ? null : old);
+      };
+      return h(React.Fragment, null,
+        !active && h('div', {className:'rss-remote-launcher'},
+          pages.map(page => h('button', {key:page.key, type:'button', title:page.path,
+            onClick:()=>setActive(page.key)}, page.label || page.host))),
+        h('section', {className:'rss-remote-main', style:{display:active?'flex':'none'},
+          'aria-label':'Linux 远端 DSH Desktop 工作区'},
+          h('header', {className:'rss-remote-main-header'},
+            h('nav', {className:'rss-remote-tabs', 'aria-label':'远程 DSH 界面'},
+              pages.map(page => h('div', {key:page.key, className:'rss-remote-tab'},
+                h('button', {type:'button', title:page.path, 'aria-pressed':active===page.key,
+                  onClick:()=>setActive(page.key)}, (page.label || page.host) + ' · ' + page.path),
+                h('button', {type:'button', title:'关闭远程界面', 'aria-label':'关闭 ' + (page.label || page.host),
+                  onClick:()=>close(page.key)}, '×')))),
+            h(Button,{icon:'x',small:true,title:'返回 Windows DSH',onClick:()=>setActive(null)},'返回本地')),
+          pages.map(page => h(RemoteDshPage, {key:page.key, selection:page, visible:active===page.key}))));
+    }
+
+    function RemoteSSHSettings() {
       const [state, setState] = useState({ hosts: [], effective: {}, statuses: [], sessions: [], aliases: [], recent: [], remoteDsh: { desktopProfile: false, tunnels: [] } });
       const [selected, setSelected] = useState('');
       const [filter, setFilter] = useState('');
@@ -333,20 +353,12 @@ window.__ModuleLoader__.load({
       const [error, setError] = useState('');
       const [success, setSuccess] = useState('');
       const [buildWarning, setBuildWarning] = useState('');
-      const [command, setCommand] = useState('pwd && git status --short');
-      const [log, setLog] = useState([]);
       const [loading, setLoading] = useState(false);
       const [recentExpanded, setRecentExpanded] = useState(false);
-      const [remoteDshPort, setRemoteDshPort] = useState('3080');
-      const [remoteDshAccess, setRemoteDshAccess] = useState('');
-      const [remoteDshProbe, setRemoteDshProbe] = useState(null);
       const [remoteRuntimeProbe, setRemoteRuntimeProbe] = useState(null);
       const currentHost = state.hosts.find(host => host.id === selected);
       const status = state.statuses.find(item => item.id === selected);
-      const remoteDshTunnel = (state.remoteDsh?.tunnels || []).find(entry => entry.host === selected);
       const remoteDshDesktop = state.remoteDsh?.desktopProfile === true;
-      useEffect(() => { if (remoteDshTunnel) setRemoteDshPort(String(remoteDshTunnel.remotePort)); }, [selected, remoteDshTunnel?.remotePort]);
-      const remoteDshStartCommand = 'npx -y @deepseek-ai/dsh --profile web --no-open --port ' + remoteDshPort;
       const refresh = useCallback(async () => {
         try {
           const next = await api('/state');
@@ -390,70 +402,15 @@ window.__ModuleLoader__.load({
           modal === 'new' || !modal?.id ? form : { ...form, id: modal.id }), '主机配置已保存');
         if (result) { setSelected(result.host.id); setBrowse(null); setDir('~'); setModal(null); refresh(); }
       };
-      // Adding a workspace is NOT a mutation of an arbitrary live Agent.
-      // DSH manages the workspace/project and creates sessions normally.
-      const openWorkspace = async () => {
-        if (!selected || !dir) return;
-        const prepared = await run('prepare', () => api('/workspace/prepare', { host: selected, path: dir }));
-        if (!prepared) return;
-        try {
-          if (!prepared.registered) {
-            if (typeof createWorkspace !== 'function') throw Error('DSH 工作区注册服务不可用；请从「新建项目 → 源文件夹」选择远程目录。');
-            await createWorkspace(prepared.localPath);
-          }
-          setSuccess('已添加到 DSH 工作区：' + prepared.title + '。' +
-            (prepared.runtime?.state === 'verified-helper'
-              ? 'Linux 远端 helper 已验证，Git 查询在服务器执行。'
-              : '远端 helper 未就绪：' + (prepared.runtime?.message || '未返回检查结果') +
-                '；现有 SSH 文件/Shell 兼容模式仍可使用。'));
-          refresh();
-        } catch (e) { setError('添加工作区失败：' + (e.message || String(e))); }
-      };
-      const execute = async e => {
-        e.preventDefault();
-        if (!command.trim() || !currentHost) return;
-        const cmd = command.trim();
-        setLog(lines => [...lines, { kind: 'command', text: '$ ' + cmd }]);
-        const result = await run('exec', () => api('/exec', { host: selected, path: dir || '~', command: cmd }));
-        if (result) setLog(lines => [...lines, { kind: 'result', text: (result.stdout || '') + (result.stderr || '') + '\n[exit ' + result.code + ']' }]);
-      };
       const checkRemoteRuntime = async () => {
         if (!selected) return;
         const result = await run('runtime-connect', () => api('/runtime/connect', { host: selected }));
         if (result) { setRemoteRuntimeProbe(result); refresh(); }
       };
-      const checkRemoteDsh = async () => {
-        const result = await run('dsh-check', () => api('/dsh/check', { host: selected }));
-        if (result) setRemoteDshProbe(result);
-      };
-      const openRemoteDshTunnel = async () => {
-        const port = Number(remoteDshPort);
-        if (!Number.isInteger(port) || port < 1024 || port > 65535) {
-          setError('端口必须是 1024–65535 的整数'); return;
-        }
-        const result = await run('dsh-open', () => api('/dsh/tunnel/open', { host: selected, port }),
-          '已建立仅监听 Windows 127.0.0.1 的 SSH 访问通道');
-        if (result) refresh();
-      };
-      const closeRemoteDshTunnel = async () => {
-        const result = await run('dsh-close', () => api('/dsh/tunnel/close', { host: selected }), '访问通道已关闭');
-        if (result) refresh();
-      };
       const openRemoteDshInDesktop = () => {
         if (!selected || !browse) { setError('请先选择服务器和远端目录'); return; }
         openEmbeddedDsh(selected, browse.path, currentHost?.label || currentHost?.host);
       };
-      const launchRemoteDshBrowser = () => {
-        try {
-          const target = localDshAccessUrl(remoteDshAccess, remoteDshTunnel);
-          window.open(target, '_blank', 'noopener,noreferrer');
-        } catch (err) { setError(err.message || String(err)); }
-      };
-      const sshAlias = currentHost?.sshAlias || currentHost?.host || '';
-      const manualDshForward = currentHost
-        ? 'ssh -N -L 13080:127.0.0.1:' + remoteDshPort + ' -p ' + (currentHost.port || 22) +
-          ' ' + (currentHost.user ? currentHost.user + '@' : '') + sshAlias
-        : '';
       return h('div', { className: 'rss-settings-container' },
         h('div', { className: 'rss-app', role: 'region', 'aria-label': 'Remote SSH 设置与远程工作区' },
           h('header', { className: 'rss-topbar' },
@@ -480,7 +437,7 @@ window.__ModuleLoader__.load({
                 const stat = state.statuses.find(it => it.id === item.id);
                 return h('button', { key: item.id, type: 'button', className: 'rss-host ' + (selected === item.id ? 'rss-selected' : ''),
                     'aria-pressed': selected === item.id,
-                    onClick: () => { if (selected !== item.id) { setSelected(item.id); setBrowse(null); setDir('~'); setProbe(null); setRemoteDshProbe(null); setRemoteDshAccess(''); setTab('files'); } } },
+                    onClick: () => { if (selected !== item.id) { setSelected(item.id); setBrowse(null); setDir('~'); setProbe(null); setTab('files'); } } },
                   h('span', { className: 'rss-host-icon' }, h(Icon, { name: 'server', size: 16 })),
                   h('span', { className: 'rss-host-text' }, h('strong', null, item.label || item.host),
                     h('small', null, (stat?.user || item.user || 'ssh') + '@' + (stat?.hostName || item.host) + ':' + (stat?.port || item.port || 22))),
@@ -516,16 +473,10 @@ window.__ModuleLoader__.load({
             h('div', { className: 'rss-host-address' },
               (status?.user || currentHost.user || 'ssh') + '@' + (status?.hostName || currentHost.host) + ':' + (status?.port || currentHost.port || 22)),
             h('div', { className: 'rss-tabs', role: 'tablist', 'aria-label': '远程 SSH 工具' },
-              [['files', 'SSH 工作区', 'folder'], ['terminal', '快速命令', 'terminal'], ['info', '连接信息', 'shield'], ['dsh', 'Web（可选）', 'cloud']].map(([id, label, glyph]) =>
+              [['files', '远程项目', 'folder'], ['info', '连接信息', 'shield']].map(([id, label, glyph]) =>
                 h('button', { key: id, role: 'tab', type: 'button', 'aria-selected': tab === id,
                     className: 'rss-tab ' + (tab === id ? 'rss-tab-active' : ''), onClick: () => setTab(id) },
                   h(Icon, { name: glyph, size: 15 }), label))),
-            tab === 'dsh' && h('div', { className:'rss-dsh-tab', role:'tabpanel' },
-              h('strong',null,'完整 Linux DSH · 内嵌 Desktop'),
-              h('p',{className:'rss-hint'},'选择目录后直接连接。自动通过 SSH 启动完整 DSH、建立加密转发并在 Desktop 内打开，不需要浏览器或手动复制令牌。'),
-              h(Button,{icon:'cloud',variant:'primary',disabled:!browse||!!busy,
-                onClick:openRemoteDshInDesktop},'在 Desktop 连接 Linux DSH'),
-              h('p',{className:'rss-hint'},'远端 Agent、Git、Session、终端由 Linux DSH 独立管理。首次未安装 CLI 时，将使用固定版本的官方软件包；需要 Linux Node.js ≥24.9。')),
             tab === 'files' && h('div', { className: 'rss-files-tab', role: 'tabpanel' },
               h('div', { className: 'rss-pathbar' },
                 h(Button, { small: true, icon: 'home', title: '远程 Home 目录', onClick: () => loadDir(selected, '~') }),
@@ -551,30 +502,16 @@ window.__ModuleLoader__.load({
                     entry.type === 'directory' && h(Icon, { name: 'chevron', size: 13 }))),
                   browse.truncated && h('p', { className: 'rss-hint rss-truncated' }, '目录过大，只显示前 1000 项'))),
               h('div', { className: 'rss-workspace-actions rss-workspace-primary' },
-                h('div', null, h('strong', null, '完整远端 DSH · 推荐'),
-                  h('p', null, '真正让 Linux 上的 DSH 接管 Agent、Git 和 Session，在 Windows Desktop 内操作。')),
-                h(Button, { variant:'primary', icon:'cloud', disabled:!!busy||loading||!browse,
-                  onClick:openRemoteDshInDesktop }, '连接远端 DSH')),
-              h('div', { className: 'rss-workspace-actions' },
-                h('div', null, h('strong', null, '添加为 DSH 工作区'),
-                  h('p', null, '添加到当前 Windows DSH Desktop；Agent 文件工具、Shell 和终端通过 SSH 执行。原生 Git/工作树仍有兼容性限制。')),
-                h(Button, { variant: 'primary', icon: 'arrow', disabled: !!busy || loading || !browse,
-                  onClick: openWorkspace }, busy === 'prepare' ? '正在添加…' : '添加此文件夹'))),
-            tab === 'terminal' && h('div', { className: 'rss-terminal-tab', role: 'tabpanel' },
-              h('p', { className: 'rss-hint' }, '在服务器执行一次性命令（30 秒超时）；交互式 Shell 请使用 DSH 右侧原生终端。'),
-              h('p', { className: 'rss-hint' }, '在 DSH 右侧点击「新建终端」即可打开当前 SSH 工作区的原生远程终端（完整 ANSI/xterm）。'),
-              h('div', { className: 'rss-console', 'aria-live': 'polite' },
-                log.length === 0 ? h('span', { className: 'rss-console-muted' }, '命令输出将显示在这里。') :
-                log.map((entry, i) => h('pre', { key: i, className: entry.kind === 'command' ? 'rss-console-cmd' : '' }, entry.text))),
-              h('form', { className: 'rss-command-row', onSubmit: execute },
-                h('span', null, '$'), h('input', { value: command, onChange: e => setCommand(e.target.value),
-                  'aria-label': 'SSH 命令', spellCheck: false, placeholder: 'nvidia-smi' }),
-                h('button', { disabled: !!busy || !command.trim(), type: 'submit' },
-                  busy === 'exec' ? '执行中…' : '运行', h(Icon, { name: 'arrow', size: 15 })))),
+                h('div', null, h('strong', null, '在 Linux DSH 中打开'),
+                  h('p', null, remoteDshDesktop
+                    ? '远端 DSH 独立管理会话、Git、终端和文件；首次启动可能需要下载官方 CLI。'
+                    : '打开远程 DSH 需要 Windows Desktop。')),
+                h(Button, { variant: 'primary', icon: 'arrow', disabled: !!busy || loading || !browse || !remoteDshDesktop,
+                  onClick: openRemoteDshInDesktop }, '打开远程 DSH'))),
             tab === 'info' && h('div', { className: 'rss-info-tab', role: 'tabpanel' },
               h('section', { className: 'rss-runtime-info' },
                 h('strong', null, 'Linux Remote Helper · 自动部署'),
-                h('p', { className: 'rss-hint' }, '选中远端工作区后自动校验并启动一次性 SSH helper，不使用浏览器、额外端口或 Web Token。当前为远程 Git / 环境查询基础，尚不是完整 DSH Remote Host。'),
+                h('p', { className: 'rss-hint' }, '检查服务器上的 Node、helper 和 DSH；正常打开远程项目时会自动执行必要的检查。'),
                 h(Button, { icon: 'refresh', onClick: checkRemoteRuntime, disabled: !!busy },
                   busy === 'runtime-connect' ? '检查中…' : '检查远端 Helper'),
                 remoteRuntimeProbe && h('pre', { className: 'rss-dsh-output' },
@@ -683,7 +620,8 @@ window.__ModuleLoader__.load({
         } finally { if (requestId.current === id) setLoading(false); }
       }
       async function chooseHost(value) {
-        if (!value) { setHostId(''); setListing(null); setHostProbe(null); return; }
+        const selectionId = ++requestId.current;
+        if (!value) { setHostId(''); setListing(null); setHostProbe(null); setLoading(false); return; }
         setError(''); setListing(null); setHostProbe(null); setCurrentPath('~');
         let id = value;
         if (value.startsWith('alias:')) {
@@ -691,10 +629,11 @@ window.__ModuleLoader__.load({
           try {
             const alias = value.slice(6);
             const added = await api('/host/quick-add', { alias });
+            if (requestId.current !== selectionId) return;
             id = added.host.id;
             setHosts(old => old.some(host => host.id === id) ? old : [...old, added.host]);
             setAliases(old => old.filter(item => item !== alias));
-          } catch (e) { setError(e.message || String(e)); setLoading(false); return; }
+          } catch (e) { if (requestId.current === selectionId) { setError(e.message || String(e)); setLoading(false); } return; }
         }
         setHostId(id);
         await browse(id, '~');
@@ -710,24 +649,12 @@ window.__ModuleLoader__.load({
         } catch (e) { setError(e.message || String(e)); }
         finally { setTrustBusy(false); }
       }
-      async function chooseFullRemote() {
-        if (reported.current || busy || picking || !hostId || !listing) return;
-        reported.current = true;
-        openEmbeddedDsh(hostId, listing.path, hosts.find(h => h.id===hostId)?.label || 'Linux 远端 DSH');
-        onCancel();
-      }
       async function chooseRemote() {
-        if (reported.current || busy || picking || !hostId || !listing) return;
-        setPicking(true); setError('');
-        try {
-          const result = await api('/workspace/prepare', { host: hostId, path: listing.path });
-          if (!result.localPath) throw Error('无法生成 DSH 本地工作区占位目录');
-          if (reported.current) return;
-          reported.current = true;
-          onPicked(result.localPath);
-        } catch (e) {
-          setError(e.message || String(e));
-        } finally { setPicking(false); }
+        if (reported.current || busy || picking || loading || !hostId || !listing || currentPath !== listing.path) return;
+        const host = hosts.find(item => item.id === hostId);
+        reported.current = true;
+        onCancel();
+        openEmbeddedDsh(hostId, listing.path, host?.label || host?.host || hostId);
       }
       async function chooseLocal() {
         if (reported.current || busy || picking) return;
@@ -755,7 +682,7 @@ window.__ModuleLoader__.load({
           'aria-label': '选择工作区源文件夹', onKeyDown: e => { if (e.key === 'Escape') { e.stopPropagation(); cancel(); } } },
           h('div', { className: 'rss-directory-head' },
             h('div', null, h('h2', null, '选择工作区源文件夹'),
-              h('p', null, '直接在 Desktop 使用远程目录，无需安装第二套 DSH 或打开浏览器。')),
+              h('p', null, '本地项目使用本机 DSH；远程项目在独立 Linux DSH 界面中打开。')),
             h('button', { type: 'button', className: 'rss-directory-close', title: '关闭',
               disabled: !!busy || picking, onClick: cancel }, '×')),
           h('div', { className: 'rss-project-flow', role: 'region', 'aria-label': '选择项目源文件夹' },
@@ -803,16 +730,15 @@ window.__ModuleLoader__.load({
                     h(Icon, { name: 'chevron', size: 14 })))),
             hostId && listing && h('div', { className: 'rss-project-selected' },
               '选中的远程目录：', h('code', null, listing.path)),
+            hostId && h('p', { className: 'rss-project-hint' },
+              'Linux DSH 管理远程会话和开发工具。输入新路径后请先跳转。'),
           ),
         error && h('p', { className: 'rss-project-error', role: 'alert' }, error),
         h('div', { className: 'rss-project-footer' },
           h('button', { type: 'button', className: 'rss-btn', onClick: cancel, disabled: !!busy || picking }, '取消'),
-          mode === 'remote' && h('button', { type: 'button', className: 'rss-btn',
-            onClick: chooseRemote, disabled: !!busy || picking || loading || !listing || !hostId },
-            picking ? '正在打开…' : '兼容：在 Desktop 打开工作区'),
           mode === 'remote' && h('button', { type: 'button', className: 'rss-btn rss-primary',
-            onClick: chooseFullRemote, disabled: !!busy || picking || loading || !listing || !hostId },
-            '连接完整远端 DSH')))),
+            onClick: chooseRemote, disabled: !!busy || picking || loading || !listing || !hostId || currentPath !== listing.path },
+            picking ? '正在打开…' : '在 Desktop 打开工作区')))),
         hostProbe && h(TrustModal, { probe: hostProbe, busy: trustBusy,
           onClose: () => setHostProbe(null), onConfirm: verifyHostFingerprint }));
     }
@@ -896,6 +822,17 @@ window.__ModuleLoader__.load({
       return () => root.removeEventListener('keydown', onKey, true);
     }
 
+    /* -------------------------------------------------------------------- *
+     * Multi-Host transport router.
+     *
+     * DSH Core owns ONE global Connection: unary RPCs are document-relative
+     * `api/<ns>/<method>` POSTs and all logical streams share a single
+     * `ws://<host>/api/remote.mux` socket. The plugin routes by rewriting
+     * those two carriers to `/__dsh_host/<id>/...` instead of registering a
+     * second Core service. Unary RPCs go through the same-origin plugin proxy;
+     * WebSocket upgrades go through the ticketed loopback relay.
+     * -------------------------------------------------------------------- */
+
     function apply(ctx) {
       ctx.effect(() => {
         const style = document.createElement('style'); style.id = 'dsh-remote-ssh-style'; style.textContent = CSS;
@@ -917,7 +854,6 @@ window.__ModuleLoader__.load({
         id: 'remote-ssh',
         order: 40,
         label: () => 'Remote SSH',
-        inject: () => ({ createWorkspace: (localPath) => ctx.workspaces.create(localPath) }),
       }, RemoteSSHSettings));
       // DSH's own project creation and workspace selector consume these slots.
       // Priority -2 beats the stock picker (-0) and @dsh-ssh/dsh-ssh (-1).
@@ -943,7 +879,7 @@ window.__ModuleLoader__.load({
         }));
     }
     exports.apply = apply;
-    exports.inject = ['slots', 'workspaces', 'uiWorkspace'];
+    exports.inject = ['slots', 'uiWorkspace'];
     return module.exports;
   }
 });

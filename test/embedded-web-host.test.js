@@ -37,7 +37,7 @@ test('Desktop user opens real remote Linux Web Host without receiving a local fa
   };
   const tunnels={
     list(){return [];},
-    async open(host,port){events.push(['tunnel',host,port]);return {host,remotePort:port,localPort:18276,localUrl:'http://127.0.0.1:18276'};},
+    async openScoped(key,host,port){events.push(['tunnel',host,port,key]);return {key,host,remotePort:port,localPort:18276,localUrl:'http://127.0.0.1:18276'};},
     close(){throw Error('unexpected close');},
   };
   const handler=createNativeHttpHandler({manager,remoteRuntime,dshWebTunnels:tunnels,
@@ -67,4 +67,34 @@ test('remote Web URL must be loopback, match the forwarded port, and contain the
     agents:new Map(),previousCwd:new Map(),requestRejection(){return undefined;}});
   const r=await request(handler,'/runtime/web/open',{host:'h1',path:'/repo'});
   assert.equal(r.status,502);
+});
+
+test('two projects on one SSH host keep independent Web tunnels', async () => {
+  const tunnelsByKey = new Map();
+  const closed = [];
+  const manager = {
+    getHost() { return { id:'h1' }; },
+    async openWorkspace(_host, path) { return { workspace:{ remoteRoot:path } }; },
+  };
+  const remoteRuntime = { async ensureWeb(_host, path) {
+    const port = path === '/one' ? 32171 : 32172;
+    return { phase:'ready', port, url:`http://127.0.0.1:${port}/?token=test` };
+  } };
+  const tunnels = {
+    list() { return [...tunnelsByKey.values()]; },
+    async openScoped(key, host, remotePort) {
+      const tunnel = { key, host, remotePort, localPort:remotePort + 100, localUrl:`http://127.0.0.1:${remotePort + 100}` };
+      tunnelsByKey.set(key, tunnel); return tunnel;
+    },
+    close(key) { closed.push(key); tunnelsByKey.delete(key); },
+  };
+  const handler = createNativeHttpHandler({ manager, remoteRuntime, dshWebTunnels:tunnels,
+    desktopProfile:true, agents:new Map(), previousCwd:new Map(), requestRejection(){} });
+  const one = await request(handler, '/runtime/web/open', {host:'h1', path:'/one'});
+  const two = await request(handler, '/runtime/web/open', {host:'h1', path:'/two'});
+  assert.equal(one.status, 200);
+  assert.equal(two.status, 200);
+  assert.equal(tunnelsByKey.size, 2);
+  assert.notEqual(one.body.url, two.body.url);
+  assert.deepEqual(closed, []);
 });

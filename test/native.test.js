@@ -42,7 +42,7 @@ test('client registers settings plus native remote project directory flows', () 
   };
   const source = fs.readFileSync(path.join(root, 'lib', 'client.js'), 'utf8');
   vm.runInNewContext(source, sandbox);
-  assert.deepEqual([...result.inject], ['slots', 'workspaces', 'uiWorkspace']);
+  assert.deepEqual([...result.inject], ['slots', 'uiWorkspace']);
   result.apply({
     effect(callback) { callback(); },
     slots: {
@@ -51,9 +51,9 @@ test('client registers settings plus native remote project directory flows', () 
     },
   });
   assert.equal(registrations.length, 4);
-  assert.deepEqual(registrations.slice(2).map(x => x.record.name), ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow']);
-  assert.ok(registrations.slice(2).every(x => x.record.priority === -2));
-  assert.ok(registrations.slice(2).every(x => typeof x.record.inject === 'function'));
+  assert.deepEqual(registrations.slice(2, 4).map(x => x.record.name), ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow']);
+  assert.ok(registrations.slice(2, 4).every(x => x.record.priority === -2));
+  assert.ok(registrations.slice(2, 4).every(x => typeof x.record.inject === 'function'));
   const localPicker = registrations[2].record.inject().pickDirectory;
   assert.equal(typeof localPicker, 'function');
   // The official API is uiWorkspace.pickDirectory, NOT workspaces.pickDirectory.
@@ -77,7 +77,7 @@ test('client registers settings plus native remote project directory flows', () 
   assert.match(source, /RemoteDshDesktopView/);
   assert.match(source, /bridge\.acquire/);
   assert.match(source, /about:blank#/);
-  assert.match(source, /连接完整远端 DSH/);
+  assert.match(source, /在 Desktop 打开工作区/);
 });
 
 function fixture() {
@@ -247,12 +247,12 @@ test('compact Settings UI keeps a single-column, theme-safe, accessible structur
   assert.doesNotMatch(source, /'aria-label': '选择 DSH Agent 会话'/);
   assert.match(source, /'aria-label': '远程源目录'/);
   assert.match(source, /'aria-live': 'polite'/);
-  assert.match(source, /'添加为 DSH 工作区'/);
+  assert.match(source, /'在 Linux DSH 中打开'/);
   assert.match(source, /'rss-project-flow'/);
   assert.match(source, /'rss-directory-dialog'/);
   assert.match(source, /'aria-modal': true/);
   assert.doesNotMatch(source, /RemoteTerminalAction/);
-  assert.match(source, /右侧点击「新建终端」/);
+  assert.doesNotMatch(source, /右侧点击「新建终端」/);
   assert.doesNotMatch(source, /来自 SSH Config/);
   assert.match(source, /'主机地址 \/ HostName'/);
 });

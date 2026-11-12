@@ -16,7 +16,15 @@ function runHelper(method, cwd, id = 'test-request') {
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout);
 }
-test('bundled helper uses strict versioned JSON protocol and runs read-only Git in its real cwd', () => {
+// The helper is Linux-only: it requires an absolute POSIX cwd and a POSIX
+// home directory. These fixtures cannot be represented on a Windows host.
+function skipOnWindows(t) {
+  if (process.platform !== 'win32') return false;
+  t.skip('helper fixtures require a POSIX absolute cwd/home; Linux CI runs them');
+  return true;
+}
+test('bundled helper uses strict versioned JSON protocol and runs read-only Git in its real cwd', t => {
+  if (skipOnWindows(t)) return;
   const hello = runHelper('hello');
   assert.equal(hello.ok, true);
   assert.equal(hello.result.protocol, REMOTE_RUNTIME_PROTOCOL);
@@ -64,6 +72,7 @@ function fixture(remoteHome, overrides = {}) {
   return { conn, manager: { async connection(host) { assert.equal(host,'host1'); return conn; } }, commands };
 }
 test('automatic SSH helper bootstrap verifies digest, deduplicates connections and inspects remote Git', async t => {
+  if (skipOnWindows(t)) return;
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-runtime-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const fx = fixture(home);
@@ -86,6 +95,7 @@ test('automatic SSH helper bootstrap verifies digest, deduplicates connections a
   pool.closeAll();
 });
 test('tampered remote helper is rejected; SSH identity cannot silently fall back to local execution', async t => {
+  if (skipOnWindows(t)) return;
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-runtime-tamper-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const fx = fixture(home);
@@ -109,6 +119,7 @@ test('Linux and Node prerequisites are checked before attempting helper installa
 });
 
 test('changing SSH host config while bootstrap is running invalidates its result', async t => {
+  if (skipOnWindows(t)) return;
   const home = mkdtempSync(path.join(tmpdir(), 'dsh-runtime-race-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   let release;

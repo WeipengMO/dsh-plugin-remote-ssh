@@ -18,6 +18,8 @@ function invoke(method,cwd,env) {
   return parsed;
 }
 test('remote DSH auto-start launches private loopback and reuses its verified URL',async t=>{
+  // webEnsure requires a POSIX home and launches a POSIX-shell fake `dsh`.
+  if (process.platform==='win32') {t.skip('web.ensure fixtures require a POSIX home/shell; Linux CI runs them');return;}
   const [major,minor]=process.versions.node.split('.').map(Number);
   if (major<24||(major===24&&minor<9)) {t.skip('requires Node >=24.9');return;}
   const home=mkdtempSync(join(tmpdir(),'dsh-web-host-test-'));

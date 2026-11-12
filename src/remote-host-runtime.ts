@@ -41,7 +41,7 @@ export interface WebHostStatus {
   phase: 'starting' | 'ready' | 'failed';
   cwd: string;
   port: number;
-  /** Sensitive single-use browser handoff. Do not log or persist this value. */
+  /** Sensitive process-scoped browser credential. Do not log or persist this value. */
   url?: string;
   installation?: string;
   message?: string;

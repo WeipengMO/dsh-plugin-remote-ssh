@@ -2,6 +2,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { RemoteSshManager } from './manager.js';
 import { type WorkspaceRegistry } from './workspace-registration.js';
 import type { RemoteTerminalPool } from './remote-terminal.js';
+import { type RemoteDshWebTunnelPool } from './dsh-web-tunnel.js';
+import type { RemoteHostRuntimePool } from './remote-host-runtime.js';
 export interface AgentRef {
     id: string;
     session: {
@@ -26,6 +28,10 @@ export interface NativeApiDeps {
     /** Native DSH project registry; optional when only the built-in project picker is available. */
     workspaceRegistry?: WorkspaceRegistry | (() => WorkspaceRegistry | undefined);
     remoteTerminals?: RemoteTerminalPool;
+    dshWebTunnels?: RemoteDshWebTunnelPool;
+    remoteRuntime?: RemoteHostRuntimePool;
+    /** Loopback tunnels can only be opened by the desktop Host on the browser machine. */
+    desktopProfile?: boolean;
     /** DSH Connection's signed-cookie and Host/Origin admission, fail closed. */
     requestRejection(req: IncomingMessage): number | undefined;
 }

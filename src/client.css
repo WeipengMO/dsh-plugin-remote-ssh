@@ -557,6 +557,14 @@ body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block
   -webkit-app-region:no-drag;
 }
 .rss-remote-main * {box-sizing:border-box}
+.rss-remote-page{flex:1;min-height:0;flex-direction:column}
+.rss-remote-page-controls{display:flex;align-items:center;justify-content:space-between;padding:4px 16px;background:#f8f9fb;border-bottom:1px solid #e0e5ed}
+.rss-remote-page-controls code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:#697586}
+.rss-remote-tabs{display:flex;gap:6px;overflow:auto;min-width:0;flex:1}
+.rss-remote-tab{display:flex;flex:none;border:1px solid #d5dce7;border-radius:7px;background:#fff}
+.rss-remote-tab button,.rss-remote-launcher button{border:0;background:transparent;color:#222;cursor:pointer;padding:7px 10px}
+.rss-remote-tab button[aria-pressed=true]{background:#e8f0ff;color:#2057b4}
+.rss-remote-launcher{position:fixed;right:18px;bottom:18px;z-index:60;display:flex;gap:4px;max-width:70vw;overflow:auto;padding:5px;background:#fff;border:1px solid #d5dce7;border-radius:9px;box-shadow:0 4px 16px #0002}
 .rss-remote-main-header {
   display:flex;align-items:center;justify-content:space-between;gap:15px;
   flex:none;min-height:50px;padding:8px 16px;border-bottom:1px solid #e0e5ed;
@@ -569,7 +577,7 @@ body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block
 .rss-remote-main .rss-btn{display:flex;gap:6px;align-items:center;padding:7px 11px;border:1px solid #d5dce7;border-radius:7px;background:#fff;color:#222;cursor:pointer;font-size:12px;font-family:inherit}
 .rss-remote-status{font-size:11px;color:#37744c;white-space:nowrap}
 .rss-remote-viewport{flex:1;min-height:0;min-width:0;position:relative;overflow:hidden}
-.rss-remote-webview{display:block;width:100%;height:100%;min-height:0;border:0;background:#fff}
+.rss-remote-webview{position:absolute;inset:0;display:flex;width:100%;height:100%;min-height:0;border:0;background:#fff}
 .rss-remote-splash{flex:1;min-height:0;display:grid;place-items:center;background:#fafbfd}
 .rss-remote-splash-content{max-width:460px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:13px;padding:24px;color:#344154}
 .rss-remote-splash-content strong{font-size:17px}

@@ -12,8 +12,10 @@ import { RemoteSshError } from './errors.js';
 export const DEFAULT_DSH_WEB_PORT = 3080;
 interface RemoteForward { forwardLoopback(port: number): Promise<Duplex> }
 interface ManagerLike { connection(host: string): Promise<RemoteForward> }
-interface Tunnel { server: Server; sockets: Set<Socket>; localPort: number; remotePort: number }
+interface Tunnel { server: Server; sockets: Set<Socket>; localPort: number; remotePort: number; host: string; key: string }
+interface PendingTunnel { host: string; remotePort: number; cancelled: boolean; promise: Promise<TunnelView> }
 export interface TunnelView {
+  key: string;
   host: string;
   remotePort: number;
   localPort: number;
@@ -23,40 +25,54 @@ export interface TunnelView {
 /** Per-Host local loopback forwarder. No public bind or upstream HTTP parsing. */
 export class RemoteDshWebTunnelPool {
   private readonly tunnels = new Map<string, Tunnel>();
-  private readonly pending = new Map<string, Promise<TunnelView>>();
+  private readonly pending = new Map<string, PendingTunnel>();
   private disposed = false;
   constructor(private readonly manager: ManagerLike) {}
 
   list(): TunnelView[] {
-    return [...this.tunnels.entries()].map(([host, tunnel]) => this.describe(host, tunnel));
+    return [...this.tunnels.entries()].map(([key, tunnel]) => this.describe(key, tunnel));
   }
 
-  private describe(host: string, tunnel: Tunnel): TunnelView {
-    return { host, remotePort: tunnel.remotePort, localPort: tunnel.localPort,
+  private describe(key: string, tunnel: Tunnel): TunnelView {
+    return { key, host: tunnel.host, remotePort: tunnel.remotePort, localPort: tunnel.localPort,
       localUrl: 'http://127.0.0.1:' + tunnel.localPort };
   }
 
+  /** Open one tunnel per SSH Host (legacy single-Web mode). */
   async open(host: string, remotePort = DEFAULT_DSH_WEB_PORT): Promise<TunnelView> {
+    return await this.openScoped(host, host, remotePort);
+  }
+
+  /**
+   * Open a tunnel keyed by a stable remote DSH Host id. One SSH Host may carry
+   * several Linux DSH Web instances, each with its own remote port; keys keep
+   * them independent without closing a sibling's listener.
+   */
+  async openScoped(key: string, host: string, remotePort = DEFAULT_DSH_WEB_PORT): Promise<TunnelView> {
     if (this.disposed) throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'DSH Web tunnel pool is disposed');
     if (!Number.isSafeInteger(remotePort) || remotePort < 1024 || remotePort > 65535) {
       throw new RemoteSshError('SSH_PATH_INVALID', 'DSH Web remote port must be in 1024–65535');
     }
-    const existing = this.tunnels.get(host);
+    const existing = this.tunnels.get(key);
     if (existing) {
-      if (existing.remotePort !== remotePort) {
+      if (existing.host !== host || existing.remotePort !== remotePort) {
         throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'Close the existing DSH Web tunnel before changing ports');
       }
-      return this.describe(host, existing);
+      return this.describe(key, existing);
     }
-    const opening = this.pending.get(host);
-    if (opening) return await opening;
-    const task = this.start(host, remotePort);
-    this.pending.set(host, task);
-    try { return await task; }
-    finally { this.pending.delete(host); }
+    const opening = this.pending.get(key);
+    if (opening) {
+      if (opening.host !== host || opening.remotePort !== remotePort) throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'Close the existing DSH Web tunnel before changing ports');
+      return await opening.promise;
+    }
+    const pending = { host, remotePort, cancelled: false } as PendingTunnel;
+    this.pending.set(key, pending);
+    pending.promise = this.start(key, host, remotePort, pending);
+    try { return await pending.promise; }
+    finally { if (this.pending.get(key) === pending) this.pending.delete(key); }
   }
 
-  private async start(host: string, remotePort: number): Promise<TunnelView> {
+  private async start(key: string, host: string, remotePort: number, pending: PendingTunnel): Promise<TunnelView> {
     // No listener unless the verified SSH transport can actually reach the
     // remote loopback Web port. An unavailable Web Host is not a success.
     const connection = await this.manager.connection(host);
@@ -69,7 +85,7 @@ export class RemoteDshWebTunnelPool {
         (cause instanceof Error ? cause.message : String(cause)));
     }
     probe.destroy();
-    if (this.disposed) throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'DSH Web tunnel pool was disposed during connection');
+    if (this.disposed || pending.cancelled) throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'DSH Web tunnel was closed during connection');
     const sockets = new Set<Socket>();
     const server = net.createServer(socket => {
       sockets.add(socket);
@@ -99,12 +115,12 @@ export class RemoteDshWebTunnelPool {
         // 127.0.0.1 only; kernel chooses a free port. Never bind 0.0.0.0.
         server.listen(0, '127.0.0.1');
       });
-      if (this.disposed) throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'DSH Web tunnel pool was disposed during binding');
+      if (this.disposed || pending.cancelled) throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'DSH Web tunnel was closed during binding');
       const address = server.address();
       if (!address || typeof address === 'string') throw new Error('local tunnel did not bind a TCP port');
-      const tunnel = { server, sockets, localPort: address.port, remotePort };
-      this.tunnels.set(host, tunnel);
-      return this.describe(host, tunnel);
+      const tunnel = { server, sockets, localPort: address.port, remotePort, host, key };
+      this.tunnels.set(key, tunnel);
+      return this.describe(key, tunnel);
     } catch (cause) {
       try { server.close(); } catch { /* listener may have failed before bind */ }
       for (const socket of sockets) socket.destroy();
@@ -112,17 +128,33 @@ export class RemoteDshWebTunnelPool {
     }
   }
 
-  close(host: string): boolean {
-    const tunnel = this.tunnels.get(host);
-    if (!tunnel) return false;
-    this.tunnels.delete(host);
+  close(key: string): boolean {
+    const pending = this.pending.get(key);
+    if (pending) { pending.cancelled = true; this.pending.delete(key); }
+    const tunnel = this.tunnels.get(key);
+    if (!tunnel) return !!pending;
+    this.tunnels.delete(key);
     for (const socket of tunnel.sockets) socket.destroy();
     tunnel.server.close();
     return true;
   }
 
+  /** Close every tunnel that belongs to one SSH Host, including scoped ones. */
+  closeAllFor(host: string): number {
+    let removed = 0;
+    for (const [key, pending] of [...this.pending.entries()]) {
+      if (pending.host === host && this.close(key)) removed += 1;
+    }
+    for (const [key, tunnel] of [...this.tunnels.entries()]) {
+      if (tunnel.host === host || key === host) { this.close(key); removed += 1; }
+    }
+    return removed;
+  }
+
   closeAll(): void {
     this.disposed = true;
-    for (const host of [...this.tunnels.keys()]) this.close(host);
+    for (const pending of this.pending.values()) pending.cancelled = true;
+    this.pending.clear();
+    for (const key of [...this.tunnels.keys()]) this.close(key);
   }
 }
