@@ -2,22 +2,40 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
+import { createHash, createHmac } from 'node:crypto';
 import { NativeHostSessions } from '../dist/native-host-sessions.js';
 import { createNativeHttpHandler } from '../dist/http-api.js';
 
-async function mockCore(host) {
+async function mockCore(host, auth={}) {
   const calls=[];
   let connected=0;
   let authorized=true;
   let nextSessionId='same-id';
+  let peerCookie='';
   const server=http.createServer(async(req,res)=>{
     const url=new URL(req.url,'http://127.0.0.1');
-    if(req.method==='GET' && url.pathname==='/' && url.searchParams.get('token')===host+'-token'){
+    // Official DSH Core /connect exchanges the launch token for a *v2 API
+    // Peer* signed cookie. Its value contains two literal dots; unlike
+    // GET /?token=... which issues an independent v1 browser cookie (303).
+    if(req.method==='GET' && url.pathname==='/connect'
+      && url.searchParams.get('token')===host+'-token'
+      && url.searchParams.get('interactions')==='none'){
       connected++;
-      res.writeHead(303,{'set-cookie':'dsh-auth-test='+host+'-cookie; Path=/; HttpOnly; SameSite=Strict',location:'./'});
+      const version=auth.cookieVersion??2;
+      const authority=req.headers.host;
+      const body=Buffer.from(JSON.stringify({
+        version,authority,id:host+'-peer',issuedAt:1700000000000,expiresAt:2000000000000,
+      })).toString('base64url');
+      const sig=createHmac('sha256',Buffer.alloc(32,7)).update(body).digest('base64url');
+      const name='dsh-auth-'+createHash('sha256').update(authority).digest('base64url');
+      peerCookie=name+'=v'+version+'.'+body+'.'+sig;
+      const headers={location:auth.location??'./api/remote.mux',
+        'set-cookie':peerCookie+'; Max-Age=3600; Path=/; HttpOnly; SameSite=Strict'};
+      if(auth.omitCookie) delete headers['set-cookie'];
+      res.writeHead(auth.status??302,headers);
       res.end();return;
     }
-    if(req.headers.cookie!=='dsh-auth-test='+host+'-cookie'||!authorized) {
+    if(req.headers.cookie!==peerCookie||!authorized) {
       res.writeHead(401);res.end('not authorized');return;
     }
     if(req.method!=='POST'||!url.pathname.startsWith('/api/session/')){res.writeHead(404);res.end();return;}
@@ -138,6 +156,30 @@ test('remote Host auth failures fail closed, and clear revokes bound Session ref
   fx.pool.clear('alpha');
   await assert.rejects(()=>fx.pool.events(listed.sessions[0].ref),/binding has expired/);
 });
+test('native API login rejects browser v1 cookies and malformed /connect responses',async t=>{
+  const variants=[
+    {cookieVersion:1},
+    {status:303},
+    {status:401,omitCookie:true},
+    {location:'./'},
+  ];
+  const hosts=[];
+  t.after(async()=>Promise.all(hosts.map(host=>host.close())));
+  for(const [index,variant] of variants.entries()){
+    const name='host'+index;
+    const host=await mockCore(name,variant);
+    hosts.push(host);
+    const fx=setup(new Map([[name,host]]));
+    await assert.rejects(
+      ()=>fx.pool.list(name,'~'),
+      err=>err.status===401 && /\/connect refused authentication/.test(err.message)
+        && !err.message.includes(name+'-token'),
+      'reject invalid HTTP status, redirect or cookie version without leaking the token'
+    );
+    fx.pool.dispose();
+  }
+});
+
 test('same-origin plugin native endpoints never expose arbitrary RPC or unauthenticated access',async t=>{
   const core=await mockCore('alpha');
   t.after(()=>core.close());
