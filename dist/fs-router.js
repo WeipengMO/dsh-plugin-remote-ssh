@@ -190,7 +190,7 @@ export function installFsRouter(ctx, manager) {
     fs.processPath = (target) => {
         const remote = remoteTargetOf(target);
         if (remote !== null)
-            return remote.displayPath;
+            return remote.requestedRemotePath ?? remote.remotePath;
         return originalProcessPath(target);
     };
     fs.processPathFromHostPath = (hostPath) => {

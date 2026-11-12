@@ -15,7 +15,7 @@
 
 - **远程项目 / 工作区**：在 DSH 的新建项目与工作区目录选择流程中选择 SSH 主机和远程 Linux 目录。
 - **Agent 远程文件操作**：在已激活的远程工作区中，将文件读取、写入、编辑及 `glob`/`grep` 搜索路由到 SSH/SFTP；本地工作区继续使用 DSH 原有实现。
-- **Agent 专用 Linux 命令工具（开发分支）**：远程 SSH 会话优先使用 `remote_bash`（模型看到 Bash/POSIX Schema），并在宿主支持 Agent 级工具限制时隐藏 Windows `pwsh`；切回本地时恢复 `pwsh`。旧的 `pwsh` → SSH Shell 路由仍保留兼容，但不会在 SSH 失败时转为本地执行。
+- **Agent 专用 Linux 命令工具（开发分支）**：远程 SSH 会话优先使用 `remote_bash`（模型看到 Bash/POSIX Schema），并在宿主支持 Agent 级工具限制时隐藏 Windows `pwsh`；切回本地时恢复 `pwsh`。旧的 `pwsh` → SSH Shell 执行默认禁止，以防绕过远端审批（可显式开启兼容选项）。
 - **原生终端**：在宿主提供 `subprocess.spawnTerminal()` 时，将 DSH 右侧终端的远程工作区会话连接到 SSH PTY；不新增独立终端窗口。
 - **Git 状态**：在 Remote SSH 设置页查看远程 `git status`、Diff 统计和近期提交；在兼容的宿主版本中也会尝试适配原生 Git 子进程入口。
 - **SSH 主机管理**：支持 `~/.ssh/config`、密钥文件与 ssh-agent、显式主机指纹确认，以及受限的 Cloudflare Access `cloudflared` ProxyCommand。
@@ -62,12 +62,18 @@ Git 安装路径尚未在本项目的干净 Windows Desktop 环境完成端到�
 
 1. 进入 **设置 → Remote SSH**，添加 SSH 主机或读取 `~/.ssh/config` 中的主机别名，测试连接。首次连接请通过可信渠道核对并确认完整 SSH Host Key SHA256 指纹。
 2. 在 **新建项目 → 源文件夹 → 远程 SSH** 中选择主机和 Linux 路径。插件创建的是本机空占位工作区，真实文件不会复制到这里。
-3. 打开该项目对应的 DSH 会话；Agent 的文件操作与 Shell 走远端。新代码中远程 Shell 工具应显示为 `remote_bash`，而不是 `pwsh`（历史调用仍保留原名称）。可在终端执行 `pwd; uname -s; hostname` 核实执行位置。
+3. 打开远程项目的 DSH 会话；首次使用 `remote_bash` 会请求对当前 Agent 会话/SSH 工作区的 Bash 命令执行授权。可执行 `pwd; uname -s; hostname` 验证平台。
 4. 通过设置页中的 **Git 状态** 查看未提交文件、Diff 统计和提交历史。DSH 的 **变更请求** 面板主要面向 Pull Request，不能当作工作区未提交文件列表的唯一依据。
 
 ## 开发分支与正式版本
 
-本仓库 `main` 后续代码可能包含尚未发布的改进；**v1.0.0 Release 不会因为代码更新自动改变**。测试新功能请使用 CI 构建产物或自行构建安装包，并完全重启 DSH Host。`remote_bash` 当前仅支持前台执行；需要 DSH 原生后台任务功能时保留旧的 `pwsh` 路由作为兼容路径。
+本仓库 `main` 后续代码可能包含尚未发布的改进；**v1.0.0 Release 不会因为代码更新自动改变**。测试新功能请使用 CI 构建产物或自行构建安装包，并完全重启 DSH Host。`remote_bash` 当前仅支持前台执行；旧的 `pwsh` 远程入口默认拒绝，需显式启用不安全兼容选项才能继续使用。
+
+## 远程命令执行权限（开发版）
+
+**本机 DSH Sandbox 不会隔离远端 Linux Bash。** 因此默认使用 DSH Approval 请求一次 Agent 会话与 SSH 工作区级别的授权，未批准或缺少审批服务时拒绝执行。会话处于 `read-only` 时一律禁止远端 Bash。切换到新 Agent 会话需要重新授权。远端 Bash 命令可访问该 SSH 用户有权限的文件，即使指定的工作目录位于工作区内，也不能视为远端文件系统沙箱。
+
+可选插件配置：`remoteBashApproval: 'session'`（默认，每会话/工作区批准一次）、`'command'`（每条命令批准）、`'off'`（不推荐，关闭额外审批）。旧路由只有显式设置 `allowLegacyRemoteShell: true` 才允许从 `pwsh` 进入 SSH（不推荐）。这些选项不会改变 Linux 账号本身的权限或本地与远端隔离关系。
 
 ## 工作原理
 
@@ -90,7 +96,7 @@ DSH 在本机登记一个稳定的目录；插件根据该目录对应的工作�
 
 - 主机公钥首次使用时必须人工核对；密钥发生变化时默认拒绝连接。
 - 插件使用本机私钥或 ssh-agent 进行认证，不将私钥内容写入插件主机配置；配置文件包含主机地址、用户名和密钥路径，应妥善保护。
-- 远程 SSH 执行权限等同于用户授予 DSH 会话的权限。请避免在高权限服务器或包含敏感数据的目录中未经审查运行 Agent 命令。
+- 远程 SSH 命令以远端 Linux 账号的权限运行，并不受本机 Sandbox 约束。请避免在高权限服务器或包含敏感数据的目录中未经审查运行 Agent 命令。
 - 原生终端和原生 Git 入口依赖宿主是否暴露对应服务；它们不可用不代表 SFTP 文件路由不可用。
 - 当前版本针对 Linux SSH 目标；不提供 RDP、远端 DSH Host 代理服务或离线同步。
 

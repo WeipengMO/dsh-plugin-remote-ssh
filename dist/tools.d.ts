@@ -17,13 +17,15 @@ interface ToolContext {
         ensure(agent: unknown, signal?: AbortSignal): Promise<string>;
     };
     shell?: {
+        sandboxMode?: string;
         resolve(request: ShellRequest): ShellSpec;
         execute(spec: ShellSpec): Promise<{
             result(): Promise<{
                 exitCode?: number | null;
-                stdout?: { text?: string };
-                stderr?: { text?: string };
+                stdout?: { text?: string; truncated?: boolean };
+                stderr?: { text?: string; truncated?: boolean };
                 aborted?: boolean;
+                timedOut?: boolean;
             }>;
         }>;
     };
@@ -56,7 +58,8 @@ export declare function registerManagementTools(ctx: ToolContext, manager: Remot
 /** A remote-only shell hint avoids wasting tokens on local DSH sessions. */
 export declare function remoteWorkspaceShellGuidance(cwd: string): string;
 /** Register the model-facing remote Linux Bash tool for SSH Agent sessions only. */
-export declare function registerRemoteBashTool(ctx: ToolContext, manager: RemoteSshManager): void;
+export type RemoteBashApprovalMode = 'session' | 'command' | 'off';
+export declare function registerRemoteBashTool(ctx: ToolContext, manager: RemoteSshManager, approvalMode?: RemoteBashApprovalMode): void;
 /** Hide native Windows pwsh in remote Agent scopes; restore it on local workspace switch. */
 export declare function installRemoteShellScope(ctx: ToolContext): () => void;
 export {};

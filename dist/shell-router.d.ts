@@ -22,6 +22,10 @@ export interface ShellSpec extends ShellRequest {
 export interface ShellRouterHandle {
     dispose(): void;
 }
+export interface ShellRouterOptions {
+    allowLegacyRemoteShell?: boolean;
+}
+export declare function authorizeRemoteBashSpec(spec: ShellSpec): void;
 /** Detect unmistakable PowerShell-only syntax before sending it to Linux. */
 export declare function usesPowerShellSyntax(command: string): boolean;
 /**
@@ -39,5 +43,5 @@ export declare function buildSshArgv(connection: SshConnection, knownHostsPath: 
 export declare function installShellRouter(ctx: {
     shell: AnyRecord;
     effect?: (fn: () => () => void) => void;
-}, manager: RemoteSshManager): ShellRouterHandle;
+}, manager: RemoteSshManager, options?: ShellRouterOptions): ShellRouterHandle;
 export {};

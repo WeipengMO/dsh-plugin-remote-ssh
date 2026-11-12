@@ -34,8 +34,11 @@ DSH 项目登记流程需要一个本机真实目录，因此插件在 `~/.dsh/r
 
 - Agent 读取、修改与搜索远端文件：使用已验证 Host Key 的 `ssh2` / SFTP 连接。
 - Agent Shell：远程项目优先使用 `remote_bash` 工具，其输入 Schema 描述 Linux Bash 和 POSIX 路径；通过本机 `ssh` 执行远端 `bash -lc`，启用 `StrictHostKeyChecking=yes`、`BatchMode=yes` 并禁用密码交互、Agent 转发等功能。
-- 模型工具隔离：使用 DSH `tools.register(definition, { when })` 只向远程会话声明 `remote_bash`；尝试通过 Agent scoped `tools.restrict({deny:['pwsh']})` 屏蔽不合语义的 Windows 工具，目录切回本地即恢复。宿主不支持时降级为双工具可见、系统提示优先 `remote_bash`。原有 `pwsh` 远程路由为历史调用兼容层，并未删除。
-- `remote_bash` 不允许在本地工作区执行，也不允许将 `workdir` 切换到其他 SSH 工作区；不支持新开后台 job。
+- 模型工具隔离：使用 DSH `tools.register(definition, { when })` 只向远程会话声明 `remote_bash`；尝试通过 Agent scoped `tools.restrict({deny:['pwsh']})` 屏蔽不合语义的 Windows 工具，目录切回本地即恢复。宿主不支持时降级为双工具可见、系统提示优先 `remote_bash`。旧 `pwsh` SSH 路由默认拒绝，必要时可通过显式且不推荐的 `allowLegacyRemoteShell: true` 开启兼容。
+- `remote_bash` 只允许在当前 SSH 工作区内设置 `workdir`，不支持新开后台 job；超时及输出截断字段显式返回。
+- 远端 Linux Bash 不受本地 DSH Shell Sandbox 约束；默认向 DSH Approval 请求一次 Agent 会话/工作区级别的远端执行授权，拒绝或无审批服务时失败关闭。DSH `read-only` 会话禁止远端 Bash。授权不跨会话持久化，`remoteBashApproval` 可配置逐命令审批，`'off'` 需自行承担风险。
+- 仅经过授权的 `remote_bash` ShellSpec 可以进入 SSH 执行器，旧的 `pwsh` 路由默认被阻止。可通过 `allowLegacyRemoteShell: true` 显式恢复不安全兼容。请注意：这里的批准不是远程沙箱，Bash 命令仍可访问 SSH 账号权限范围内的其它目录。
+- 文件系统的 `processPath()` 向原生 read/write 模型输出真实 Linux POSIX 路径；内部 `displayPath`、`targetKey` 和 SFTP 映射保持不变。
 - DSH 右侧终端：当宿主提供 `subprocess.spawnTerminal()` 时，按会话归属和工作区映射连接 SSH PTY；普通本地终端仍委托原生实现。
 - Git：设置页提供通过 SSH 查询的只读 `git status`、Diff 与近期提交；可选的 `subprocess.spawn()` 适配负责兼容部分原生 Git 入口，是否完整取决于 DSH 宿主接口。
 - 插件没有自建第二套终端页面，也不承诺替换 DSH Desktop Core。

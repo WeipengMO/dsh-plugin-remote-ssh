@@ -134,6 +134,20 @@ test('strict host key trust, SFTP workspace, native filesystem seam', async (t) 
   assert.equal(moved.sourceDeleted, true);
   assert.equal(await remoteFs.readText(await remoteFs.resolve(path.join(opened.virtualPath, 'src', 'main.py'))), 'print("edited")\n');
   assert.equal(await remoteFs.stat(src).then((info) => info.type), 'directory');
+  // Real SFTP round-trip for create -> read -> edit -> delete (no local mirror).
+  const tmp = await remoteFs.resolve(path.join(opened.virtualPath, 'test-remote-safety.txt'));
+  const created = await remoteFs.writeText(tmp, 'hello remote\\n', { kind: 'createIfAbsent' }, undefined, { mode: 'workspace-write' });
+  assert.equal(created.operation, 'create');
+  assert.equal(await remoteFs.readText(tmp), 'hello remote\\n');
+  const updated = await remoteFs.editText(tmp, { oldString: 'hello', newString: 'goodbye' }, undefined, undefined, { mode: 'workspace-write' });
+  assert.equal(await remoteFs.readText(tmp), 'goodbye remote\\n');
+  await remoteFs.deleteFile(tmp, { version: updated.version }, undefined, { mode: 'workspace-write' });
+  assert.equal(await remoteFs.stat(tmp), undefined);
+  await assert.rejects(
+    () => remoteFs.writeText(tmp, 'not allowed', undefined, undefined, { mode: 'read-only' }),
+    (error) => error.code === 'FS_PERMISSION_DENIED',
+  );
+
 
   const outside = await remoteFs.resolve(`${opened.virtualPath}/../outside.txt`);
   await assert.rejects(
@@ -187,7 +201,8 @@ test('fs router delegates local and routes remote targets', async (t) => {
 
   const remote = await ctx.fs.resolve(path.join(opened.virtualPath, 'main.py'));
   assert.equal(remote.remotePath, '/home/test/project/main.py');
-  assert.equal(ctx.fs.processPath(remote).startsWith(opened.virtualPath), true);
+  assert.equal(ctx.fs.processPath(remote), '/home/test/project/main.py', 'native read/write tool must display the Linux POSIX path');
+  assert.ok(remote.displayPath.startsWith(opened.virtualPath), 'internal routing token remains intact');
   assert.equal(await ctx.fs.readText(remote), 'print("hello")\n');
 
   const remoteStat = await ctx.fs.stat(remote);
@@ -249,7 +264,7 @@ test('shell router builds strict ssh argv and executes through it', async (t) =>
     },
   };
   const ctx = { shell: fakeShell };
-  const handle = installShellRouter(ctx, manager);
+  const handle = installShellRouter(ctx, manager, { allowLegacyRemoteShell: true });
   const handleResult = await ctx.shell.execute({ ...spec, workdir: opened.virtualPath });
   const result = await handleResult.result();
   assert.equal(result.exitCode, 0, result.stderr.text);

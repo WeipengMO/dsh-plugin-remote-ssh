@@ -4,6 +4,8 @@ export declare const inject: string[];
 export interface Config {
     storageDir?: string;
     maxRecent?: number;
+    remoteBashApproval?: 'session' | 'command' | 'off';
+    allowLegacyRemoteShell?: boolean;
 }
 interface PluginContext {
     fs: Record<string, unknown>;

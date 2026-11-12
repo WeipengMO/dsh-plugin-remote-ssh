@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSshArgv, usesPowerShellSyntax } from '../dist/shell-router.js';
+import { buildSshArgv, usesPowerShellSyntax, installShellRouter, authorizeRemoteBashSpec } from '../dist/shell-router.js';
 import { remoteWorkspaceShellGuidance } from '../dist/tools.js';
 import { workspacePlaceholderPath } from '../dist/paths.js';
 
@@ -45,4 +45,29 @@ test('PowerShell-only command text is diagnosed before SSH execution',()=>{
   assert.equal(usesPowerShellSyntax('echo $env:PATH'),true);
   assert.equal(usesPowerShellSyntax('pwd && ls -la'),false);
   assert.equal(usesPowerShellSyntax('git log --oneline -5'),false);
+});
+
+
+test('the shell router denies unapproved legacy pwsh requests without running anything locally', async () => {
+  const calls = [];
+  const shell = {
+    resolve: r => ({ ...r, onExpiry: 'kill' }),
+    async execute(spec) { calls.push({ kind: 'local', spec }); return { local: true }; },
+    async executeArgv(spec, argv) { calls.push({ kind: 'ssh', spec, argv }); return { result: async () => ({ exitCode: 0 }) }; },
+  };
+  const workspaceId = 'w0123456789abcdef';
+  const manager = {
+    routeFor: () => ({ workspace: { token: workspaceId }, remotePath: '/home/dev/project' }),
+    connection: async () => { throw new Error('must not contact SSH without approval'); },
+  };
+  const ctx = { shell };
+  const handle = installShellRouter(ctx, manager);
+  const spec = { command: 'rm -rf /tmp/example', workdir: workspacePlaceholderPath('w0123456789abcdef'), timeoutMs: 2000, onExpiry: 'kill', stdoutMaxBytes: 1024 };
+  await assert.rejects(() => ctx.shell.execute(spec), /unapproved native shell/);
+  await assert.rejects(() => ctx.shell.execute({ ...spec, sandboxPolicy: { mode: 'read-only' } }), /read-only/);
+  assert.deepEqual(calls, [], 'no fallback to local and no SSH child process');
+  const local = await ctx.shell.execute({ ...spec, workdir: process.cwd() });
+  assert.equal(local.local, true, 'normal local workspaces keep the native shell');
+  assert.throws(() => authorizeRemoteBashSpec({ ...spec, workdir: process.cwd() }), /cannot authorize a local/);
+  handle.dispose();
 });

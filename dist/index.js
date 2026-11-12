@@ -112,12 +112,12 @@ export function apply(ctx, config = {}) {
             },
         });
         const fsHandle = installFsRouter(ctx, manager);
-        const shellHandle = installShellRouter(ctx, manager);
+        const shellHandle = installShellRouter(ctx, manager, { allowLegacyRemoteShell: config.allowLegacyRemoteShell === true });
         const remoteFs = fsHandle.remoteFs;
         const restoreSearch = installRemoteSearchShadow(ctx, manager, remoteFs);
         const restoreWorkingDirectory = guardWorkingDirectory(ctx);
         registerManagementTools(ctx, manager, remoteFs);
-        registerRemoteBashTool(ctx, manager);
+        registerRemoteBashTool(ctx, manager, config.remoteBashApproval ?? 'session');
         const restoreRemoteShellScope = installRemoteShellScope(ctx);
         // `subprocess` is deliberately an OPTIONAL service. inject (above) is a
         // hard dependency list: adding it there would refuse to load the entire
