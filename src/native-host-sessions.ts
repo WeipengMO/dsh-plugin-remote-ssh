@@ -178,7 +178,11 @@ export class NativeHostSessions {
     const response = await fetch(info.origin + '/api/' + endpoint, {
       method:'POST',
       headers:{ 'cookie':cookie, 'content-type':'application/json', 'accept':'application/json' },
-      body:JSON.stringify({ type:'client-request', rpcId, method:endpoint, payload:{ args:{ request } } }),
+      // The typed Gateway uses each method's *declared parameter name*.
+      // session/list declares "_request"; other covered methods declare "request".
+      // Never substitute a generic wrapper or the Host rejects arguments.
+      body:JSON.stringify({ type:'client-request', rpcId, method:endpoint,
+        payload:{ args: endpoint === 'session/list' ? { _request:request } : { request } } }),
       redirect:'manual',
       signal:AbortSignal.timeout(20000),
     });

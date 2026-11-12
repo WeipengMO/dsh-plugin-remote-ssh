@@ -44,6 +44,11 @@ async function mockCore(host, auth={}) {
     const request=JSON.parse(Buffer.concat(chunks).toString('utf8'));
     calls.push(request);
     const method=url.pathname.slice('/api/'.length);
+    // Validate the same argument field names as DSH's Typert descriptors.
+    const args=request.payload?.args;
+    assert.ok(args && typeof args==='object');
+    assert.deepEqual(Object.keys(args),[method==='session/list'?'_request':'request']);
+    if(method==='session/list')assert.deepEqual(args._request,{});
     let value;
     switch(method){
       case 'session/list':
@@ -110,6 +115,21 @@ function setup(coreHosts) {
   };
   return {pool:new NativeHostSessions(deps),hostRecords,tunnels,ensured};
 }
+test('session/list names its field _request, not request, as declared by DSH Typert',async t=>{
+  const core=await mockCore('alpha');
+  t.after(()=>core.close());
+  const fx=setup(new Map([['alpha',core]]));
+  t.after(()=>fx.pool.dispose());
+  const list=await fx.pool.list('alpha','~');
+  assert.equal(list.phase,'ready');
+  const envelope=core.calls.find(call=>call.method==='session/list');
+  assert.ok(envelope);
+  assert.deepEqual(envelope.payload,{args:{_request:{}}});
+  await fx.pool.create('alpha','~');
+  const create=core.calls.find(call=>call.method==='session/create');
+  assert.deepEqual(create.payload.args,{request:{cwd:'/alpha/project'}});
+});
+
 test('native Session RPC binds same ID to independent Hosts and keeps credentials server-side',async t=>{
   const a=await mockCore('alpha'),b=await mockCore('beta');
   t.after(async()=>{await Promise.all([a.close(),b.close()])});
