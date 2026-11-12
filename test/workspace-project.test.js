@@ -31,12 +31,14 @@ test('native DSH workspace registration returns real placeholder, never mirrors 
   fs.writeFileSync(manager.workspacesFile, JSON.stringify({ version: 1, workspaces: [ws], recent: [] }));
   const registered = [];
   const result = await prepareRemoteWorkspace(manager, id, remoteRoot, {
-    create(local, title) { registered.push([local, title]); }
+    create(local, title) { registered.push([local, title]); return { id:'native-ws-1' }; }
   });
   assert.equal(result.localPath, localPath);
   assert.equal(result.remoteRoot, remoteRoot);
   assert.equal(result.title, 'nansha · GBM');
   assert.equal(result.registered, true);
+  assert.equal(result.workspaceId, 'native-ws-1',
+    'registration must return the original Desktop Workspace identity for navigation');
   assert.equal(fs.statSync(localPath).isDirectory(), true);
   assert.deepEqual(fs.readdirSync(localPath), []);
   assert.deepEqual(registered, [[localPath, 'nansha · GBM']]);
@@ -65,6 +67,8 @@ test('native workspace preparation works without registry for DSH directoryFlow 
   };
   const result = await prepareRemoteWorkspace(manager, 'h2', '/home/ubuntu/project');
   assert.equal(result.registered, false);
+  assert.equal(result.workspaceId, undefined,
+    'without a native registry, never claim a navigable Desktop workspace');
   assert.equal(result.localPath, localPath);
 });
 

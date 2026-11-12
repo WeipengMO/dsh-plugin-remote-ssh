@@ -1,15 +1,17 @@
 # DSH Remote SSH
 
-在 Windows DSH Desktop 中通过 SSH 打开 Linux 上的完整 DSH。每台 SSH 主机使用一个内嵌远端 DSH Client/Core Connection；远端 Host 的多个 Workspace 与 Session 由同一个 Linux DSH 进程管理。本地 DSH 保持独立。无需修改或重新打包 Desktop Core。
+让 Windows DSH Desktop 识别和管理经 SSH 验证的 Linux 工作目录，并把它们登记在**原有左侧「工作区」列表**。工作区模式通过 Windows DSH 的 Session、SSH 文件/Shell/Git 路由运行；独立的 Linux DSH Host Session 仍可通过设置页的实验入口访问，当前两者尚未共享同一个原生 Session 绑定。无需修改或重新打包 Desktop Core。
+
+**v2.4.0**：修复 `session/list` Typert RPC 参数必须为 `_request`（此前错误传入 `request`），使用官方 `workspaceRegistry.create()` 把配置的 SSH 工作区直接加入 DSH 本机工作区列表，取消独立「远端 Sessions」侧栏项，并收紧远端实验面板的顶部空间。
 
 ## 使用
 
 1. 在 **设置 → Remote SSH** 添加服务器或从 Windows `~/.ssh/config` 导入。首次连接时，通过独立可信渠道核对完整 SHA-256 主机密钥指纹并确认。
-2. 在设置页选择服务器，浏览 Linux 目录，点击 **打开远程 DSH**。也可以在新建项目的目录选择器中选择 **SSH 服务器**，再打开所选目录。
-3. 插件验证并部署 helper，启动或复用该 SSH 账户的**唯一 Linux DSH Web Host**，并经 SSH 建立本机回环隧道。首次未安装 DSH 时会使用固定版本的官方 CLI，可能需要下载。
-4. 同一 SSH 主机仅保留一个远端页面。打开该主机的另一个目录会复用页面和 Core Connection；**必须在远端 DSH 内选择目标 Workspace**，不会自动改动既有 Session 的工作目录。**返回本地**保留远端页面，**重新连接**重建页面连接，关闭标签不会停止 Linux DSH 进程。
+2. 在设置页选择 SSH Host，浏览 Linux 目录，点击 **添加到左侧工作区**。随后可在 DSH 自带的「工作区」列表中打开它；也可以在新建项目的目录选择器中选择 **SSH 服务器**。
+3. 原生工作区登记只需验证 SSH 路径和创建稳定本地占位目录，通过 Host WorkspaceRegistry 发布到左侧列表；SSH 路由访问远端文件和 Shell。若从设置页选择「远端 Agent（实验）」或 WebView 备用入口，则额外启动/复用 Linux DSH Web Host，并通过 SSH 回环隧道访问。
+4. 左侧原生工作区使用 DSH 内置 Session 创建与导航；Linux DSH Agent Session 不会自动挂入这份本地 Session 列表。作为备用的远端 WebView 模式按每 Host 复用页面和 Connection，在该页面内切换 Workspace。
 
-远程界面中的工作区、会话、Agent、Git、worktree、终端和文件监视由同一 SSH 账户的 Linux DSH Host 管理。Windows 与 Linux 的会话列表不合并，切换标签不会迁移会话。关闭 Desktop 后，下次需重新从项目目录打开远程界面；Linux DSH 的持久会话由远端保存。
+原生工作区由 Windows DSH Host 保存并显示；远端 WebView 备用模式中的会话、Agent、Git、worktree、终端和文件监视则由 Linux DSH Host 单独管理。Windows 与 Linux 的会话列表**尚未合并**，不能将原生工作区模式宣传为完整的远端 Linux DSH 会话运行。
 
 ## Windows 原生多 Host Sessions（实验性）
 
@@ -37,7 +39,7 @@
 pnpm build
 pnpm run test:inprocess
 node scripts/package-plugin.mjs
-dsh plugin --profile desktop add /path/to/dsh-plugin-remote-ssh-2.3.1.tgz
+dsh plugin --profile desktop add /path/to/dsh-plugin-remote-ssh-2.4.0.tgz
 ```
 
 完全退出 Desktop 后，用其自带的 `dsh` 插件管理器安装打包脚本输出的绝对路径，再重新打开 Desktop；单纯刷新页面不会重载 Host 的 ESM 模块。插件管理器会更新 profile 的依赖与锁文件，不会替换 Desktop Core。保留安装包，以便以后重新安装依赖。
