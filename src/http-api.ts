@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { RemoteSshManager } from './manager.js';
 import { prepareRemoteWorkspace, type WorkspaceRegistry } from './workspace-registration.js';
+import { inspectRemoteGit } from './remote-git.js';
 import type { RemoteTerminalPool } from './remote-terminal.js';
 import { looksVirtual, shellQuote } from './paths.js';
 import type { HostRecord } from './types.js';
@@ -327,6 +328,16 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
           return send(res, 200, { ok: true });
         }
         throw error(404, 'unknown terminal operation');
+      }
+      if (route === '/git/overview') {
+        const hostId = text(body.host, 'host');
+        const remoteDirectory = text(body.path ?? '~', 'path');
+        const count = body.limit === undefined ? 20 : Number(body.limit);
+        // Verify and canonicalize the chosen Linux directory via SFTP before
+        // invoking Git; never query the Windows placeholder or local Git.
+        const opened = await manager.openWorkspace(hostId, remoteDirectory);
+        const snapshot = await inspectRemoteGit(manager, hostId, opened.workspace.remoteRoot, count);
+        return send(res, 200, { ok: true, ...snapshot });
       }
       if (route === '/exec') {
         const hostId = text(body.host, 'host');

@@ -78,15 +78,23 @@ export function buildSshArgv(connection: SshConnection, knownHostsPath: string, 
   for (const key of config.identityFiles) args.push('-i', key);
   args.push(config.hostName);
 
+  // The *local* Windows pwsh tool can supply host PowerShell variables such as
+  // PATH/PSModulePath. Never forward them to the Linux execution environment:
+  // they would override Linux binaries and make bash commands fail mysteriously.
+  const remoteUserEnv = Object.fromEntries(Object.entries(spec.env ?? {}).filter(([key]) =>
+    !/^(?:PATH|PATHEXT|PSMODULEPATH|COMSPEC|SYSTEMROOT|WINDIR|USERPROFILE|HOMEDRIVE|HOMEPATH|APPDATA|LOCALAPPDATA|TEMP|TMP|PWD|SHELL|HOME)$/i.test(key)));
   const remoteEnv = encodeRemoteEnv({
+    ...remoteUserEnv,
     NO_COLOR: '1',
     TERM: 'dumb',
     PAGER: 'cat',
     GIT_PAGER: 'cat',
-    ...spec.env,
+    DSH_REMOTE_PLATFORM: 'linux',
+    DSH_REMOTE_SHELL: 'bash',
   });
-  const remoteShell = process.env.DSH_REMOTE_SSH_SHELL ?? 'bash';
-  const command = `${remoteEnv.length > 0 ? `env ${remoteEnv} ` : ''}${remoteShell} -lc ${shellQuote(spec.command)}`;
+  // A Windows pwsh tool's *command text* is dispatched using Linux Bash.
+  // Do not let the Windows host shell setting select PowerShell remotely.
+  const command = `${remoteEnv.length > 0 ? `env ${remoteEnv} ` : ''}bash -lc ${shellQuote(spec.command)}`;
   const remote = `cd -- ${shellQuote(spec.workdir)} && exec ${command}`;
   args.push(remote);
   return args;

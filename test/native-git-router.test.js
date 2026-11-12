@@ -15,6 +15,12 @@ const spec = (workdir, argv = [...prefix, 'rev-parse', '--show-toplevel']) => ({
 test('accepts native Forge read-only Git probes and rejects changes', () => {
   assert.ok(forgeGitQuery([...prefix, 'rev-parse', '--show-toplevel']));
   assert.ok(forgeGitQuery([...prefix, 'status', '--porcelain=v1']));
+  assert.ok(forgeGitQuery([...prefix, 'log', '--max-count=20', '--format=%h%x09%s']));
+  assert.ok(forgeGitQuery([...prefix, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD']));
+  assert.ok(forgeGitQuery([...prefix, 'worktree', 'list', '--porcelain']));
+  assert.ok(forgeGitQuery([...prefix, 'branch', '--list', '--format=%(refname:short)']));
+  assert.equal(forgeGitQuery([...prefix, 'branch', '--delete', 'main']), null);
+  assert.equal(forgeGitQuery([...prefix, 'worktree', 'prune']), null);
   assert.ok(forgeGitQuery([...prefix, 'remote', '-v']));
   assert.equal(forgeGitQuery([...prefix, 'remote', 'remove', 'origin']), null);
   assert.equal(forgeGitQuery([...prefix, 'symbolic-ref', 'HEAD', 'refs/heads/other']), null);
@@ -103,8 +109,9 @@ test('native Forge Git reaches SSH repo without leaking into local placeholder',
 
 test('Agent gets POSIX hint only for remote workspace', () => {
   assert.equal(remoteWorkspaceShellGuidance('/tmp/local'), '');
-  assert.match(remoteWorkspaceShellGuidance(cwd), /POSIX/);
-  assert.match(remoteWorkspaceShellGuidance(cwd), /PowerShell cmdlets/);
+  assert.match(remoteWorkspaceShellGuidance(cwd), /Bash\/POSIX/);
+  assert.match(remoteWorkspaceShellGuidance(cwd), /remote_ssh_git/);
+  assert.match(remoteWorkspaceShellGuidance(cwd), /Windows PowerShell/);
 });
 
 test('remote SSH uses blinking bar and CSS does not defeat blink animation', async () => {

@@ -20,9 +20,10 @@ interface StreamReader { readFrom(offset: number): { text: string; nextOffset: n
 const READ_ONLY = new Set([
   'rev-parse', 'for-each-ref', 'show-ref', 'status', 'diff', 'ls-files',
   'cat-file', 'check-ignore', 'merge-base', 'rev-list', 'log', 'show',
+  'diff-tree', 'ls-tree', 'describe',
 ]);
 const FORBIDDEN = /^(?:--(?:output|exec|ext-diff|textconv|no-index|git-dir|work-tree|config-env)(?:=|$)|-o$)/;
-const GIT_UNSET = 'GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG_PARAMETERS GIT_CEILING_DIRECTORIES GIT_PREFIX GIT_SHALLOW_FILE GIT_GRAFT_FILE GIT_REPLACE_REF_BASE';
+const GIT_UNSET = 'GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG GIT_CONFIG_PARAMETERS GIT_CEILING_DIRECTORIES GIT_PREFIX GIT_SHALLOW_FILE GIT_GRAFT_FILE GIT_REPLACE_REF_BASE GIT_ATTR_SOURCE';
 
 /**
  * `-c key=value` pairs that may be forwarded to the SSH host. Only settings
@@ -114,6 +115,19 @@ export function forgeGitQuery(argv: readonly string[]): readonly string[] | null
     if (rest.length === 1 && rest[0] === '-v') return args;
     if (rest.length === 2 && rest[0] === 'get-url') return args;
     return null;
+  }
+  if (command === 'worktree') {
+    // Only list worktrees; add/remove/prune/repair/move are mutating.
+    return rest.length >= 1 && rest[0] === 'list'
+      && rest.slice(1).every(arg => arg === '--porcelain' || arg === '--verbose' || arg === '-z')
+      ? args : null;
+  }
+  if (command === 'branch') {
+    // Display-only flags; never forward branch create/delete/rename.
+    return rest.length > 0 && rest.some(arg => arg === '--list' || arg === '-l')
+      && rest.every(arg => arg === '--list' || arg === '-l' || arg === '-a'
+        || arg === '-r' || arg.startsWith('--format=') || arg.startsWith('--sort='))
+      ? args : null;
   }
   if (command === 'symbolic-ref') {
     return rest.length >= 1 && rest.length <= 3 &&
