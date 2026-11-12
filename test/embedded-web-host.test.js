@@ -69,21 +69,24 @@ test('remote Web URL must be loopback, match the forwarded port, and contain the
   assert.equal(r.status,502);
 });
 
-test('two projects on one SSH host keep independent Web tunnels', async () => {
+test('projects on one SSH host share a tunnel; a restarted Host replaces its stale port', async () => {
   const tunnelsByKey = new Map();
   const closed = [];
+  let port = 32171;
   const manager = {
     getHost() { return { id:'h1' }; },
     async openWorkspace(_host, path) { return { workspace:{ remoteRoot:path } }; },
   };
-  const remoteRuntime = { async ensureWeb(_host, path) {
-    const port = path === '/one' ? 32171 : 32172;
+  const remoteRuntime = { async ensureWeb() {
     return { phase:'ready', port, url:`http://127.0.0.1:${port}/?token=test` };
   } };
   const tunnels = {
     list() { return [...tunnelsByKey.values()]; },
     async openScoped(key, host, remotePort) {
-      const tunnel = { key, host, remotePort, localPort:remotePort + 100, localUrl:`http://127.0.0.1:${remotePort + 100}` };
+      const existing = tunnelsByKey.get(key);
+      if (existing) return existing;
+      const tunnel = { key, host, remotePort, localPort:remotePort + 100,
+        localUrl:`http://127.0.0.1:${remotePort + 100}` };
       tunnelsByKey.set(key, tunnel); return tunnel;
     },
     close(key) { closed.push(key); tunnelsByKey.delete(key); },
@@ -94,7 +97,14 @@ test('two projects on one SSH host keep independent Web tunnels', async () => {
   const two = await request(handler, '/runtime/web/open', {host:'h1', path:'/two'});
   assert.equal(one.status, 200);
   assert.equal(two.status, 200);
-  assert.equal(tunnelsByKey.size, 2);
-  assert.notEqual(one.body.url, two.body.url);
+  assert.equal(tunnelsByKey.size, 1, 'all project Sessions use one host-level tunnel');
+  assert.equal(one.body.url, two.body.url);
   assert.deepEqual(closed, []);
+
+  port = 32172; // The original remote Web process exited and a new Host started.
+  const recovered = await request(handler, '/runtime/web/open', {host:'h1', path:'/two'});
+  assert.equal(recovered.status, 200);
+  assert.equal(tunnelsByKey.size, 1, 'replace, never accumulate, stale tunnels');
+  assert.notEqual(recovered.body.url, one.body.url);
+  assert.deepEqual(closed, ['web:host:h1']);
 });
