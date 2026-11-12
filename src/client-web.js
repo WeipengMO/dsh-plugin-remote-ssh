@@ -6,7 +6,7 @@ window.__ModuleLoader__.load({
     const exports = module.exports;
     const React = require('react');
     const h = React.createElement;
-    const { useEffect, useState, useCallback } = React;
+    const { useEffect, useState, useCallback, useRef } = React;
     const CSS = __CSS_TEXT__;
     // Injected from package.json by scripts/build-client.mjs. Compared against
     // /state.version to detect a stale host plugin module in the running DSH.
@@ -698,9 +698,21 @@ window.__ModuleLoader__.load({
       async function chooseRemote() {
         if (reported.current || busy || picking || loading || !hostId || !listing || currentPath !== listing.path) return;
         const host = hosts.find(item => item.id === hostId);
-        reported.current = true;
-        onCancel();
-        openEmbeddedDsh(hostId, listing.path, host?.label || host?.host || hostId);
+        // A Host-owned Session is navigated from the native Workspace sidebar.
+        // Do not call onPicked(localPlaceholder): that would create a Windows
+        // Agent before the Linux Backend can own the conversation.
+        try {
+          setLoading(true);
+          const prepared=await api('/workspace/prepare',{host:hostId,path:listing.path});
+          if(!prepared.registered||!prepared.workspaceId)
+            throw Error('Windows DSH Workspace Registry 不可用，无法登记 Linux 工作区');
+          if(reported.current)return;
+          reported.current=true;
+          onCancel();
+          openNativeHostSessions(hostId,listing.path,
+            {workspaceId:prepared.workspaceId,intent:'resume'});
+        }catch(error){setError(error.message||String(error));}
+        finally{setLoading(false);}
       }
       async function chooseLocal() {
         if (reported.current || busy || picking) return;
@@ -1002,6 +1014,10 @@ window.__ModuleLoader__.load({
       const [listRevision,setListRevision] = useState(0);
       const [messagesRevision,setMessagesRevision] = useState(0);
       const [viewMode,setViewMode] = useState('chat');
+      const [intent,setIntent] = useState(()=>nativePanelSelection?.intent || 'browse');
+      const [workspaceId,setWorkspaceId] = useState(()=>nativePanelSelection?.workspaceId || null);
+      const [selectionNonce,setSelectionNonce] = useState(()=>nativePanelSelection?.nonce || 0);
+      const autoOpened=useRef('');
       useEffect(() => {
         let disposed=false;
         api('/state').then(state=>{
@@ -1014,6 +1030,9 @@ window.__ModuleLoader__.load({
           setHost(selection.host);
           setPath(selection.path);
           setListedPath(selection.path);
+          setIntent(selection.intent || 'browse');
+          setWorkspaceId(selection.workspaceId || null);
+          setSelectionNonce(selection.nonce || 0);
           setRef('');
           setSessions([]);
           setMessages([]);
@@ -1069,6 +1088,24 @@ window.__ModuleLoader__.load({
         return ()=>{disposed=true;clearTimeout(timer);};
       },[ref,messagesRevision]);
       const current=sessions.find(s=>s.ref===ref);
+      // A selected native Workspace opens a real Linux Session automatically.
+      // A new-conversation action always creates a fresh Linux Session;
+      // regular Workspace navigation resumes the newest matching remote cwd.
+      // The nonce prevents a 15-second list refresh from creating duplicates.
+      useEffect(()=>{
+        if(phase!=='ready'||!host||intent==='browse')return;
+        const identity=JSON.stringify([host,listedPath,selectionNonce]);
+        if(autoOpened.current===identity)return;
+        autoOpened.current=identity;
+        if(intent==='resume' && sessions.length>0){
+          const newest=[...sessions].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0))[0];
+          setRef(newest.ref);
+          setIntent('browse');
+        }else{
+          setIntent('browse');
+          void createSession();
+        }
+      },[phase,host,listedPath,selectionNonce,intent,sessions]);
       async function createSession(){
         if(!host||busy)return;
         setBusy('create');setError('');
@@ -1110,19 +1147,26 @@ window.__ModuleLoader__.load({
         catch(e){setError(e.message||String(e));}
         finally{setBusy('');}
       }
-      return h('section',{className:'rss-native-panel',role:'region','aria-label':'原生远端 DSH Sessions'},
-        h('div',{className:'rss-native-hostbar'},
-          h(Button,{icon:'refresh',small:true,onClick:()=>setListRevision(n=>n+1),title:'刷新远端会话'}),
-          h('label',null,'SSH Host ',
-            h('select',{value:host,onChange:e=>{
-              setHost(e.target.value);setPath('~');setListedPath('~');setRef('');setSessions([]);setMessages([]);
-            }},h('option',{value:''},'选择已保存的主机'),
-              hosts.map(item=>h('option',{key:item.id,value:item.id},item.label || item.host)))),
-          h('label',null,'Linux Workspace ',
-            h('input',{value:path,onChange:e=>setPath(e.target.value),placeholder:'/home/user/project',
-              onKeyDown:e=>{if(e.key==='Enter')setListedPath(path);}})),
-          h(Button,{onClick:()=>setListedPath(path),disabled:!host},'打开目录'),
-          h(Button,{variant:'primary',onClick:createSession,disabled:phase!=='ready'||!!busy},'新建 Session')),
+      return h('section',{className:'rss-native-panel',role:'region','aria-label':'Linux DSH Host 会话'},
+        workspaceId
+          ?h('div',{className:'rss-native-contextbar'},
+              h(Icon,{name:'server',size:15}),
+              h('strong',null,(hosts.find(item=>item.id===host)?.label||host)+' · Linux'),
+              h('code',{title:listedPath},listedPath),
+              h(Button,{icon:'refresh',small:true,onClick:()=>setListRevision(n=>n+1),title:'刷新会话'}),
+              h(Button,{variant:'primary',onClick:createSession,disabled:phase!=='ready'||!!busy},'新会话'))
+          :h('div',{className:'rss-native-hostbar'},
+            h(Button,{icon:'refresh',small:true,onClick:()=>setListRevision(n=>n+1),title:'刷新远端会话'}),
+            h('label',null,'SSH Host ',
+              h('select',{value:host,onChange:e=>{
+                setHost(e.target.value);setPath('~');setListedPath('~');setRef('');setSessions([]);setMessages([]);
+              }},h('option',{value:''},'选择已保存的主机'),
+                hosts.map(item=>h('option',{key:item.id,value:item.id},item.label || item.host)))),
+            h('label',null,'Linux Workspace ',
+              h('input',{value:path,onChange:e=>setPath(e.target.value),placeholder:'/home/user/project',
+                onKeyDown:e=>{if(e.key==='Enter')setListedPath(path);}})),
+            h(Button,{onClick:()=>setListedPath(path),disabled:!host},'打开目录'),
+            h(Button,{variant:'primary',onClick:createSession,disabled:phase!=='ready'||!!busy},'新建 Session')),
         error&&h('div',{className:'rss-native-error',role:'alert'},error),
         h('div',{className:'rss-native-body'},
           h('nav',{className:'rss-native-sessions','aria-label':'此 Host 的 Sessions'},
