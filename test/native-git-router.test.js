@@ -65,6 +65,8 @@ test('Windows native ACL sandbox wrapper accepts canonical DSH Forge Git probes'
     '-c', 'core.fsmonitor=false'];
   assert.ok(forgeGitQuery([...root, 'rev-parse', '--show-toplevel']));
   assert.ok(forgeGitQuery([...root, 'rev-parse', '--path-format=absolute', '--git-common-dir']));
+  assert.ok(forgeGitQuery([...root, 'rev-parse', '--path-format=absolute', '--git-dir']),
+    'Forge needs read-only metadata lookup git rev-parse --git-dir');
   assert.ok(forgeGitQuery([...root, 'symbolic-ref', '--quiet', '--short', 'HEAD']));
   assert.ok(forgeGitQuery([...root, 'remote', '-v']));
   assert.ok(forgeGitQuery([...root, 'for-each-ref', '--sort=-committerdate',
@@ -82,6 +84,10 @@ test('safe bare Git checks can be routed without version-specific Forge prefix',
   assert.equal(forgeGitQuery(['git', '-c', 'core.fsmonitor=!evil', 'status']), null);
   assert.equal(forgeGitQuery(['git', '-c', 'include.path=/tmp/unsafe', 'status']), null);
   assert.equal(forgeGitQuery(['git', '--git-dir=/tmp/other', 'status']), null);
+  assert.ok(forgeGitQuery(['git', 'rev-parse', '--git-dir']));
+  assert.equal(forgeGitQuery(['git', 'rev-parse', '--git-dir=/tmp/other']), null);
+  assert.equal(forgeGitQuery(['git', 'status', '--git-dir']), null);
+  assert.equal(forgeGitQuery(['git', '--git-dir', '/tmp/other', 'rev-parse']), null);
   assert.equal(forgeGitQuery(['git', '-C', '/tmp/other', 'status']), null);
   assert.equal(forgeGitQuery(['git', 'diff', '--output=/tmp/other']), null);
   assert.equal(forgeGitQuery(['gh', 'pr', 'list']), null);
