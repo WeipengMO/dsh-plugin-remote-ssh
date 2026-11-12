@@ -52,7 +52,12 @@ async function mockCore(host, auth={}) {
     let value;
     switch(method){
       case 'session/list':
-        value={items:[{sessionId:'same-id',cwd:'/'+host+'/project',title:host+' job',updatedAt:100,running:false,blank:false}]};break;
+        value={items:[
+          {sessionId:'same-id',cwd:'/'+host+'/project',title:host+' job',
+            updatedAt:100,running:false,blank:false},
+          {sessionId:'other-workspace',cwd:'/'+host+'/private',title:'Unrelated project',
+            updatedAt:200,running:true,blank:false},
+        ]};break;
       case 'session/create':
         assert.equal(request.payload.args.request.cwd,'/'+host+'/project');
         value={sessionId:nextSessionId};break;
@@ -141,6 +146,9 @@ test('native Session RPC binds same ID to independent Hosts and keeps credential
   assert.equal(second.phase,'ready');
   assert.notEqual(first.sessions[0].ref,second.sessions[0].ref);
   assert.equal(first.sessions[0].title,'alpha job');
+  assert.equal(first.sessions.length,1,
+    'Host-wide session/list must never expose Sessions from another Linux Workspace');
+  assert.equal(second.sessions.length,1);
   assert.ok(!JSON.stringify(first).includes('alpha-token'));
   assert.ok(!JSON.stringify(first).includes('dsh-auth-'));
   assert.equal(a.connections(),1);

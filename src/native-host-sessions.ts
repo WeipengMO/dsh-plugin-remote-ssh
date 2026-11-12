@@ -71,7 +71,7 @@ export class NativeHostSessions {
     for (const [ref, item] of this.bindings) {
       if (item.host === host) {
         this.bindings.delete(ref);
-        this.refBySession.delete(JSON.stringify([item.host, item.sessionId]));
+        this.refBySession.delete(JSON.stringify([item.host, item.remoteRoot, item.sessionId]));
       }
     }
   }
@@ -222,7 +222,7 @@ export class NativeHostSessions {
   }
 
   private bind(host: string, sessionId: string, remoteRoot: string): string {
-    const key = JSON.stringify([host, sessionId]);
+    const key = JSON.stringify([host, remoteRoot, sessionId]);
     const prior = this.refBySession.get(key);
     if (prior) {
       const current = this.bindings.get(prior);
@@ -249,10 +249,15 @@ export class NativeHostSessions {
     const result = await this.call(host, remoteRoot, 'session/list', {});
     if (record(result) && result.phase) return result;
     if (!record(result) || !Array.isArray(result.items)) throw fail('Malformed remote Session list');
+    // Host-wide list is NOT a Workspace-scoped list. Never display a Session
+    // from a different Linux cwd in a selected native Desktop Workspace.
+    // No local fallbacks and no guessed session membership.
+    const sessions = result.items.filter(record).filter(x=>
+      typeof x.sessionId === 'string' && x.origin !== 'subagent' &&
+      typeof x.cwd === 'string' && path.posix.normalize(x.cwd) === path.posix.normalize(remoteRoot));
     return {
       phase:'ready', host, remoteRoot,
-      sessions:result.items.filter(record).filter(x=>typeof x.sessionId === 'string' && x.origin !== 'subagent')
-        .map(x=>({
+      sessions:sessions.map(x=>({
           ref:this.bind(host, x.sessionId as string, remoteRoot),
           title:typeof x.title === 'string' ? x.title : typeof x.cwd === 'string' ? path.posix.basename(x.cwd) : x.sessionId,
           cwd:typeof x.cwd === 'string' ? x.cwd : '',
