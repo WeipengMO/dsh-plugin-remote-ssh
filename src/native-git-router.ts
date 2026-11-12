@@ -117,7 +117,13 @@ export function forgeGitQuery(argv: readonly string[]): readonly string[] | null
   const command = args[i];
   if (!command || command.startsWith('-')) return null;
   const rest = args.slice(i + 1);
-  if (rest.some(arg => arg.includes('\0') || FORBIDDEN.test(arg) || arg === '-c' || arg === '-C')) return null;
+  // "git rev-parse --git-dir" is a *read-only metadata query* used by
+  // upstream Forge to inspect linked worktrees. This is NOT the Git global
+  // "--git-dir=/other/repo" repository-selector option. Only allow the
+  // exact flag when it occurs AFTER the rev-parse subcommand, never with "=".
+  if (rest.some(arg => arg.includes('\0') ||
+    (FORBIDDEN.test(arg) && !(command === 'rev-parse' && arg === '--git-dir')) ||
+    arg === '-c' || arg === '-C')) return null;
   if (command === 'remote') {
     if (rest.length === 1 && rest[0] === '-v') return args;
     if (rest.length === 2 && rest[0] === 'get-url') return args;
