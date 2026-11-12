@@ -1,27 +1,55 @@
-# Native Web 架构 / 技术审查
+# 架构与安全边界
 
-## 两部分不可混用
+本文档对应 **DSH Remote SSH v1.0.0** 的实现，说明实际插件边界和依赖，而不是旧版开发过程。
 
-Host Cordis 插件通过 `dist/index.js` 装载，与 DSH Agent 共享 `ctx.fs`、`ctx.shell`、`ctx.workingDirectory` 和单个 RemoteSshManager。Web Client 通过 `lib/client.js` 装载，使用 DSH `slots` 注入，不直接建立 SSH 连接。Host/Client 之间由 Host 的同源 HTTP API 连通。
+## 组件和职责
 
-`ctx.webServer.register({kind:'prefix', path:'/api/remote-ssh', handler})` 会比 DSH 的 `/api` 通配路由更具体。**WebServer 的路由本身不附带登录认证**。必须先调用 DSH `ctx.connection.requestRejection(req)` 才能继续处理 API；之后再做 `sec-fetch-site`、Origin/Host 比对、自定义请求头和 JSON 输入约束。本实现添加了 `connection` 的硬依赖，认证服务不存在就拒绝加载。
+| 组件 | 位置 | 职责 |
+| --- | --- | --- |
+| Host 插件 | `dist/index.js`（源代码 `src/index.ts`） | 管理 SSH 连接，接管远程文件 / Shell 路由，注册工具和 HTTP API |
+| Web Client | `lib/client.js`（源代码 `src/client-web.js`） | 在原生 Settings 与新建项目界面注入 SSH 配置、目录选择等 UI |
+| SSH 管理器 | `src/manager.ts`、`src/connection.ts` | 解析主机配置、复用连接、执行 Host Key 校验 |
+| 文件与搜索路由 | `src/fs-router.ts`、`src/remote-fs.ts`、`src/remote-search.ts` | 根据工作区映射将远程读写与 `glob` / `grep` 转发至 SFTP |
+| Shell 路由 | `src/shell-router.ts` | 通过本地 OpenSSH 在远端 Linux 工作目录执行 Bash |
+| 可选原生终端 / Git 适配 | `src/native-terminal-router.ts`、`src/native-git-router.ts` | 接入 DSH 已存在的 `subprocess` API；缺少服务时功能降级 |
+| 项目登记与清理 | `src/workspace-registration.ts`、`src/workspace-cleanup.ts` | 维护不包含源码的本地占位目录及工作区映射 |
 
-## Agent 切换逻辑
+Host 与 Web Client 通过 **DSH Host 同源 HTTP API** `/api/remote-ssh` 通信。浏览器不直接建立 SSH 连接，远端不必运行 DSH CLI/Core 或独立 Web 服务。
 
-`agent/created` 事件收集真实的 Agent 对象。Web UI 列出可用 session ID；`/workspace/open` 首先通过 `manager.openWorkspace(hostId,path)` 校验 remote directory，再调用 `workingDirectory.set(agent, opened.virtualPath)`；仅当 set 成功才返回 `ok: true`。`previousCwd` 只保存第一次从本地切远程前的本地目录；`/workspace/close` 恢复并清理记录。未知 session 直接返回 409，不伪造“切换成功”。
+## 工作区如何映射
 
-## Git 状态展示
+DSH 项目登记流程需要一个本机真实目录，因此插件在 `~/.dsh/remote-ssh-workspaces/` 下创建稳定的空目录。远端 Linux 路径和 SSH 主机 ID 映射为工作区 token，而不是把远端文件下载到本机。
 
-Git 状态 UI 通过 `git status --short --branch` 的只读结果构建文件状态列表；Diff 统计以折叠方式展示。DSH 会话的变更请求管理 Pull Request，不代表工作区未提交文件。界面使用原生 `settings.section.icon` 图标插槽。
+- 在新建项目的目录选择器中，`/workspace/prepare` 验证远程目录，返回本地占位目录供 DSH 正常注册。
+- 文件、搜索和 Shell 路由识别已登记的占位路径或虚拟路径，将实际请求交给对应 SSH 主机。
+- 原本的本地目录由原生实现处理；远程路由失败时不能偷偷改在本地相似路径执行。
+- 会话内主动切换可通过 `/workspace/open` 或 `remote_workspace_open` 进行；需要已存在的 Agent 会话。`/workspace/close` / `remote_workspace_close` 可恢复先前的本地工作目录。
+- 远程目录失效时，工作目录保护逻辑在可恢复的情况下通过 DSH 的真实 `workingDirectory.set()` 显式恢复，而非无提示继续操作本地文件。
+- 删除占位工作区只会尝试清理经验证的空占位目录，**不删除远端项目文件**。
 
-## 已移除的旧终端 HTTP 路由
+这是一种工作区路由，不是操作系统级挂载。直接使用 Windows 文件管理器打开占位目录不会显示远端源码。
 
-独立页面曾使用 `/terminal/*` 和 `/exec` API；现在 UI 不调用这两个路由，已从服务端删除。唯一的交互终端入口是 DSH 原生 `subprocess.spawnTerminal()` SSH 路由，Agent 命令仍通过 Shell Router 执行。
+## 远程执行和原生 UI
 
-## 安全边界
+- Agent 读取、修改与搜索远端文件：使用已验证 Host Key 的 `ssh2` / SFTP 连接。
+- Agent Shell：通过本机 `ssh` 执行远端 `bash -lc`，启用 `StrictHostKeyChecking=yes`、`BatchMode=yes` 并禁用密码交互、Agent 转发等功能。
+- DSH 右侧终端：当宿主提供 `subprocess.spawnTerminal()` 时，按会话归属和工作区映射连接 SSH PTY；普通本地终端仍委托原生实现。
+- Git：设置页提供通过 SSH 查询的只读 `git status`、Diff 与近期提交；可选的 `subprocess.spawn()` 适配负责兼容部分原生 Git 入口，是否完整取决于 DSH 宿主接口。
+- 插件没有自建第二套终端页面，也不承诺替换 DSH Desktop Core。
 
-- SFTP 路由使用经过验证的 Host Key 和已连接的 ssh2 transport。
-- Agent 文件操作继续使用远程文件根目录 containment 与版本检查。
-- Shell Router 使用 OpenSSH `StrictHostKeyChecking=yes`、`BatchMode=yes`，禁用密码、交互认证与端口转发。
-- 远程目录不可用时，插件通过 workingDirectory.set() 显式恢复会话原始本地目录（提交事件并保留 DSH 通知），而不是静默回退，也不会让 system-prompt 组装失败。
-- 本插件不是浏览器多用户访问控制系统；拥有可写 Agent 会话的已授权 DSH operator 自然拥有相应远程 SSH 执行权限。
+## HTTP 权限边界
+
+`src/http-api.ts` 先使用 DSH `connection.requestRejection(req)` 做会话准入，再执行同源检查、修改请求的专用请求头与 JSON 校验。不能仅凭 `webServer.register()` 就假定 API 已经完成认证；缺少 DSH `connection` 授权服务时插件应拒绝加载。
+
+Web API 可以管理 SSH 主机、选择远程路径和切换工作区，因此授权 DSH operator 仍拥有相应的远端操作能力。不要将未经保护的 DSH Host 暴露给不可信访问者。
+
+## 凭据、配置与边界
+
+- 本机私钥在认证时读取或由 ssh-agent 提供；插件的 `hosts.json` 保存的是私钥**路径**，不是密钥正文。
+- 插件数据和 Host Key 信任记录存放在 `~/.dsh/remote-ssh/` 下，写入时尽力使用限制性权限（Windows 的 ACL 行为取决于宿主环境）。
+- 未知或变化的 SSH Host Key 必须显式核验；不能自动信任。
+- `ProxyCommand` 仅接受受限的 `cloudflared access ssh --hostname %h` 格式，不执行任意 shell ProxyCommand。
+- 运行时命令和错误信息仍可能包含路径、主机名或上游传入的环境变量。不要把 SSH 连接日志或完整配置文件当作可公开材料。
+- 插件并不提供多租户隔离；远程执行能力由运行 DSH Host 的账户权限及远端 SSH 用户权限决定。
+
+第三方依赖与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。安装和宿主兼容问题见 [troubleshooting.md](troubleshooting.md)。

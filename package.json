@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-remote-ssh",
   "version": "1.0.0",
-  "description": "DSH Remote SSH Settings plugin with compact native UI for Desktop and Web; pure-JS SSH transport.",
+  "description": "Remote Linux workspaces for DeepSeek Harness via SSH/SFTP, with Agent file and shell routing and native UI integration.",
   "type": "module",
   "main": "dist/index.js",
   "exports": {

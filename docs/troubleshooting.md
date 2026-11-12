@@ -1,64 +1,76 @@
-# 测试与排障
+# 安装、使用与故障排查
 
-## 读取 SSH Config 报 `method not allowed`（v1.0.5 前）
+适用于 **DSH Remote SSH v1.0.0**。本页按当前可复现的问题组织，不再保留早期开发版本的迁移记录。
 
-现象：添加主机时选择 `~/.ssh/config` 别名，面板显示 `method not allowed` / 405；`/state` 缺少 `effective` 等字段。
+## 安装后找不到 Remote SSH 设置
 
-原因：DSH 进程启动时把 host 插件模块加载进 Node ESM 缓存。之后执行 `dsh plugin --profile … add <tgz>` 只会替换磁盘上的文件，**不会重载正在运行进程内的 HTTP handler**。浏览器刷新会从磁盘读到新版 `lib/client.js`（v1.0.4+ 会请求 `GET /api/remote-ssh/config/resolve`），而进程内仍是旧 handler（只有 `GET /state`、`GET /browse`），该 GET 落到 `if (req.method !== 'POST')` 返回 405 `method not allowed`。
+1. 确认安装到正在使用的 profile：Windows DSH Desktop 使用 `--profile desktop`，Web Host 使用 `--profile web`。
+2. 完全退出并重新启动 DSH Host；Windows 仅关闭窗口可能不会退出托盘进程。
+3. 确认安装包中包含 `package.json`、`dist/index.js`、`lib/client.js`、`cordis.patch.yml` 和 `vendor/ssh2/`。仅复制 `src/` 无法运行。
+4. 检查 Host 日志。此插件需要 DSH `fs`、`shell`、`tools`、`workingDirectory`、`systemPrompt`、`webServer`、`connection` 服务；缺少必需服务时会拒绝加载。
 
-判断方法：对比 DSH 进程启动时间与 `~/.dsh/profiles/<profile>/node_modules/dsh-plugin-remote-ssh/` 的文件修改时间；若文件晚于进程启动，就是错配。
+## 插件升级后报 405 / method not allowed
 
-解决：**完全退出 DSH 客户端进程（托盘退出，不是关窗口），重新启动，再 `Ctrl+F5` 硬刷新页面**。不需要重新打包或重装 —— 磁盘上已经是新版本。反复重装 + 刷新页面不会解决，因为只更新了前端那一半。
+DSH Host 可能仍在运行旧版插件的 ESM 模块，而页面已经读取新版 `lib/client.js`。因此刷新网页或反复安装不一定会刷新服务端 HTTP handler。
 
-v1.0.5 起：`/state` 会返回 `version`，面板检测到前端/服务端版本不一致会直接给出重启提示；`/config/resolve` 同时接受 GET 和 POST；405 信息会带上 method、route 与重启提示。
+处理方式：**完全重启 DSH Host**，随后刷新 Web / Desktop 页面。可通过 `/api/remote-ssh/state` 返回的版本与已安装 `package.json` 版本判断是否匹配。`/config/resolve` 当前支持 GET 与 POST。
 
-## 设置中没有 Remote SSH
+## 从 GitHub 安装失败 / prepare 被 pnpm 拦截
 
-检查安装的 profile 是否与当前 DSH 客户端一致（Web 用 `web`，桌面客户端用 `desktop`），完全重启相应客户端。插件包必须同时含 `dist/index.js`、`lib/client.js` 和 `cordis.patch.yml`。不能仅复制 `src` 到 profile。插件依赖宿主 `webServer` 和 `connection`；如果该 profile 没有这些服务，Host 插件会拒绝启动并记录错误。
+DSH CLI 支持 Git 来源安装，但 Git 构建脚本可能受到 pnpm 安全策略限制。本项目的 Git 地址安装尚未完成独立 Windows Desktop 端到端验证。
 
-## 提示没有 Agent 会话
+推荐从 [v1.0.0 Release](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/tag/v1.0.0) 下载正式 `.tgz` 安装包。不要为了规避构建保护而全局放宽 pnpm 的安全策略。
 
-先在对应的 DSH 会话发送一条消息，让 `agent/created` 事件产生有效实例，再在本面板点「刷新」。目前插件无法直接列出 DSH 所有尚未激活的历史会话，不能假装已切换它们。
+若错误出现 `ECONNREFUSED`、`ETIMEDOUT` 或 `registry.npmjs.org` 连接失败，通常是 npm Registry 网络访问问题；即使下载了本地 `.tgz`，安装器仍可能需要联网解析依赖。先检查系统代理、网络防火墙、Registry 可达性与 DSH 进程实际使用的代理设置，再重试；这不是 SSH 远程服务器连接错误。
 
-## SSH 认证失败
+## SSH 连接失败、主机指纹不匹配
 
-检查客户端的 `~/.ssh/config`、`IdentityFile`、ssh-agent 可用性、用户名、服务器公钥认证配置。首次连接先在可信渠道核对 SHA256 Host Key 指纹，再确认面板中的完整指纹。若服务器密钥发生变化，请调查是否发生重建或劫持，不要盲目覆盖记录。
+- 检查主机名 / 端口、`~/.ssh/config` 别名、用户名、`IdentityFile` 与 ssh-agent；目标 Linux 主机必须有可用的 SSH 和 SFTP 服务。
+- 首次连接出现未知 Host Key 时，**通过可信的第二渠道**核对完整 SHA256 指纹后再确认信任。
+- `HOST KEY MISMATCH` / revoked 表示信任记录与服务器不一致。先调查主机是否迁移或更换密钥，不要盲目覆盖。
+- 插件主要使用公钥或 ssh-agent，不依赖交互式密码登录。
+- 使用 Cloudflare Access 时，目前只支持受限的 `cloudflared access ssh --hostname %h` ProxyCommand 写法；普通自定义 ProxyCommand 不保证兼容。
 
-## SFTP 可用但 Agent bash 失败
+## 远程文件能打开，但 Agent Bash 命令失败
 
-DSH 的远程 shell 路由使用操作系统 OpenSSH。执行 `ssh -V` 检查是否可用。Windows 请在「可选功能」中安装 OpenSSH Client，确保 `ssh.exe` 在 `PATH`；若安装目录不同，可在 DSH 进程的环境变量中设置 `DSH_SSH_BIN`。
+文件路由走 `ssh2`/SFTP，而 Agent Shell 走运行 DSH Host 的本地 OpenSSH 客户端，因此可能出现 SFTP 成功但 Shell 失败。
 
-## 本地复现
+在运行 DSH Host 的机器上检查 `ssh -V`；Windows 需要安装 OpenSSH Client，并确认 `ssh.exe` 可被 DSH 进程找到。必要时用环境变量 `DSH_SSH_BIN` 指向其路径。目标 Linux 主机需要 Bash；远程工作区执行的 Shell 语法是 Bash/POSIX，**不是 Windows PowerShell**。
+
+## 右侧原生终端或 Git 面板不显示远程内容
+
+原生终端适配需要 DSH Host 提供 `subprocess.spawnTerminal()`；原生 Git 子进程适配需要 `subprocess.spawn()`。缺失相应服务时，Host 日志会提示功能不可用，但 SSH/SFTP 文件路由与设置中的远程 Git 状态查询可以分别工作。
+
+进入远程项目后检查当前会话与项目是否对应。不同会话或本地项目的终端不应该被转接到错误的 SSH 主机。需要排查 Git 工作区状态时，优先使用 **设置 → Remote SSH → Git 状态**，而不是把右侧 **变更请求**（Pull Request）面板视为未提交文件列表。
+
+## 切换目录未生效 / 没有可选 Agent 会话
+
+- **新建项目**：选择 SSH 主机和目录后，插件返回真实的本地**空占位目录**，交给 DSH 原生项目流程登记；不要期待 Windows 文件管理器能在该目录看到远端文件。
+- **已有会话切换**：需要真实的 Agent 实例。先在目标 DSH 会话发送消息以激活 Agent，再刷新 Remote SSH 面板；选择对应会话进行切换。
+- 会话切换是**会话级别**的，不是全局修改所有项目。旧会话与新会话可能处在不同工作目录。
+- 如果发现工作区映射失效，请重新打开目标项目或重新选择远程目录；不要手动修改 `~/.dsh/remote-ssh/workspaces.json`。
+- 远程目录不可用时应报错或显式恢复，不能默默把写入指向本地相似路径。
+
+## 本地验证
+
+要求 Node.js 22 和 pnpm 10：
 
 ```bash
-npm install
-npm test
+corepack enable
+pnpm install --frozen-lockfile --ignore-scripts
+pnpm test
+pnpm pack
 ```
 
-集成测试中 `ssh2` 的内存 SSH/SFTP 服务器不要求外网及真实 SSH 主机；`ssh` 可执行文件不存在时会跳过系统 OpenSSH 实际执行子测试。DSH 宿主运行时、Electron/IPC 与真实远程服务器仍需在用户机器上做最终验收。
+`pnpm test` 构建插件并运行本地单元 / 集成测试；测试使用模拟 SSH/SFTP 服务，无须使用真实 SSH 私钥。最终仍应在实际 DSH Desktop/Web Host 和 Linux 服务器上验证新建项目、Agent 读写、Shell、终端与 Git 集成。
 
-## Windows `ERR_PNPM_IGNORED_BUILDS` (v1.0.0)
+若怀疑包内遗漏构建产物，可检查 `.tgz` 内是否存在 `package/dist/index.js`、`package/lib/client.js`、`package/cordis.patch.yml` 与 `package/vendor/ssh2/`。
 
-1.0.0 引入 ssh2/cpu-features 可选原生编译脚本，在 DSH pnpm strictDepBuilds 模式下安装失败。1.0.1 将 ssh2 1.17.0 JS 运行时内置到 `vendor/ssh2` 并移除它的可选原生依赖，避免触发构建脚本。**无需**批准未知安装脚本或修改全局 pnpm 安全设置。使用 `dsh plugin --profile web add .\dsh-plugin-remote-ssh-1.0.3.tgz` 重新安装即可。
+## 反馈问题时请附上
 
-## v1.0.7：选好了远程目录却「没加载」/ 无法返回本地
+- DSH Host 版本、操作系统及 DSH profile（`desktop` 或 `web`）。
+- Remote SSH 插件版本、具体步骤、完整的**非敏感**错误代码或日志片段。
+- 出问题的是文件 / 搜索 / Shell / 原生终端 / 原生 Git 中的哪一项。
+- 是否使用 SSH Config、ssh-agent 或 Cloudflare Access。
 
-现象：在设置面板浏览并选中远程目录、点「使用此目录」后，DSH 界面仍显示本地工作区；或者切过去之后 `glob`/`grep` 报错、「返回本地」无效。
-
-原因（已核对 DSH 宿主源码与会话事件流）：
-
-1. **会话维度错位**。`/api/remote-ssh/workspace/open` 只改 `sessionId` 指定的那个 Agent 会话的 cwd 投影（`workingDirectory.set()`），不是整个 DSH。下拉里选的是哪个会话就只切哪个；新建/刷新出来的会话由 `header.cwd`（本地工作区）初始化，自然还是本地。插件自己的 `~/.dsh/remote-ssh/workspaces.json` 与 DSH 会话状态无关。
-2. **DSH 宿主把 cwd 当作真实 OS 目录，且这部分绕过插件的 `ctx.fs`**。`dsh-tool-fs-search` 把 `workingDirectory.ensure()` 的返回值作为 ripgrep 子进程的 `cwd`；`dsh-workspace` 用原生 `realpath`/`stat` 注册工作区。虚拟 UNC 路径 `\\dsh-ssh\<token>\...` 在本机不是真实目录，于是 `glob`/`grep` 报 `ripgrep provider failure`，GUI 的工作区列表也不会出现远程目录。**这是宿主限制：第三方插件无法让 DSH 把不存在的本地路径当成 Workspace 加载**；能做到的上限是让该会话的 `read`/`write`/`edit`/`glob`/`grep` 走 SFTP。
-3. **`set()` 的硬契约**：宿主 `directory(path, cwd)` 一定用 `cwd: 当前虚拟路径` 调 `fs.resolve`。旧版 fs-router 因 `looksVirtual(opts.cwd)` 把本地 `C:\...` 也交给远程解析器并拒绝，导致 `remote_workspace_close`、面板「返回本地」、`working_directory cd` 全部失败，会话卡在远程 cwd。
-
-v1.0.7 修复：
-
-- `fs.resolve`/`fs.lstat`：虚拟路径走 SFTP；**绝对本地路径无论 cwd 是否虚拟都走原 provider**；只有相对路径跟随虚拟 cwd。close/cd/恢复本地恢复可用。
-- `guardWorkingDirectory`：远程目录不可用时不再抛错（`ensure()` 在每次系统提示组装时运行，抛错会让会话卡死），改为用真实的 `workingDirectory.set()` 显式恢复会话原始本地目录，并保留 DSH 自己的提示。
-- `installRemoteSearchShadow`：改为在共享 `ToolsService.view()` 上就地包装 `glob`/`grep`（与 `ctx.fs` 同一 seam），远程 cwd 时走 SFTP 遍历，本地 cwd 时委托原生工具；定义用 WeakMap 缓存保证工具视图引用稳定。
-- `/state` 给会话加 `latest` 标记，`/workspace/open` 在 `sessionId` 省略/`auto` 时默认作用于最近创建的 Agent；面板默认选中它，成功后明确显示切换的是哪个会话，并注明 DSH 工作区列表仍是本地目录。
-- `remote_ssh_hosts` 输出过滤 `undefined` 字段，修复 `value is not lossless JSON`。
-
-使用建议：在**目标会话**里发一条消息（让 `agent/created` 产生 Agent），再在面板选该会话点「使用此目录」；看到成功提示后切到该会话使用。若会话列表没有目标会话，先刷新。要退出远程工作区用面板「返回本地」或 `remote_workspace_close`。
-
-升级后必须**完全退出 DSH 客户端并重启**（ESM 缓存不会重载 host 插件），然后硬刷新页面。
+**发布日志前请删去用户名、主机地址、内网 IP、远端路径、Token、密钥内容和其他不希望公开的信息。** 可在 [GitHub Issues](https://github.com/WeipengMO/dsh-plugin-remote-ssh/issues) 提交经过脱敏的复现信息。
