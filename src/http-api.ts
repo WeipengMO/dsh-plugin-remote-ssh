@@ -13,7 +13,7 @@ import { DEFAULT_DSH_WEB_PORT, type RemoteDshWebTunnelPool } from './dsh-web-tun
 import type { RemoteHostRuntimePool } from './remote-host-runtime.js';
 import type { NativeHostSessions } from './native-host-sessions.js';
 import { errorMessage } from './errors.js';
-import { looksVirtual, shellQuote, workspaceToken } from './paths.js';
+import { looksVirtual, shellQuote, workspaceToken, workspacePlaceholderPath } from './paths.js';
 import type { HostRecord } from './types.js';
 import { listSshConfigAliases, resolveSshConfig } from './ssh-config.js';
 
@@ -194,8 +194,19 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
           remote: looksVirtual(deps.workingDirectory.get(agent.session)),
           latest: index === agentEntries.length - 1,
         }));
+        const registry = typeof deps.workspaceRegistry === 'function' ? deps.workspaceRegistry() : deps.workspaceRegistry;
+        const nativeWorkspaces = registry?.list?.() ?? [];
+        const registeredWorkspaces = manager.workspaces()
+          .flatMap(entry => {
+            const localPath = workspacePlaceholderPath(entry.token);
+            const native = nativeWorkspaces.find(item => item.path === localPath);
+            return native === undefined ? [] : [{
+              host:entry.connectionId, remoteRoot:entry.remoteRoot, title:entry.hostLabel,
+              workspaceId:native.id,
+            }];
+          });
         return send(res, 200, { ok: true, version: PACKAGE_VERSION, hosts, effective, statuses: manager.statuses(),
-          recent: manager.recent(), sessions, aliases: listSshConfigAliases(),
+          recent: manager.recent(), registeredWorkspaces, sessions, aliases: listSshConfigAliases(),
           remoteDsh: { desktopProfile: deps.desktopProfile === true, tunnels: deps.dshWebTunnels?.list() ?? [] },
           remoteRuntime: { phase: 'bootstrap-v1', connected: deps.remoteRuntime?.list() ?? [] } });
       }

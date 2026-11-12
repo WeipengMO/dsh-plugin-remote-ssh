@@ -50,7 +50,7 @@ test('client registers settings plus native remote project directory flows', () 
       register(record, component) { registrations.push({ record, component }); return () => {}; },
     },
   });
-  assert.equal(registrations.length, 6);
+  assert.equal(registrations.length, 5);
   assert.deepEqual(registrations.slice(2, 4).map(x => x.record.name), ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow']);
   assert.ok(registrations.slice(2, 4).every(x => x.record.priority === -2));
   assert.ok(registrations.slice(2, 4).every(x => typeof x.record.inject === 'function'));
@@ -80,8 +80,11 @@ test('client registers settings plus native remote project directory flows', () 
   assert.match(source, /在 Desktop 打开工作区/);
   assert.equal(registrations[4].record.name,'main');
   assert.equal(registrations[4].record.key,'remote-ssh-sessions');
-  assert.equal(registrations[5].record.name,'sidebar.panellist');
-  assert.equal(registrations[5].record.id,'remote-ssh-sessions');
+  assert.equal(registrations.some(x=>x.record.name==='sidebar.panellist'),false,
+    'configured SSH projects belong under native Workspaces, not a second sidebar panel');
+  assert.ok(source.includes("api('/workspace/prepare',{host:selected,path:browse.path})"));
+  assert.ok(source.includes('ctx.uiWorkspace.openWorkspace(selectedWorkspace.workspaceId)'));
+  assert.doesNotMatch(source,/Windows 原生面板 · 独立 Host 身份 · Linux 执行/);
   assert.ok(source.includes("api('/runtime/native/prompt'"));
   assert.ok(source.includes("api('/runtime/native/events'"));
   assert.ok(source.includes("api('/terminal/open'"));

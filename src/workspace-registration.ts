@@ -6,6 +6,7 @@ import { RemoteSshError } from './errors.js';
 
 export interface WorkspaceRegistry {
   create(localPath: string, title?: string): Promise<unknown> | unknown;
+  list?(): Array<{ id: string; path: string }>;
 }
 export interface PreparedWorkspace {
   localPath: string;
@@ -14,6 +15,8 @@ export interface PreparedWorkspace {
   title: string;
   token: string;
   registered: boolean;
+  /** DSH Host's *local* Workspace id, never a remote Linux DSH Session id. */
+  workspaceId?: string;
 }
 
 /**
@@ -41,13 +44,18 @@ export async function prepareRemoteWorkspace(
   const basename = path.posix.basename(opened.workspace.remoteRoot) || '/';
   const title = `${opened.workspace.hostLabel} · ${basename}`;
   let registered = false;
+  let workspaceId: string | undefined;
   if (registry && typeof registry.create === 'function') {
-    // DSH's registry.create is idempotent when this path already exists.
-    await registry.create(localPath, title);
+    // DSH's registry.create is idempotent and publishes the native Sidebar
+    // Workspace list through its durable WorkspaceController feed.
+    const created = await registry.create(localPath, title);
+    if (typeof created === 'object' && created !== null && 'id' in created
+      && typeof created.id === 'string') workspaceId = created.id;
     registered = true;
   }
   return {
     localPath, remoteRoot: opened.workspace.remoteRoot,
     hostId, title, token: opened.workspace.token, registered,
+    ...(workspaceId === undefined ? {} : { workspaceId }),
   };
 }

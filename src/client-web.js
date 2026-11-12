@@ -350,7 +350,7 @@ window.__ModuleLoader__.load({
     }
 
     function RemoteSSHSettings() {
-      const [state, setState] = useState({ hosts: [], effective: {}, statuses: [], sessions: [], aliases: [], recent: [], remoteDsh: { desktopProfile: false, tunnels: [] } });
+      const [state, setState] = useState({ hosts: [], effective: {}, statuses: [], sessions: [], aliases: [], recent: [], registeredWorkspaces: [], remoteDsh: { desktopProfile: false, tunnels: [] } });
       const [selected, setSelected] = useState('');
       const [filter, setFilter] = useState('');
       const [browse, setBrowse] = useState(null);
@@ -417,10 +417,25 @@ window.__ModuleLoader__.load({
         const result = await run('runtime-connect', () => api('/runtime/connect', { host: selected }));
         if (result) { setRemoteRuntimeProbe(result); refresh(); }
       };
+      const registerNativeWorkspace = async () => {
+        if(!selected||!browse){setError('请先选择服务器与远端目录');return;}
+        const result=await run('register-workspace',async()=>{
+          const prepared=await api('/workspace/prepare',{host:selected,path:browse.path});
+          if(!prepared.registered || !prepared.workspaceId)
+            throw Error('DSH 原生 Workspace Registry 不可用，未完成工作区登记；请完全重启 Desktop 后再试。');
+          return prepared;
+        });
+        if(result){
+          setSuccess('已加入左侧工作区：'+result.title+'。点击左侧工作区即可打开；注意此路径仍使用本地 Session 与 SSH 文件路由。');
+          await refresh();
+        }
+      };
       const openNativeSessions = () => {
         if(!selected||!browse){setError('请先选择服务器与目录');return;}
         openNativeHostSessions(selected,browse.path);
       };
+      const selectedWorkspace=(state.registeredWorkspaces||[]).find(entry=>
+        entry.host===selected&&entry.remoteRoot===browse?.path);
       const openRemoteDshInDesktop = () => {
         if (!selected || !browse) { setError('请先选择服务器和远端目录'); return; }
         openEmbeddedDsh(selected, browse.path, currentHost?.label || currentHost?.host);
@@ -516,14 +531,21 @@ window.__ModuleLoader__.load({
                     entry.type === 'directory' && h(Icon, { name: 'chevron', size: 13 }))),
                   browse.truncated && h('p', { className: 'rss-hint rss-truncated' }, '目录过大，只显示前 1000 项'))),
               h('div', { className: 'rss-workspace-actions rss-workspace-primary' },
-                h('div', null, h('strong', null, '在 Linux DSH 中打开'),
-                  h('p', null, remoteDshDesktop
-                    ? '优先使用 Windows 原生 Session 客户端；旧版 WebView 仍可作为兼容入口。'
-                    : '打开远程 DSH 需要 Windows Desktop。')),
-                h(Button, { variant: 'primary', icon:'server', disabled: !!busy || loading || !browse || !remoteDshDesktop,
-                  onClick: openNativeSessions }, '原生远端 Sessions'),
-                h(Button, { icon: 'arrow', disabled: !!busy || loading || !browse || !remoteDshDesktop,
-                  onClick: openRemoteDshInDesktop }, '旧版 WebView'))),
+                h('div', null, h('strong', null, '加入左侧工作区'),
+                  h('p', null, selectedWorkspace
+                    ? '已注册到 DSH 原生工作区列表。左侧打开时使用 Windows Session 和 SSH 文件/终端/Git 路由。'
+                    : '登记选定目录到左侧原生工作区。完整 Linux DSH Agent Session 仍需独立的远端 Connection 集成。')),
+                h(Button, { variant: 'primary', icon:'folder',
+                  disabled: !!busy || loading || !browse || !remoteDshDesktop || !!selectedWorkspace,
+                  onClick: registerNativeWorkspace },
+                  selectedWorkspace?'已加入左侧工作区':'添加到左侧工作区'),
+                selectedWorkspace && h(Button,{icon:'arrow',disabled:!!busy,
+                  onClick:()=>{ctx.uiWorkspace.openWorkspace(selectedWorkspace.workspaceId).catch(e=>setError(e.message||String(e)));}},
+                  '打开原生工作区'),
+                h(Button, { icon:'server', disabled: !!busy || loading || !browse || !remoteDshDesktop,
+                  onClick: openNativeSessions }, '远端 Agent（实验）'),
+                h(Button, { icon:'arrow', disabled: !!busy || loading || !browse || !remoteDshDesktop,
+                  onClick: openRemoteDshInDesktop }, 'WebView 备用'))),
             tab === 'info' && h('div', { className: 'rss-info-tab', role: 'tabpanel' },
               h('section', { className: 'rss-runtime-info' },
                 h('strong', null, 'Linux Remote Helper · 自动部署'),
@@ -1078,11 +1100,8 @@ window.__ModuleLoader__.load({
         finally{setBusy('');}
       }
       return h('section',{className:'rss-native-panel',role:'region','aria-label':'原生远端 DSH Sessions'},
-        h('header',{className:'rss-native-header'},
-          h('div',null,h('h2',null,'远端 Sessions'),
-            h('p',null,'Windows 原生面板 · 独立 Host 身份 · Linux 执行')),
-          h(Button,{icon:'refresh',small:true,onClick:()=>setListRevision(n=>n+1),title:'刷新远端会话'})),
         h('div',{className:'rss-native-hostbar'},
+          h(Button,{icon:'refresh',small:true,onClick:()=>setListRevision(n=>n+1),title:'刷新远端会话'}),
           h('label',null,'SSH Host ',
             h('select',{value:host,onChange:e=>{
               setHost(e.target.value);setPath('~');setListedPath('~');setRef('');setSessions([]);setMessages([]);
@@ -1206,9 +1225,8 @@ window.__ModuleLoader__.load({
       ctx.slots.inject('main', () => ctx.slots.register({
         name:'main', key:NATIVE_PANEL_ID,
       }, NativeHostSessionsPanel));
-      ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-        name:'sidebar.panellist', id:NATIVE_PANEL_ID, order:35, label:()=> '远端 Sessions',
-      }, NativeHostPanelIcon));
+      // Remote Agent diagnostics are opened from Settings only; do not add a
+      // second "Remote Sessions" navigation row beside the native Workspace list.
     }
     exports.apply = apply;
     exports.inject = ['slots', 'uiWorkspace', 'layout'];

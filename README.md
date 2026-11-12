@@ -16,7 +16,9 @@
 **v2.3.1 认证修复**：原生会话通过 DSH 官方 `GET /connect?token=…&interactions=none` 领取含签名的 v2 API Cookie；不再误判带英文句点的真实 Cookie。出现 `Remote DSH Host refused native Session authentication` 请升级为 v2.3.1、**完全退出并重启 Windows DSH Desktop**，不是只刷新页面。
 
 
-DSH Desktop 左侧新增「远端 Sessions」原生导航入口。此界面是同一 Windows React/Cordis Shell 内的 `main` 面板，**不是** WebView/iframe；支持选择不同 SSH Host、创建真实 Linux Session、查看最近历史、发送 prompt 和取消任务；同一 Host 的 15 秒连接缓存减少了重复 SSH Helper 调用。同一 Linux Host 保留共享进程和 SSH tunnel，远端的 Agent 在 Linux 上执行。插件 Host 通过 DSH 官方 `/api/session/*` Connection RPC 协议与远端交互，短期签名 Cookie 仅保留在 Windows Node 进程内，浏览器只持有绑定 Host+Session 的不透明引用。SSH PTY 简易终端及只读 Git 状态已作为原生面板的工作区工具接入（不是官方 Session 的 `terminalController`、Git/worktree UI）。完整任务流式推送、工具审批和原生 Session 级 Git/终端仍需 Core API 适配，目前不是与官方内置 `ctx.sessions` 的统一列表。
+设置页选定远端目录后，点击 **「添加到左侧工作区」**，插件通过 Host 的 `workspaceRegistry.create()` 将经过 SSH 验证的目录登记为 DSH 原生 Workspace；之后它出现在左侧现有的「工作区」列表。此列表中的会话仍由 Windows DSH Host 管理，文件、Shell、Git 通过 SSH 路由，**这不是 Linux DSH Host 自身的 Session，也不是全透明远端 Connection**。远端 Linux Agent 的试验性操作可从设置页的「远端 Agent（实验）」进入，不再占用左侧独立导航入口。
+
+此界面是同一 Windows React/Cordis Shell 内的 `main` 面板，**不是** WebView/iframe；支持选择不同 SSH Host、创建真实 Linux Session、查看最近历史、发送 prompt 和取消任务；同一 Host 的 15 秒连接缓存减少了重复 SSH Helper 调用。同一 Linux Host 保留共享进程和 SSH tunnel，远端的 Agent 在 Linux 上执行。插件 Host 通过 DSH 官方 `/api/session/*` Connection RPC 协议与远端交互，短期签名 Cookie 仅保留在 Windows Node 进程内，浏览器只持有绑定 Host+Session 的不透明引用。SSH PTY 简易终端及只读 Git 状态已作为原生面板的工作区工具接入（不是官方 Session 的 `terminalController`、Git/worktree UI）。完整任务流式推送、工具审批和原生 Session 级 Git/终端仍需 Core API 适配，目前不是与官方内置 `ctx.sessions` 的统一列表。
 
 ## Core Connection 集成边界
 
