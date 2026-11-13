@@ -37,13 +37,13 @@ DSH CLI 支持 Git 来源安装，但 Git 构建脚本可能受到 pnpm 安全�
 
 在运行 DSH Host 的机器上检查 `ssh -V`；Windows 需要安装 OpenSSH Client，并确认 `ssh.exe` 可被 DSH 进程找到。必要时用环境变量 `DSH_SSH_BIN` 指向其路径。目标 Linux 主机需要 Bash；远程工作区执行的 Shell 语法是 Bash/POSIX，**不是 Windows PowerShell**。
 
-## 远程工作区的工具卡片仍显示 pwsh
+## 远程工作区的工具卡片仍显示 bash 或 pwsh
 
-v1.1.0 为远程 Agent 注册 `remote_bash` Linux/POSIX Schema，并在 DSH 支持 Agent scoped `tools.restrict()` 时只对远程 Agent 隐藏 `pwsh`。本地项目继续使用原生 `pwsh`；v1.0.0 历史工具卡片依然可能显示旧名称。
+v1.1.2-shellfix.1 测试版在 DSH 支持 Agent 级 `tools.restrict()` 时，远程 Agent 同时隐藏原生 `bash`（macOS/Linux）和 `pwsh`（Windows），并使用 `remote_bash` 执行远端命令。本地项目的原生 Shell 不受影响；历史工具卡片仍显示旧名称。
 
-- 确认安装的是 v1.1.0 正式包（v1.0.0 不包含这一改动），完全退出 DSH Host 后重启并新建远程会话。
-- 新的远程命令应优先调用 `remote_bash`，历史 `pwsh` 调用卡片不会重命名；在不支持条件工具或 Agent 限制的宿主上，两个工具可能同时显示。
-- `remote_bash` 仅支持前台命令执行，超时会返回 `timedOut: true`；旧 `pwsh` 远端执行默认阻止。
+- 测试跨平台修复时请安装 v1.1.2-shellfix.1 Actions 构建包（v1.1.1 正式版尚未包含），完全退出 DSH Host 后重启并新建远程会话。
+- 新的远程命令必须使用 `remote_bash`，不要调用原生 `bash` 或 `pwsh`；历史工具卡片不会重命名。在不支持 Agent 级限制的宿主上可能同时显示工具，但未审批的远程原生 Shell 调用仍被阻止。
+- `remote_bash` 仅支持前台命令执行，超时会返回 `timedOut: true`；原生 `bash/pwsh` 远端执行默认阻止。
 - 可让 Agent 调用 `remote_ssh_status` 确认 `remote: true`，并在 `remote_bash` 中执行 `pwd; uname -s` 验证实际平台。
 - 如果 `remote_bash` 提示当前不是 SSH 工作区，检查会话的当前工作目录是否已正确切换；工具不会静默退回本地执行。
 
