@@ -135,8 +135,8 @@ function safeHostPath(value: unknown): string {
 /**
  * Register the remote workspace management surface. These tools are the
  * explicit entry points for host setup, diagnostics, workspace switching and
- * directory browsing; the native read/write/edit/glob/grep/bash tools then work
- * transparently against the selected virtual cwd.
+ * directory browsing. Native file read/write/edit/glob/grep tools use SSH;
+ * remote shell commands require the approved remote_bash tool.
  */
 export function registerManagementTools(
   ctx: ToolContext,
@@ -305,7 +305,7 @@ export function registerManagementTools(
   register(ctx, {
     name: 'remote_workspace_open',
     description:
-      'Open a remote directory as this session\'s workspace. After this succeeds, the native read, write, edit, glob, grep and bash/pwsh tools operate on the remote host and remote cwd; there is no local mirror. Call remote_workspace_close to switch back.',
+      'Open a remote directory as this session\'s workspace. After this succeeds, the native read, write, edit, glob and grep tools use the remote cwd without a local mirror. For remote commands use the approved remote_bash tool, never native bash or pwsh. Call remote_workspace_close to switch back.',
     parameters: object(
       {
         host: string('Saved host id, label, or destination.'),
@@ -522,7 +522,7 @@ export function registerManagementTools(
 /** A remote-only shell hint avoids wasting tokens on local DSH sessions. */
 export function remoteWorkspaceShellGuidance(cwd: string): string {
   if (!looksVirtual(cwd)) return '';
-  return 'ACTIVE EXECUTION SYSTEM: Linux over SSH. SHELL LANGUAGE: Bash/POSIX, not Windows PowerShell, and prefer the remote_bash tool; the native Windows pwsh tool is a compatibility fallback only. EVERY command is executed via Linux bash -lc on the remote host. Write Bash syntax from the FIRST command: pwd; ls -la; find . -maxdepth 2 -type f; grep -R; git status --short --branch. Use $HOME and $PATH, NOT $env:HOME, Get-ChildItem, Select-String, Set-Location, Out-File or Windows drive paths. File tools read and edit the real remote Linux directory. For remote Git status/history/diff, prefer remote_ssh_git; do not inspect the Windows placeholder or run local Git. Create directories before writing files. This instruction applies ONLY while the active workspace is an SSH virtual path.';
+  return 'ACTIVE EXECUTION SYSTEM: Linux over SSH. SHELL LANGUAGE: Bash/POSIX, not Windows PowerShell, and use ONLY the remote_bash tool for remote commands. Never call host-native bash or pwsh in an SSH workspace; they are blocked to enforce SSH execution approval. EVERY command is executed via Linux bash -lc on the remote host. Write Bash syntax from the FIRST command: pwd; ls -la; find . -maxdepth 2 -type f; grep -R; git status --short --branch. Use $HOME and $PATH, NOT $env:HOME, Get-ChildItem, Select-String, Set-Location, Out-File or Windows drive paths. File tools read and edit the real remote Linux directory. For remote Git status/history/diff, prefer remote_ssh_git; do not inspect the Windows placeholder or run local Git. Create directories before writing files. This instruction applies ONLY while the active workspace is an SSH virtual path.';
 }
 
 /**
@@ -722,8 +722,9 @@ export function registerRemoteBashTool(
 }
 
 /**
- * In Agent scopes, hide the inherited Windows pwsh schema only while the
- * session is remote. Scope changes are reversible on workdir changes.
+ * Hide native bash (macOS/Linux) and pwsh (Windows) for remote Agents only.
+ * Local Agent shells are restored on cwd changes, while the execution router
+ * remains fail-closed if Agent tool restrictions are unavailable.
  */
 export function installRemoteShellScope(ctx: ToolContext): () => void {
   const masks = new Map<string, { agent: any; dispose: () => void }>();
@@ -754,17 +755,17 @@ export function installRemoteShellScope(ctx: ToolContext): () => void {
     if (typeof restrict !== 'function') {
       if (!warned.has(id)) {
         warned.add(id);
-        ctx.logger?.warn('remote-ssh: Agent-scoped tool restrictions unavailable; remote_bash is visible, but the host may also show pwsh');
+        ctx.logger?.warn('remote-ssh: Agent-scoped tool restrictions unavailable; native bash/pwsh may remain visible, but remote execution remains gated by remote_bash approval');
       }
       return;
     }
     try {
-      const dispose = restrict.call(agent.ctx.tools, { deny: ['pwsh'] });
+      const dispose = restrict.call(agent.ctx.tools, { deny: ['bash', 'pwsh'] });
       if (typeof dispose === 'function') masks.set(id, { agent, dispose });
     } catch (error) {
       if (!warned.has(id)) {
         warned.add(id);
-        ctx.logger?.warn('remote-ssh: cannot hide native pwsh for Agent ' + id + ': ' + errorMessage(error));
+        ctx.logger?.warn('remote-ssh: cannot hide native bash/pwsh for Agent ' + id + ': ' + errorMessage(error));
       }
     }
   };
