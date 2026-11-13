@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — 1.1.2-aliasfix.1 test build
+
+### Fixed
+- Quick-import SSH aliases from the Settings page now automatically resolve `~/.ssh/config` parameters on modal open (HostName, username, port, and identity file), without requiring a second dropdown selection.
+- A saved SSH host can still be edited without silently overwriting its existing configuration; manually adding a host does not trigger auto-import.
+- Quick-import chips exclude aliases already saved under `sshAlias`, rather than only comparing resolved HostName.
+- Generic display-name and username placeholders replace project-specific examples.
+- Missing identity-file guidance works across macOS/Linux/Windows.
+- Add UI regression tests for automatic prefill and manual editing.
+
 ## v1.1.1 — 2026-11-13
 
 ### Fixed
