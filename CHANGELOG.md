@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — 1.1.2-shellfix.1 test build
+
+### Fixed
+- Hide native `bash` (macOS/Linux) and `pwsh` (Windows) from Agents in remote SSH workspaces when DSH supports Agent-scoped tool restrictions.
+- Restore native shell tools when returning to a local project; keep other local Agents unaffected.
+- Direct remote commands exclusively to `remote_bash`, correcting stale workspace and system prompt instructions.
+- Add tests for native tool hiding, Agent lifecycle events, local/remote transitions, and older Hosts without scoped restrictions.
+- Keep remote execution approval, read-only protection, and native shell rejection unchanged.
+
 ## v1.1.1 — 2026-11-13
 
 ### Fixed
