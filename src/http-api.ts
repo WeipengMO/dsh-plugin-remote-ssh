@@ -35,6 +35,9 @@ export interface NativeApiDeps {
 }
 
 type JsonObject = Record<string, unknown>;
+// This is the compatible browser/host API revision, not the npm package version.
+// Increment only for breaking API changes; keep it stable across host-only fixes.
+const REMOTE_SSH_API_VERSION = 1;
 const PREFIX = '/api/remote-ssh';
 const HOST_FIELDS = ['host', 'sshAlias', 'label', 'port', 'user', 'identityFile', 'identityAgent', 'useAgent', 'useSshConfig', 'configFile', 'hostKeyAlias'] as const;
 
@@ -184,7 +187,7 @@ export function createNativeHttpHandler(deps: NativeApiDeps) {
           remote: looksVirtual(deps.workingDirectory.get(agent.session)),
           latest: index === agentEntries.length - 1,
         }));
-        return send(res, 200, { ok: true, version: PACKAGE_VERSION, hosts, effective, statuses: manager.statuses(),
+        return send(res, 200, { ok: true, version: PACKAGE_VERSION, apiVersion: REMOTE_SSH_API_VERSION, hosts, effective, statuses: manager.statuses(),
           recent: manager.recent(), sessions, aliases: listSshConfigAliases() });
       }
       // Accept GET (current client) and POST (older clients) so a stale UI never

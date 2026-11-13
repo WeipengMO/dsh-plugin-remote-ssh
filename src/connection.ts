@@ -151,7 +151,17 @@ export class SshConnection {
   private async open(): Promise<void> {
     this.stateValue = 'connecting';
     this.lastErrorValue = undefined;
-    const candidates = this.authCandidates();
+    // Authentication configuration can fail before any socket is created.
+    // Keep the connection state accurate so Web diagnostics do not report
+    // a permanently pending SSH connection.
+    let candidates: AuthCandidate[];
+    try {
+      candidates = this.authCandidates();
+    } catch (error) {
+      this.stateValue = 'failed';
+      this.lastErrorValue = errorMessage(error);
+      throw error;
+    }
     const connectConfig: ConnectConfig = {
       host: this.config.hostName,
       port: this.config.port,
@@ -172,6 +182,44 @@ export class SshConnection {
     const client = new Client();
     this.client = client;
     let proxy: ReturnType<typeof cloudflaredProxy> | undefined;
+    let handshakeSettled = false;
+    let rejectHandshake: ((error: Error) => void) | undefined;
+
+    // ssh2 may emit more than one error while closing a socket that never
+    // completed its handshake (for example, a proxy failure followed by a
+    // "Connection lost before handshake" protocol error). A once('error')
+    // listener is unsafe: subsequent errors become uncaught exceptions and
+    // can terminate the entire DSH Web process. Install ONE persistent
+    // listener before creating the proxy or connecting the socket.
+    client.on('error', (error: Error) => {
+      const mapped = this.mapConnectError(error);
+      if (!handshakeSettled) {
+        handshakeSettled = true;
+        rejectHandshake?.(mapped);
+        return;
+      }
+      // Ignore late events from an old client after a reconnect has started.
+      if (this.client !== client) return;
+      this.lastErrorValue = errorMessage(mapped);
+      this.logger.warn(`remote-ssh: ${this.label}: ${this.lastErrorValue}`);
+      if (this.stateValue === 'ready') {
+        this.stateValue = 'failed';
+        this.sftpWrapper = undefined;
+        this.homePromise = undefined;
+      }
+    });
+    client.on('close', () => {
+      if (this.client === client) {
+        if (this.stateValue === 'ready') this.stateValue = 'closed';
+        this.sftpWrapper = undefined;
+        this.homePromise = undefined;
+      }
+      if (!handshakeSettled) {
+        handshakeSettled = true;
+        rejectHandshake?.(new RemoteSshError('SSH_CONNECTION_LOST', `SSH connection to ${this.label} closed during setup`));
+      }
+    });
+
     try {
       if (this.config.proxyCommand && this.config.proxyCommand.toLowerCase() !== 'none') {
         proxy = cloudflaredProxy(this.config.proxyCommand, this.config.hostName);
@@ -180,18 +228,11 @@ export class SshConnection {
         client.once('close', () => proxy?.stream.destroy());
       }
       await new Promise<void>((resolve, reject) => {
-        let settled = false;
-        const settle = (fn: () => void): void => {
-          if (settled) return;
-          settled = true;
-          fn();
-        };
-        client.once('ready', () => settle(resolve));
-        client.once('error', (error) => settle(() => reject(this.mapConnectError(error))));
-        client.once('close', () => {
-          if (this.stateValue === 'ready') this.stateValue = 'closed';
-          this.sftpWrapper = undefined;
-          settle(() => reject(new RemoteSshError('SSH_CONNECTION_LOST', `SSH connection to ${this.label} closed during setup`)));
+        rejectHandshake = reject;
+        client.once('ready', () => {
+          if (handshakeSettled) return;
+          handshakeSettled = true;
+          resolve();
         });
         client.connect(connectConfig);
       });
@@ -204,19 +245,9 @@ export class SshConnection {
       } catch {
         // ignore
       }
-      this.client = undefined;
+      if (this.client === client) this.client = undefined;
       throw error;
     }
-
-    client.on('error', (error) => {
-      this.lastErrorValue = errorMessage(error);
-      this.logger.warn(`remote-ssh: ${this.label}: ${this.lastErrorValue}`);
-    });
-    client.on('close', () => {
-      if (this.stateValue === 'ready') this.stateValue = 'closed';
-      this.sftpWrapper = undefined;
-      this.homePromise = undefined;
-    });
 
     try {
       this.sftpWrapper = await new Promise<SFTPWrapper>((resolve, reject) => {
@@ -274,6 +305,12 @@ export class SshConnection {
     const message = redactSecrets(error.message);
     if (/authentication methods failed|authentication failed|All configured authentication/i.test(message)) {
       return new RemoteSshError('SSH_AUTH_FAILED', `SSH authentication failed for ${this.config.user}@${this.config.hostName}: ${message}`);
+    }
+    if (/connection lost before handshake/i.test(message)) {
+      return new RemoteSshError(
+        'SSH_CONNECT_FAILED',
+        `SSH connection to ${this.config.hostName}:${this.config.port} closed before the SSH handshake. Check the SSH port, sshd service and proxy/network from the machine running DSH: ${message}`,
+      );
     }
     if (/timed out|timeout/i.test(message)) {
       return new RemoteSshError('SSH_CONNECT_TIMEOUT', `SSH connection to ${this.config.hostName}:${this.config.port} timed out: ${message}`);

@@ -8,9 +8,27 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
     const { useEffect, useState, useCallback } = React;
     const CSS = __CSS_TEXT__;
-    // Injected from package.json by scripts/build-client.mjs. Compared against
-    // /state.version to detect a stale host plugin module in the running DSH.
+    // Package versions and browser/host API compatibility are independent.
+    // A host-only release must not be reported as an incompatible UI build.
     const CLIENT_VERSION = __PLUGIN_VERSION__;
+    // Bump only when the browser<->host API contract changes incompatibly.
+    const CLIENT_API_VERSION = 1;
+
+    function buildWarningForState(next) {
+      if (next && Object.prototype.hasOwnProperty.call(next, 'apiVersion')) {
+        if (next.apiVersion === CLIENT_API_VERSION) return '';
+        return 'Remote SSH 服务端 API 与界面不兼容（服务端 API ' +
+          String(next.apiVersion) + '，界面 API ' + CLIENT_API_VERSION +
+          '）。请完全重启 DSH Host 后硬刷新页面。';
+      }
+      // Backward compatibility with old hosts that do not report apiVersion:
+      // retain a warning only if the package build also differs. This catches
+      // the common case of an old Host ESM module left loaded after upgrade.
+      if (next?.version === CLIENT_VERSION) return '';
+      return 'Remote SSH 服务端尚未提供 API 兼容性标识（服务端 ' +
+        (next?.version || '未知') + '，界面 ' + CLIENT_VERSION +
+        '）。可能仍运行旧插件，请重启 DSH Host 并硬刷新页面。';
+    }
     const iconPaths = {
       server: '<rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/>',
       terminal: '<rect x="2" y="3" width="20" height="18" rx="3"/><path d="m7 9 3 3-3 3m6 0h4"/>',
@@ -226,8 +244,7 @@ window.__ModuleLoader__.load({
         try {
           const next = await api('/state');
           setState(next);
-          setBuildWarning(next.version === CLIENT_VERSION ? '' :
-            'Remote SSH 服务端插件版本与界面不一致（服务端 ' + (next.version || '旧版／未提供版本') + '，界面 ' + CLIENT_VERSION + '）。请完全退出并重启 DSH 客户端后硬刷新页面，否则无法读取 SSH Config。');
+          setBuildWarning(buildWarningForState(next));
           setSelected(old => next.hosts.find(item => item.id === old)?.id || next.hosts[0]?.id || '');
         } catch (e) { setError(e.message); }
       }, []);

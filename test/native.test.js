@@ -164,6 +164,7 @@ test('native API rejects unauthenticated requests and browser CSRF before readin
     assert.equal(noSession.status, 401);
     setAuthorized(true);
     assert.equal((await call('/state')).data.sessions[0].id, 'session-1');
+    assert.equal((await call('/state')).data.apiVersion, 1);
     const noHeader = await call('/host/add', { host: 'another.example.com' }, { headers: { 'x-dsh-remote-ssh': '' } });
     assert.equal(noHeader.status, 403);
     const crossSite = await call('/host/add', { host: 'another.example.com' }, { headers: { 'sec-fetch-site': 'cross-site' } });

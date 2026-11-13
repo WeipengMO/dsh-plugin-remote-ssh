@@ -50,6 +50,15 @@ jobs:
       - name: Build and run tests
         run: pnpm test
 
+      # Detect the exact regression where a release updates package.json but
+      # accidentally commits an old, version-stamped lib/client.js.
+      - name: Verify committed browser bundle is up to date
+        run: |
+          if ! git diff --exit-code -- lib/client.js; then
+            echo "::error::lib/client.js is stale. Run 'pnpm build' and commit the regenerated browser bundle."
+            exit 1
+          fi
+
       - name: Package DSH installer
         shell: bash
         run: |

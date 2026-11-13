@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.1.1 — 2026-11-13
+
+### Fixed
+- Prevent a failed SSH transport handshake from crashing the DSH Web process when ssh2 reports repeated or late error events.
+- Improve cleanup and recovery when an SSH connection closes before SFTP initialization; clarify handshake-failure diagnostics.
+- Detect browser/host incompatibility using the API compatibility revision rather than requiring identical plugin package versions, avoiding misleading warnings on host-only changes.
+- Synchronize the checked-in browser bundle with the package version and make CI reject stale generated browser bundles.
+
+### Verification
+- Added automated SSH handshake/disconnect/reconnect tests and browser/host version-compatibility tests.
+- Validated build, test, client bundle consistency and installer packaging in GitHub Actions.
+
 ## v1.1.0 — 2026-11-12
 
 ### Added
