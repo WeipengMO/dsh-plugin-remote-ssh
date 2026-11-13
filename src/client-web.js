@@ -200,7 +200,7 @@ window.__ModuleLoader__.load({
             field('port', 'SSH 端口', '22', { type: 'number', min: 1, max: 65535, required: true })),
           field('identityFile', '私钥路径（可选）', '~/.ssh/id_ed25519'),
           missingKey && h('p', { className: 'rss-config-warning', role: 'alert' },
-            '本机找不到这个私钥：' + missingKey + '。请确认 Windows 文件路径。'),
+            '本机找不到这个私钥：' + missingKey + '。请确认路径在运行 DSH 的设备上存在。'),
           h('label', { className: 'rss-checkbox-line' },
             h('input', { type: 'checkbox', checked: form.useAgent, onChange: e => set('useAgent', e.target.checked) }),
             '允许 ssh-agent'),
