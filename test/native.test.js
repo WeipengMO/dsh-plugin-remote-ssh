@@ -50,10 +50,12 @@ test('client registers settings plus native remote project directory flows', () 
       register(record, component) { registrations.push({ record, component }); return () => {}; },
     },
   });
-  assert.equal(registrations.length, 4);
-  assert.deepEqual(registrations.slice(2).map(x => x.record.name), ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow']);
-  assert.ok(registrations.slice(2).every(x => x.record.priority === -2));
-  assert.ok(registrations.slice(2).every(x => typeof x.record.inject === 'function'));
+  assert.equal(registrations.length, 6, 'SSH and Notebook each register Settings section and icon');
+  assert.ok(registrations.some(item => item.record.name === 'settings.section' && item.record.id === 'notebook-viewer'));
+  assert.ok(registrations.some(item => item.record.name === 'settings.section.icon' && item.record.id === 'notebook-viewer'));
+  assert.deepEqual(registrations.slice(2, 4).map(x => x.record.name), ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow']);
+  assert.ok(registrations.slice(2, 4).every(x => x.record.priority === -2));
+  assert.ok(registrations.slice(2, 4).every(x => typeof x.record.inject === 'function'));
   const localPicker = registrations[2].record.inject().pickDirectory;
   assert.equal(typeof localPicker, 'function');
   // The official API is uiWorkspace.pickDirectory, NOT workspaces.pickDirectory.
