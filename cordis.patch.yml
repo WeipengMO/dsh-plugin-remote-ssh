@@ -5,3 +5,5 @@
       config:
         storageDir: ~/.dsh/remote-ssh
         maxRecent: 20
+    - id: remote-ssh-notebook
+      name: dsh-plugin-remote-ssh/notebook
