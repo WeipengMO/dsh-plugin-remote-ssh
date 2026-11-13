@@ -15,7 +15,7 @@
 
 - **远程项目 / 工作区**：在 DSH 的新建项目与工作区目录选择流程中选择 SSH 主机和远程 Linux 目录。
 - **Agent 远程文件操作**：在已激活的远程工作区中，将文件读取、写入、编辑及 `glob`/`grep` 搜索路由到 SSH/SFTP；本地工作区继续使用 DSH 原有实现。
-- **Agent 专用 Linux 命令工具**：远程 SSH 会话优先使用 `remote_bash`（模型看到 Bash/POSIX Schema），并在宿主支持 Agent 级工具限制时隐藏 Windows `pwsh`；切回本地时恢复 `pwsh`。旧的 `pwsh` → SSH Shell 执行默认禁止，以防绕过远端审批（可显式开启兼容选项）。
+- **Agent 专用 Linux 命令工具**：远程 SSH 会话使用 `remote_bash`（模型看到 Bash/POSIX Schema），并在支持 Agent 级工具限制时隐藏 macOS/Linux 原生 `bash` 和 Windows 原生 `pwsh`；切回本地时恢复对应原生工具。原生 `bash/pwsh` → SSH Shell 执行默认禁止，以防绕过远端审批（兼容选项不推荐）。
 - **原生终端**：在宿主提供 `subprocess.spawnTerminal()` 时，将 DSH 右侧终端的远程工作区会话连接到 SSH PTY；不新增独立终端窗口。
 - **Git 状态**：在 Remote SSH 设置页查看远程 `git status`、Diff 统计和近期提交；在兼容的宿主版本中也会尝试适配原生 Git 子进程入口。
 - **SSH 主机管理**：支持 `~/.ssh/config`、密钥文件与 ssh-agent、显式主机指纹确认，以及受限的 Cloudflare Access `cloudflared` ProxyCommand。
