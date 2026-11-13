@@ -533,3 +533,43 @@ body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block
  .rss-directory-dialog .rss-project-modes button.rss-project-active{background:#263d66!important;border-color:transparent!important;color:#cfe1ff!important;box-shadow:none!important}
  .rss-directory-dialog .rss-project-modes button.rss-project-active:hover{background:#304d80!important}
 }
+
+
+/* Read-only Jupyter Notebook Viewer; isolated from the SSH Settings layout. */
+.rss-notebook-container { --nb-fg:#242a33; --nb-muted:#687383; --nb-border:#dfe4ec; --nb-blue:#3268d7; color:var(--nb-fg); width:100%; min-width:0; padding:10px 8px 20px; font-size:13px }
+.rss-notebook-container * { box-sizing:border-box }
+.rss-notebook-container button,.rss-notebook-container input,.rss-notebook-container select { font:inherit }
+.rss-notebook-container button { cursor:pointer; color:inherit; border:1px solid var(--nb-border); border-radius:7px; background:transparent; padding:7px 11px }
+.rss-notebook-container button:disabled { cursor:not-allowed; opacity:.55 }
+.rss-notebook-container button:hover:not(:disabled) { background:rgba(88,130,190,.07) }
+.rss-notebook-container :is(button,input,select):focus-visible { outline:2px solid var(--nb-blue); outline-offset:2px }
+.rss-nb-top { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px }
+.rss-nb-top strong { font-size:16px }
+.rss-nb-top p { margin:4px 0 0; color:var(--nb-muted); line-height:1.5 }
+.rss-nb-switch { display:flex; gap:5px }
+.rss-nb-switch button[aria-pressed=true] { border-color:var(--nb-blue); color:var(--nb-blue); background:rgba(50,104,215,.07) }
+.rss-nb-picker,.rss-nb-remote { padding:12px; border:1px solid var(--nb-border); border-radius:9px; margin-bottom:12px }
+.rss-nb-picker label { display:flex; flex-wrap:wrap; align-items:center; gap:12px; font-weight:600 }
+.rss-nb-picker input { font-size:12px; max-width:100%; font-weight:400 }
+.rss-nb-picker small { display:block; margin-top:10px; color:var(--nb-muted) }
+.rss-nb-controls { display:flex; flex-wrap:wrap; align-items:end; gap:10px }
+.rss-nb-controls label { display:grid; gap:5px; color:var(--nb-muted); flex:1; min-width:145px }
+.rss-nb-controls input,.rss-nb-controls select { width:100%; padding:7px; border:1px solid var(--nb-border); border-radius:7px; background:transparent; color:inherit }
+.rss-nb-files { max-height:240px; overflow:auto; border-top:1px solid var(--nb-border); margin-top:12px; padding-top:8px; display:grid; gap:4px }
+.rss-nb-files button { text-align:left; border:0; white-space:normal; overflow-wrap:anywhere }
+.rss-nb-alert { color:#b02539; padding:9px; border:1px solid #f2b9c0; border-radius:8px; overflow-wrap:anywhere }
+.rss-nb-muted { color:var(--nb-muted); margin:12px 0; line-height:1.5 }
+.rss-nb-document { border:1px solid var(--nb-border); border-radius:10px; overflow:auto; max-height:min(68vh,950px); padding:12px; min-width:0 }
+.rss-nb-document-head { font-size:12px; color:var(--nb-muted); border-bottom:1px solid var(--nb-border); padding:4px 0 12px; margin-bottom:12px; overflow-wrap:anywhere }
+.rss-nb-cell { border:1px solid var(--nb-border); border-radius:8px; padding:12px; margin:9px 0; min-width:0; overflow-wrap:anywhere }
+.rss-nb-markdown p { margin:8px 0; line-height:1.65; white-space:normal }
+.rss-nb-markdown code { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; padding:1px 4px; background:rgba(90,100,120,.08) }
+.rss-nb-heading { font-weight:650; margin:10px 0 8px; line-height:1.35 }
+.rss-nb-h1 { font-size:22px }.rss-nb-h2 { font-size:19px }.rss-nb-h3 { font-size:16px }.rss-nb-h4,.rss-nb-h5,.rss-nb-h6 { font-size:14px }
+.rss-nb-listitem { padding-left:12px; line-height:1.6 }
+.rss-nb-markdown blockquote { border-left:3px solid var(--nb-border); padding-left:10px; margin:7px 0; color:var(--nb-muted) }
+.rss-nb-cell-label { font-size:11px; font-weight:600; color:var(--nb-blue); margin-bottom:6px }
+.rss-nb-source,.rss-nb-output,.rss-nb-stream,.rss-nb-error,.rss-nb-md-code { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace; max-width:100%; margin:0 0 8px; padding:10px; border-radius:7px; background:rgba(100,112,140,.06) }
+.rss-nb-stream,.rss-nb-output { margin-top:9px; border-left:2px solid #a7bacd; background:transparent }
+.rss-nb-error { color:#b02539; margin-top:9px }
+.rss-nb-output img { display:block; max-width:100%; height:auto; object-fit:contain; margin:0 auto }

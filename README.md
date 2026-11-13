@@ -65,6 +65,18 @@ Git 安装路径尚未在本项目的干净 Windows Desktop 环境完成端到�
 3. 打开远程项目的 DSH 会话；首次使用 `remote_bash` 会请求对当前 Agent 会话/SSH 工作区的 Bash 命令执行授权。可执行 `pwd; uname -s; hostname` 验证平台。
 4. 通过设置页中的 **Git 状态** 查看未提交文件、Diff 统计和提交历史。DSH 的 **变更请求** 面板主要面向 Pull Request，不能当作工作区未提交文件列表的唯一依据。
 
+## Notebook Viewer（可选组件，实验版）
+
+在 DSH **设置 → Notebook** 中预览 Jupyter Notebook：
+
+- **本地**：通过文件选择器打开当前 Mac/Windows/Linux 浏览器设备上的 `.ipynb` 文件；文件仅在页面本地解析，不上传到远程 SSH 主机。
+- **远程**：选择已保存的 SSH 主机，浏览远程目录并打开 `.ipynb`；由单独的 `remote-ssh-notebook` Cordis 组件通过已验证的 SSH/SFTP 通道只读获取。
+- 支持 nbformat 4 Markdown（基础格式）、Python/R/其他语言的代码块、文本输出和 PNG/JPEG/GIF 图片输出。未实现完整 Markdown/LaTeX/HTML/交互输出保真。
+- **不执行代码、不启动 Jupyter Server**，不执行 notebook 中的 HTML、JavaScript 或 SVG。文件预览限制为 12 MiB。
+- 在 DSH 插件管理的「包含的组件」里可独立禁用 Notebook Viewer 的服务端读取组件；禁用后浏览器本地选择文件仍可使用。
+
+功能开发阶段版本 `1.2.0-notebook.1` 仅通过 GitHub Actions 提供测试安装包，尚未发布正式版。当前单独维护的 Bash 工具修复 PR #24 不包含在此功能分支中。
+
 ## 版本与更新
 
 正式版以 [GitHub Releases](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases) 中的版本标签与 `.tgz` 附件为准。`main` 分支的后续代码不会自动改变已经发布的 Release。升级插件时应安装与 Release 版本一致的 `.tgz`，并**完全退出 DSH Desktop（含托盘进程）再启动**。

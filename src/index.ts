@@ -13,6 +13,7 @@ import type { WorkspaceRegistry } from './workspace-registration.js';
 import { installWorkspaceCleanup } from './workspace-cleanup.js';
 import { installNativeTerminalRouter } from './native-terminal-router.js';
 import { installNativeGitRouter } from './native-git-router.js';
+import { attachNotebookManager } from './notebook-runtime.js';
 
 export const name = 'remote-ssh';
 
@@ -130,6 +131,7 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
   }, { global: true });
 
   ctx.effect(() => {
+    const detachNotebookManager = attachNotebookManager(manager);
     const workspaceCleanup = installWorkspaceCleanup(ctx, manager, storageDir, ctx.logger, {
       registered: () => {
         const registry = ctx.get('workspaceRegistry') as
@@ -191,6 +193,7 @@ export function apply(ctx: PluginContext, config: Config = {}): void {
       restoreWorkingDirectory();
       shellHandle.dispose();
       fsHandle.dispose();
+      detachNotebookManager();
       manager.closeAll();
     };
   });
