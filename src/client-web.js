@@ -729,6 +729,8 @@ window.__ModuleLoader__.load({
       return () => root.removeEventListener('keydown', onKey, true);
     }
 
+    __NOTEBOOK_UI__
+
     function apply(ctx) {
       ctx.effect(() => {
         const style = document.createElement('style'); style.id = 'dsh-remote-ssh-style'; style.textContent = CSS;
@@ -773,6 +775,7 @@ window.__ModuleLoader__.load({
             name: 'sidebar.workspaces.directoryFlow', priority: -2, inject: injectFlow,
           }, RemoteProjectDirectoryFlow);
         }));
+      registerNotebookViewer(ctx);
     }
     exports.apply = apply;
     exports.inject = ['slots', 'workspaces', 'uiWorkspace'];
