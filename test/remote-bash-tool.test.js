@@ -111,7 +111,7 @@ test('remote_bash forbids cross-workspace and local workdir escapes', async () =
   assert.equal(calls.length, 0);
 });
 
-test('pwsh masking follows the Agent remote/local workspace without affecting other Agents', async () => {
+test('bash/pwsh masking follows the Agent remote/local workspace without affecting other Agents', async () => {
   const { ctx, wd, events } = fixture();
   const changes = [];
   const agent = {
@@ -121,23 +121,58 @@ test('pwsh masking follows the Agent remote/local workspace without affecting ot
       return () => changes.push({ type: 'restore' });
     } } },
   };
+  const localAgent = { id: 'local-agent', session: {}, ctx: { tools: {
+    restrict() { throw new Error('local Agent must retain native shell tools'); },
+  } } };
+  const originalGet = wd.get;
+  wd.get = function get(session) {
+    return session === localAgent.session ? localCwd : originalGet.call(this, session);
+  };
   const originalSet = wd.set;
   const dispose = installRemoteShellScope(ctx);
+  events.get('agent/created')({ agent: localAgent });
+  assert.deepEqual(changes, [], 'local Agent retains its original shell tools');
   events.get('agent/created')({ agent });
-  assert.deepEqual(changes[0], { type: 'restrict', filter: { deny: ['pwsh'] } });
+  events.get('agent/created')({ agent });
+  assert.equal(changes.length, 1, 'duplicate lifecycle events must not duplicate restrictions');
+  assert.deepEqual(changes[0], { type: 'restrict', filter: { deny: ['bash', 'pwsh'] } });
   await wd.set(agent, localCwd);
   assert.deepEqual(changes[1], { type: 'restore' });
   await wd.set(agent, remoteCwd);
   assert.equal(changes.filter(change => change.type === 'restrict').length, 2);
+  assert.deepEqual(changes.at(-1), { type: 'restrict', filter: { deny: ['bash', 'pwsh'] } });
   events.get('agent/disposed')({ agent });
   assert.equal(changes.filter(change => change.type === 'restore').length, 2);
   dispose();
   assert.equal(wd.set, originalSet);
   assert.equal(events.size, 0);
-  assert.match(remoteWorkspaceShellGuidance(remoteCwd), /remote_bash/);
+  assert.match(remoteWorkspaceShellGuidance(remoteCwd), /ONLY the remote_bash/);
+  assert.match(remoteWorkspaceShellGuidance(remoteCwd), /Never call host-native bash or pwsh/);
   assert.equal(remoteWorkspaceShellGuidance(localCwd), '');
 });
 
+
+test('older DSH hosts without Agent tool restrictions warn once without bypassing shell approval', async () => {
+  const { ctx, wd, events } = fixture();
+  const warnings = [];
+  ctx.logger.warn = message => warnings.push(message);
+  const agent = { id: 'old-dsh', session: {}, ctx: { tools: {} } };
+  const dispose = installRemoteShellScope(ctx);
+  events.get('agent/created')({ agent });
+  events.get('agent/created')({ agent });
+  await wd.set(agent, localCwd);
+  await wd.set(agent, remoteCwd);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /native bash\/pwsh may remain visible/);
+  assert.match(warnings[0], /gated by remote_bash approval/);
+  dispose();
+});
+
+test('remote workspace shell guidance does not recommend native-shell fallback', () => {
+  const hint = remoteWorkspaceShellGuidance(remoteCwd);
+  assert.match(hint, /use ONLY the remote_bash tool/);
+  assert.doesNotMatch(hint, /compatibility fallback only|prefer the remote_bash/);
+});
 
 test('remote_bash requests approval once per Agent/workspace and does not reuse it for another session', async () => {
   const { ctx, manager, definitions, approvals } = fixture();
