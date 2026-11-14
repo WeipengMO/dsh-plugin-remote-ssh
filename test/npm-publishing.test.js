@@ -37,7 +37,8 @@ test('the npm job uses OIDC and the exact verified installer artifact', () => {
   assert.match(section, /node-version: '24'/);
   assert.match(section, /package-manager-cache: false/);
   assert.match(section, /npm install --global npm@11\.21\.0/);
-  assert.match(section, /name: dsh-remote-ssh-\$\{\{ github\.sha \}\}/);
+  assert.match(section, /uses: actions\/download-artifact@v8/);
+  assert.match(section, /name: dsh-plugin-remote-ssh-\$\{\{ needs\.build\.outputs\.package_version \}\}\.tgz/);
   assert.match(section, /tar -xOzf "\$file" package\/package\.json/);
   assert.match(section, /npm publish "artifacts\/dsh-plugin-remote-ssh-\$\{version\}\.tgz" --access public --tag latest --ignore-scripts/);
   assert.match(section, /npm view "dsh-plugin-remote-ssh@\$\{version\}" version --silent/);
@@ -46,8 +47,8 @@ test('the npm job uses OIDC and the exact verified installer artifact', () => {
 
 test('GitHub Release retains the previously validated installer', () => {
   const release = workflow.split('\n  release:\n')[1].split('\n  npm_publish:\n')[0];
-  assert.match(release, /uses: actions\/download-artifact@v4/);
-  assert.match(release, /name: dsh-remote-ssh-\$\{\{ github\.sha \}\}/);
+  assert.match(release, /uses: actions\/download-artifact@v8/);
+  assert.match(release, /name: dsh-plugin-remote-ssh-\$\{\{ needs\.build\.outputs\.package_version \}\}\.tgz/);
   assert.match(release, /uses: softprops\/action-gh-release@v2/);
   assert.match(release, /files: artifacts\/\*\.tgz/);
 });
@@ -58,4 +59,17 @@ test('onboarding instructions do not claim npm is live without ownership and tru
   assert.match(docs, /NPM_PUBLISH_ENABLED/);
   assert.match(docs, /build\.yml/);
   assert.match(docs, /已经.*\.tgz|\.tgz.*安装/);
+});
+
+test('PR installer is uploaded directly only after package security checks', () => {
+  const build = workflow.split('\n  build:\n')[1].split('\n  release:\n')[0];
+  assert.match(build, /uses: actions\/upload-artifact@v7/);
+  assert.match(build, /archive: false/);
+  assert.match(build, /path: artifacts\/dsh-plugin-remote-ssh-\$\{\{ steps\.version\.outputs\.version \}\}\.tgz/);
+  assert.match(build, /pnpm audit --prod --audit-level high/);
+  assert.match(build, /sudo freshclam --stdout/);
+  assert.match(build, /clamscan --recursive --infected/);
+  assert.match(build, /clamscan --infected "\$package_file"/);
+  assert.ok(build.indexOf('Audit production dependencies') < build.indexOf('Upload verified installer'));
+  assert.ok(build.indexOf('Malware-scan packaged installer') < build.indexOf('Upload verified installer'));
 });

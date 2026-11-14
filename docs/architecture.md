@@ -1,6 +1,6 @@
 # 架构与安全边界
 
-本文档描述 DSH Remote SSH v1.1.0 的架构与安全边界；正式发布包以对应版本标签为准。
+本文档描述 DSH Remote SSH v1.1.3 的架构与安全边界；正式发布包以对应版本标签为准。
 
 ## 组件和职责
 
@@ -11,7 +11,7 @@
 | SSH 管理器 | `src/manager.ts`、`src/connection.ts` | 解析主机配置、复用连接、执行 Host Key 校验 |
 | 文件与搜索路由 | `src/fs-router.ts`、`src/remote-fs.ts`、`src/remote-search.ts` | 根据工作区映射将远程读写与 `glob` / `grep` 转发至 SFTP |
 | Shell 路由 | `src/shell-router.ts` | 通过本地 OpenSSH 在远端 Linux 工作目录执行 Bash |
-| 模型工具语义及作用域 | `src/tools.ts` | 条件注册远程 `remote_bash` Schema，在可用的 Agent scope 中隐藏本地 `pwsh`，工作区恢复时撤销限制 |
+| 模型工具语义及作用域 | `src/tools.ts` | 条件注册远程 `remote_bash` Schema，在可用的 Agent scope 中隐藏本地 `bash` / `pwsh`，工作区恢复时撤销限制 |
 | 可选原生终端 / Git 适配 | `src/native-terminal-router.ts`、`src/native-git-router.ts` | 接入 DSH 已存在的 `subprocess` API；缺少服务时功能降级 |
 | 项目登记与清理 | `src/workspace-registration.ts`、`src/workspace-cleanup.ts` | 维护不包含源码的本地占位目录及工作区映射 |
 
@@ -34,14 +34,20 @@ DSH 项目登记流程需要一个本机真实目录，因此插件在 `~/.dsh/r
 
 - Agent 读取、修改与搜索远端文件：使用已验证 Host Key 的 `ssh2` / SFTP 连接。
 - Agent Shell：远程项目优先使用 `remote_bash` 工具，其输入 Schema 描述 Linux Bash 和 POSIX 路径；通过本机 `ssh` 执行远端 `bash -lc`，启用 `StrictHostKeyChecking=yes`、`BatchMode=yes` 并禁用密码交互、Agent 转发等功能。
-- 模型工具隔离：使用 DSH `tools.register(definition, { when })` 只向远程会话声明 `remote_bash`；尝试通过 Agent scoped `tools.restrict({deny:['pwsh']})` 屏蔽不合语义的 Windows 工具，目录切回本地即恢复。宿主不支持时降级为双工具可见、系统提示优先 `remote_bash`。旧 `pwsh` SSH 路由默认拒绝，必要时可通过显式且不推荐的 `allowLegacyRemoteShell: true` 开启兼容。
-- `remote_bash` 只允许在当前 SSH 工作区内设置 `workdir`，不支持新开后台 job；超时及输出截断字段显式返回。
+- 模型工具隔离：使用 DSH `tools.register(definition, { when })` 只向远程会话声明 `remote_bash`；尝试通过 Agent scoped `tools.restrict({deny:['bash','pwsh']})` 隐藏宿主的 macOS/Linux `bash` 和 Windows `pwsh`，切换到本地工作区恢复。旧宿主可能仍显示原生工具，但远程原生 Shell 默认拒绝，不能以本地 Shell 代替 SSH 审批。显式 `allowLegacyRemoteShell: true` 是不推荐的旧版兼容选项。
+- `remote_bash` 只允许在当前 SSH 工作区内设置 `workdir`，不支持新开后台 job；超时及输出截断字段显式返回。审批等待超过 20 秒时记录提示，审批取消或已中止后的迟到允许响应不会授权远程执行。
 - 远端 Linux Bash 不受本地 DSH Shell Sandbox 约束；默认向 DSH Approval 请求一次 Agent 会话/工作区级别的远端执行授权，拒绝或无审批服务时失败关闭。DSH `read-only` 会话禁止远端 Bash。授权不跨会话持久化，`remoteBashApproval` 可配置逐命令审批，`'off'` 需自行承担风险。
 - 仅经过授权的 `remote_bash` ShellSpec 可以进入 SSH 执行器，旧的 `pwsh` 路由默认被阻止。可通过 `allowLegacyRemoteShell: true` 显式恢复不安全兼容。请注意：这里的批准不是远程沙箱，Bash 命令仍可访问 SSH 账号权限范围内的其它目录。
 - 文件系统的 `processPath()` 向原生 read/write 模型输出真实 Linux POSIX 路径；内部 `displayPath`、`targetKey` 和 SFTP 映射保持不变。
 - DSH 右侧终端：当宿主提供 `subprocess.spawnTerminal()` 时，按会话归属和工作区映射连接 SSH PTY；普通本地终端仍委托原生实现。
 - Git：设置页提供通过 SSH 查询的只读 `git status`、Diff 与近期提交；可选的 `subprocess.spawn()` 适配负责兼容部分原生 Git 入口，是否完整取决于 DSH 宿主接口。
 - 插件没有自建第二套终端页面，也不承诺替换 DSH Desktop Core。
+
+## 远程搜索实现
+
+浅层 `glob` 按文件名仅列举所选目录；显式含 `**` 的递归 glob 使用最多八个并行 SFTP `readdir`，对 `src/**/*.py` 等字面目录前缀提前剪枝；读取结果仍在 Host 侧匹配、排序并限制数量。递归搜索最多扫描 50,000 个目录条目，20 秒时间预算；如果无法在预算内完成，抛出包含 `SSH_SEARCH_TIMEOUT` 或 `SSH_SEARCH_LIMIT` 的错误，不将已扫描的部分冒充完整匹配结果。取消操作不会撤销已发送的 SFTP 请求，但不会继续使用迟到结果。
+
+该搜索是只读 SSH/SFTP 文件操作，**不会自动调用 `remote_bash`、远程 `rg` 或提升 Shell 权限**。大量目录或高延迟网络仍可能达到预算，需要缩小路径；常规文件和 Git 检索受到宿主兼容性限制。
 
 ## HTTP 权限边界
 

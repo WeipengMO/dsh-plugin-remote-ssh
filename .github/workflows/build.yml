@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.version.outputs.tag }}
+      package_version: ${{ steps.version.outputs.version }}
+      installer_sha256: ${{ steps.installer_sha.outputs.sha256 }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -38,7 +40,9 @@ jobs:
       - name: Read package version
         id: version
         run: |
-          echo "tag=v$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+          package_version="$(node -p 'require("./package.json").version')"
+          echo "tag=v${package_version}" >> "$GITHUB_OUTPUT"
+          echo "version=${package_version}" >> "$GITHUB_OUTPUT"
 
       - name: Validate version tag
         if: startsWith(github.ref, 'refs/tags/v')
@@ -75,17 +79,75 @@ jobs:
           grep -q '^package/vendor/ssh2/' "$RUNNER_TEMP/plugin-files.txt"
           echo "Validated DSH installer: $file"
 
-      - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
+      # High/critical advisory findings block distribution of the test installer.
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level high
+
+      # Malware scanning is distinct from Gitleaks, which checks only for secrets.
+      # Scan both the exact downloadable tarball and its extracted package files.
+      # Missing or stale antivirus signatures must fail closed, not silently skip.
+      - name: Malware-scan packaged installer (ClamAV)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq clamav clamav-freshclam
+          sudo systemctl stop clamav-freshclam.service 2>/dev/null || true
+          sudo freshclam --stdout
+          scan_dir="$(mktemp -d)"
+          trap 'rm -rf "$scan_dir"' EXIT
+          package_file="artifacts/dsh-plugin-remote-ssh-${{ steps.version.outputs.version }}.tgz"
+          tar -xzf "$package_file" -C "$scan_dir"
+          clamscan --recursive --infected "$scan_dir"
+          clamscan --infected "$package_file"
+          sha256sum "$package_file"
+
+      - name: Record scanned installer SHA-256
+        id: installer_sha
+        shell: bash
+        run: |
+          set -euo pipefail
+          file="artifacts/dsh-plugin-remote-ssh-${{ steps.version.outputs.version }}.tgz"
+          echo "sha256=$(sha256sum "$file" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      # GitHub's upload-artifact v7 can publish one file directly without an
+      # additional outer ZIP; the artifact name is the file basename.
+      - name: Upload verified installer (direct .tgz)
+        uses: actions/upload-artifact@v7
         with:
-          name: dsh-remote-ssh-${{ github.sha }}
-          path: artifacts/*.tgz
+          path: artifacts/dsh-plugin-remote-ssh-${{ steps.version.outputs.version }}.tgz
+          archive: false
           if-no-files-found: error
           retention-days: 30
 
+  verify_artifact:
+    name: Verify direct installer download (SHA-256)
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the direct .tgz artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: dsh-plugin-remote-ssh-${{ needs.build.outputs.package_version }}.tgz
+          path: downloaded
+      - name: Verify round-trip integrity and expected package structure
+        shell: bash
+        env:
+          EXPECTED_SHA256: ${{ needs.build.outputs.installer_sha256 }}
+          PACKAGE_VERSION: ${{ needs.build.outputs.package_version }}
+        run: |
+          set -euo pipefail
+          file="downloaded/dsh-plugin-remote-ssh-${PACKAGE_VERSION}.tgz"
+          test -s "$file"
+          echo "${EXPECTED_SHA256}  ${file}" | sha256sum -c -
+          tar -tzf "$file" > "$RUNNER_TEMP/installer-entries.txt"
+          grep -qx 'package/package.json' "$RUNNER_TEMP/installer-entries.txt"
+          grep -qx 'package/dist/index.js' "$RUNNER_TEMP/installer-entries.txt"
+          echo "Direct artifact download matches the scanned installer"
+
   release:
     name: Publish GitHub Release
-    needs: build
+    needs: [build, verify_artifact]
     outputs:
       published: ${{ steps.tag_check.outputs.publish }}
     if: >-
@@ -122,9 +184,9 @@ jobs:
 
       - name: Download tested installer
         if: github.ref != 'refs/heads/main' || steps.tag_check.outputs.publish == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
-          name: dsh-remote-ssh-${{ github.sha }}
+          name: dsh-plugin-remote-ssh-${{ needs.build.outputs.package_version }}.tgz
           path: artifacts
 
       - name: Publish stable release from the validated version
@@ -135,10 +197,18 @@ jobs:
           name: DSH Remote SSH ${{ needs.build.outputs.release_tag }}
           prerelease: false
           body: |
-            Official DSH Remote SSH release. Install the attached verified .tgz package using:
-            `dsh plugin --profile desktop add <path-to-downloaded-tgz>`
+            Official DSH Remote SSH release. This release combines the fixes from PR #24, #29 and #30.
 
-            See [CHANGELOG](https://github.com/WeipengMO/dsh-plugin-remote-ssh/blob/${{ needs.build.outputs.release_tag }}/CHANGELOG.md) for this version's features, security behavior, and migration notes.
+            Highlights:
+            - Restrict host-native bash/pwsh tools in remote SSH Agent scopes where supported; use approval-gated remote_bash.
+            - Improve SSH approval diagnostics and remote workspace guidance.
+            - Speed up recursive glob with up to 8 concurrent read-only SFTP listings and literal-prefix pruning; preserve the 20s safety budget.
+            - Distribute the exact SHA-256-verified and ClamAV-scanned .tgz installer directly.
+
+            Install: `dsh plugin --profile desktop add <path-to-downloaded-tgz>`
+            Restart the DSH Host after upgrading. Jupyter Notebook Viewer (PR #25) is not included in this release.
+
+            See [CHANGELOG](https://github.com/WeipengMO/dsh-plugin-remote-ssh/blob/${{ needs.build.outputs.release_tag }}/CHANGELOG.md) for details, security boundaries and migration notes.
           generate_release_notes: true
           files: artifacts/*.tgz
           fail_on_unmatched_files: true
@@ -174,9 +244,9 @@ jobs:
         run: npm install --global npm@11.21.0
 
       - name: Download the same CI-validated installer as GitHub Release
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
-          name: dsh-remote-ssh-${{ github.sha }}
+          name: dsh-plugin-remote-ssh-${{ needs.build.outputs.package_version }}.tgz
           path: artifacts
 
       - name: Verify package identity and release version

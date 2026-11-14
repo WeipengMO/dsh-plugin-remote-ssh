@@ -9,7 +9,7 @@
 - `npm_publish`：**在 GitHub Release 成功创建之后**，且仓库 Actions 变量 `NPM_PUBLISH_ENABLED` 恰好为字符串 `true`，才下载相同 CI Artifact，通过 npm OIDC Trusted Publishing 发布为 `latest`。PR、手动运行、Tag 推送、旧版本号重复推送不会发布。
 - 发布任务不会调用任意 SSH Host，也不需要 `NPM_TOKEN`。使用 Node.js 24 + npm CLI 11.21.0，并对 tarball 内的包名、版本与 GitHub 源码仓库进行校验；目标 npm 版本已存在则不重复发布。
 
-**注意：变更工作流但不递增 `package.json.version` 时不会重新发布已存在的 `v1.1.2`。** 此机制是有意设计的，防止 GitHub Release 和 npm 同名版本的内容不同。
+**注意：已发布或已创建 Tag 的版本号不可重发。仅改变工作流而不递增 `package.json.version` 时不会重新发布现有版本。** 此机制是有意设计的，防止 GitHub Release 和 npm 同名版本的内容不同。
 
 ## 一次性启用：必须由 npm 包所有者完成
 
@@ -23,11 +23,11 @@
 npm view dsh-plugin-remote-ssh version --registry=https://registry.npmjs.org
 ```
 
-- **如果包名未注册**：必须先通过 npm 账号登录并**首次人工发布**，npm 才允许设置 Trusted Publisher。可使用已经由 GitHub CI 验证的 [v1.1.2 Release](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/tag/v1.1.2) 中的 `dsh-plugin-remote-ssh-1.1.2.tgz`；下载后在所在目录运行：
+- **如果包名未注册**：必须先通过 npm 账号登录并**首次人工发布**，npm 才允许设置 Trusted Publisher。可使用已经由 GitHub CI 验证的 [v1.1.3 Release](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/tag/v1.1.3) 中的 `dsh-plugin-remote-ssh-1.1.3.tgz`；下载后在所在目录运行：
 
   ```bash
   npm login --registry=https://registry.npmjs.org
-  npm publish ./dsh-plugin-remote-ssh-1.1.2.tgz --access public --tag latest --registry=https://registry.npmjs.org
+  npm publish ./dsh-plugin-remote-ssh-1.1.3.tgz --access public --tag latest --registry=https://registry.npmjs.org
   ```
 
   按 npm 提示完成账号登录/2FA。上述首次发布不通过 GitHub Actions；不要将 npm Token 写入仓库或聊天记录。
@@ -68,7 +68,7 @@ NPM_PUBLISH_ENABLED = true
 
 ### 4. 验证未来新版本
 
-提交真正的新版本（例如 `1.1.3`，必须同步更新 `lib/client.js` 和 Changelog），待 PR 测试通过后合并 `main`。工作流按顺序：
+提交真正的新版本（本次为 `1.1.3`，后续请继续递增版本号；必须同步更新 `lib/client.js` 和 Changelog），待 PR 测试通过后合并 `main`。工作流按顺序：
 
 1. 测试、打包；
 2. GitHub Release `v1.1.3` 和 `.tgz`；

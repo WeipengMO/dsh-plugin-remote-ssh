@@ -5,17 +5,17 @@
 [![Release](https://img.shields.io/github/v/release/WeipengMO/dsh-plugin-remote-ssh)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/latest)
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-在 **DeepSeek Harness (DSH)** 的原生界面中使用远程 Linux 项目：通过 SSH/SFTP 访问文件、运行 Agent 命令和终端，不需要在远端部署 DSH CLI/Core 或独立 Web 服务，也无需将源码同步到本地 Windows。
+在 **DeepSeek Harness (DSH)** 的原生界面中使用远程 Linux 项目：通过 SSH/SFTP 访问文件、运行 Agent 命令和终端，不需要在远端部署 DSH CLI/Core 或独立 Web 服务，也无需将源码同步到本地电脑。
 
 *Remote Linux workspaces for DeepSeek Harness, with SSH/SFTP file operations, Agent shell routing, and integration with the native DSH UI.*
 
-> **最新正式版本：v1.1.2。** 当前项目为社区插件，不是 DeepSeek Harness 官方内置功能。兼容性取决于 DSH 宿主暴露的插件接口；请在重要项目上使用前自行验证。
+> **最新正式版本：v1.1.3。** 当前项目为社区插件，不是 DeepSeek Harness 官方内置功能。兼容性取决于 DSH 宿主暴露的插件接口；请在重要项目上使用前自行验证。
 
 ## 功能
 
 - **远程项目 / 工作区**：在 DSH 的新建项目与工作区目录选择流程中选择 SSH 主机和远程 Linux 目录。
-- **Agent 远程文件操作**：在已激活的远程工作区中，将文件读取、写入、编辑及 `glob`/`grep` 搜索路由到 SSH/SFTP；本地工作区继续使用 DSH 原有实现。
-- **Agent 专用 Linux 命令工具**：远程 SSH 会话优先使用 `remote_bash`（模型看到 Bash/POSIX Schema），并在宿主支持 Agent 级工具限制时隐藏 Windows `pwsh`；切回本地时恢复 `pwsh`。旧的 `pwsh` → SSH Shell 执行默认禁止，以防绕过远端审批（可显式开启兼容选项）。
+- **Agent 远程文件操作**：在已激活的远程工作区中，将文件读取、写入、编辑及 `glob`/`grep` 搜索路由到 SSH/SFTP；本地工作区继续使用 DSH 原有实现。普通文件名 glob 仅搜索选定目录，显式 `**` 递归模式使用最多 8 个并发 SFTP 目录列举，并提供搜索预算与超限诊断。
+- **Agent 专用 Linux 命令工具**：远程 SSH 会话使用 `remote_bash`（Bash/POSIX Schema），在宿主支持 Agent 级工具限制时隐藏 macOS/Linux 的 `bash` 与 Windows 的 `pwsh`；返回本地项目时恢复对应工具。远程原生 Shell 执行仍默认拒绝，不绕过 SSH 审批。
 - **原生终端**：在宿主提供 `subprocess.spawnTerminal()` 时，将 DSH 右侧终端的远程工作区会话连接到 SSH PTY；不新增独立终端窗口。
 - **Git 状态**：在 Remote SSH 设置页查看远程 `git status`、Diff 统计和近期提交；在兼容的宿主版本中也会尝试适配原生 Git 子进程入口。
 - **SSH 主机管理**：支持 `~/.ssh/config`、密钥文件与 ssh-agent、显式主机指纹确认，以及受限的 Cloudflare Access `cloudflared` ProxyCommand。
@@ -30,20 +30,20 @@
 
 ## 安装
 
-**当前可用：GitHub Release 安装包。** npm 自动发布已准备 GitHub Actions 工作流，但需 npm 包所有者完成 [首次发布和 OIDC 关联](docs/npm-publishing.md)；在 Registry 查询验证前不要假设 npm 包已经可安装。
+**推荐渠道：GitHub Release 正式安装包。** 主分支新版本通过测试、生产依赖审计与 ClamAV 检查后自动生成 Release，发布的 `.tgz` 与 CI 校验文件一致。npm 发布仅在所有权、OIDC Trusted Publisher 和 Actions 变量已启用时执行；请先在 Registry 核实可用性，不要假设一定已经发布。详情见 [npm 发布说明](docs/npm-publishing.md)。
 
-1. 从 [v1.1.2 Release](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/tag/v1.1.2) 下载 `dsh-plugin-remote-ssh-1.1.2.tgz`。
+1. 从 [v1.1.3 Release](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/tag/v1.1.3) 下载 `dsh-plugin-remote-ssh-1.1.3.tgz`。
 2. 完全退出 DSH（Windows 需同时退出托盘进程）。
 3. 在运行 DSH 的机器上执行：
 
 ```powershell
 # Windows DSH Desktop
-dsh plugin --profile desktop add "C:\path\to\dsh-plugin-remote-ssh-1.1.2.tgz"
+dsh plugin --profile desktop add "C:\path\to\dsh-plugin-remote-ssh-1.1.3.tgz"
 ```
 
 ```bash
 # DSH Web Host
-dsh plugin --profile web add /path/to/dsh-plugin-remote-ssh-1.1.2.tgz
+dsh plugin --profile web add /path/to/dsh-plugin-remote-ssh-1.1.3.tgz
 ```
 
 4. 完全重启对应 DSH 进程；Web 页面如显示旧前端内容，再刷新浏览器。
@@ -51,7 +51,7 @@ dsh plugin --profile web add /path/to/dsh-plugin-remote-ssh-1.1.2.tgz
 **从 GitHub 安装（仓库公开后可尝试）：** DSH CLI 支持 Git 来源，示例：
 
 ```powershell
-dsh plugin --profile desktop add "github:WeipengMO/dsh-plugin-remote-ssh#v1.1.2"
+dsh plugin --profile desktop add "github:WeipengMO/dsh-plugin-remote-ssh#v1.1.3"
 ```
 
 Git 安装路径尚未在本项目的干净 Windows Desktop 环境完成端到端验收。若 pnpm 阻止 Git 构建脚本，优先使用上面的正式 `.tgz` 包；不要为了安装插件而全局关闭构建脚本安全限制。**GitHub 公开并不等于插件自动进入 DSH 插件市场。**
@@ -71,13 +71,20 @@ Git 安装路径尚未在本项目的干净 Windows Desktop 环境完成端到�
 
 **开通状态：** GitHub Releases 已可用；npm 包首次发布、Trusted Publisher 关联及 `NPM_PUBLISH_ENABLED` 开关仍需一次性配置，故暂不宣称 npm 包已发布。具体见 [npm 发布与自动更新说明](docs/npm-publishing.md)。每次升级后应完全重启 DSH Host（Desktop 含托盘进程）。
 
-本版 `remote_bash` 只支持前台执行；旧的 `pwsh` 远程入口默认拒绝，需显式启用不安全兼容选项才能继续使用。更新详情请参阅 [CHANGELOG](CHANGELOG.md)。
+本版 `remote_bash` 仅支持前台执行；远程 Agent 在宿主支持 Agent 级工具限制时隐藏原生 `bash` 和 `pwsh`，并默认阻止旧远程入口。更新详情请参阅 [CHANGELOG](CHANGELOG.md)。
 
 ## 远程命令执行权限
 
 **本机 DSH Sandbox 不会隔离远端 Linux Bash。** 因此默认使用 DSH Approval 请求一次 Agent 会话与 SSH 工作区级别的授权，未批准或缺少审批服务时拒绝执行。会话处于 `read-only` 时一律禁止远端 Bash。切换到新 Agent 会话需要重新授权。远端 Bash 命令可访问该 SSH 用户有权限的文件，即使指定的工作目录位于工作区内，也不能视为远端文件系统沙箱。
 
 可选插件配置：`remoteBashApproval: 'session'`（默认，每会话/工作区批准一次）、`'command'`（每条命令批准）、`'off'`（不推荐，关闭额外审批）。旧路由只有显式设置 `allowLegacyRemoteShell: true` 才允许从 `pwsh` 进入 SSH（不推荐）。这些选项不会改变 Linux 账号本身的权限或本地与远端隔离关系。
+
+## 远程搜索性能与限制
+
+- `glob({pattern: "*.py", path: "."})`：只检查当前目录；要递归查找请显式使用 `**/*.py`。
+- `glob({pattern: "projects/**/*.py", path: "."})`：以 `projects` 字面前缀剪枝，最多并发 8 个只读 SFTP 目录列举。不会为了搜索自动执行远程 Bash 或绕过审批。
+- 递归 glob 最多遍历 50,000 个条目，内置 20 秒预算，超过时报告 `SSH_SEARCH_TIMEOUT` 或 `SSH_SEARCH_LIMIT`；该限制旨在避免长时间挂起，不能保证巨型目录总能搜索完。`grep` 仍可能需要大量远端读操作。
+- 原生 DSH、远端文件系统和网络条件会影响搜索耗时；工具可能将结构化 `.code` 包装为 `ToolCallError`，可从错误文本中的稳定标识判断原因。
 
 ## 工作原理
 

@@ -37,13 +37,13 @@ DSH CLI 支持 Git 来源安装，但 Git 构建脚本可能受到 pnpm 安全�
 
 在运行 DSH Host 的机器上检查 `ssh -V`；Windows 需要安装 OpenSSH Client，并确认 `ssh.exe` 可被 DSH 进程找到。必要时用环境变量 `DSH_SSH_BIN` 指向其路径。目标 Linux 主机需要 Bash；远程工作区执行的 Shell 语法是 Bash/POSIX，**不是 Windows PowerShell**。
 
-## 远程工作区的工具卡片仍显示 pwsh
+## 远程工作区的工具卡片仍显示 bash 或 pwsh
 
-v1.1.0 为远程 Agent 注册 `remote_bash` Linux/POSIX Schema，并在 DSH 支持 Agent scoped `tools.restrict()` 时只对远程 Agent 隐藏 `pwsh`。本地项目继续使用原生 `pwsh`；v1.0.0 历史工具卡片依然可能显示旧名称。
+v1.1.3-beta.3 测试版同时包含 PR #24 的 macOS/Linux `bash` 及 Windows `pwsh` 远程 Agent 隐藏修复。仅在 DSH 支持 Agent 级 `tools.restrict()` 时隐藏它们；本地会话不受影响，历史工具卡片不会重命名。
 
-- 确认安装的是 v1.1.0 正式包（v1.0.0 不包含这一改动），完全退出 DSH Host 后重启并新建远程会话。
-- 新的远程命令应优先调用 `remote_bash`，历史 `pwsh` 调用卡片不会重命名；在不支持条件工具或 Agent 限制的宿主上，两个工具可能同时显示。
-- `remote_bash` 仅支持前台命令执行，超时会返回 `timedOut: true`；旧 `pwsh` 远端执行默认阻止。
+- 确认安装的是 v1.1.3-beta.3 测试包，并完全退出 DSH Host 后重新启动，再创建新的远程 Agent 会话。
+- 远程 Linux 命令应只调用 `remote_bash`，不要调用宿主原生 `bash/pwsh`；旧宿主可能仍显示它们，但远程原生 Shell 执行仍按现有安全路由拒绝。
+- `remote_bash` 仅支持前台命令执行，超时会返回 `timedOut: true`；原生 `bash/pwsh` 远端执行默认阻止。
 - 可让 Agent 调用 `remote_ssh_status` 确认 `remote: true`，并在 `remote_bash` 中执行 `pwd; uname -s` 验证实际平台。
 - 如果 `remote_bash` 提示当前不是 SSH 工作区，检查会话的当前工作目录是否已正确切换；工具不会静默退回本地执行。
 
@@ -94,3 +94,21 @@ pnpm pack
 - 是否使用 SSH Config、ssh-agent 或 Cloudflare Access。
 
 **发布日志前请删去用户名、主机地址、内网 IP、远端路径、Token、密钥内容和其他不希望公开的信息。** 可在 [GitHub Issues](https://github.com/WeipengMO/dsh-plugin-remote-ssh/issues) 提交经过脱敏的复现信息。
+
+## v1.1.3 正式版：审批、搜索与安装安全
+
+本版本正式整合 PR #24、#29、#30。Jupyter Viewer 的 PR #25 继续独立开发，**不包含在本版安装包中**。
+
+**安装和升级：** 从 [v1.1.3 GitHub Release](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/tag/v1.1.3) 下载已检验的 `dsh-plugin-remote-ssh-1.1.3.tgz`，校验 Release/CI 提供的 SHA-256，然后 `dsh plugin --profile desktop add ./dsh-plugin-remote-ssh-1.1.3.tgz`。完全退出 DSH Desktop（包括后台 Host）后重启。npm 安装以 Registry 实际可用情况为准。
+
+**Chrome 安全提示：** CI 通过高危依赖审计、更新病毒库的 ClamAV 对包本体及解压内容扫描，并使用直接 `.tgz` 分发和下载 SHA-256 校验。这不构成无恶意软件证明，也不能保证 Chrome 不拦截；若仍提示危险，请先核查原因，不要绕过浏览器保护。
+
+**远程工具隔离：** 只有 `remote_bash` 用于远端 Linux Shell。支持 Agent-scoped 限制的 DSH 宿主会对远程 Agent 隐藏原生 `bash/pwsh`，本地工作区继续使用原生 Shell；旧宿主即使仍显示原生 Shell，远程未授权调用也必须拒绝。禁止把 `run_code danger-full-access` 当作 SSH 审批替代品。
+
+**审批耗时：** DSH PTC `run_code` 的总时间包含审批等待。插件记录等待开始、超过 20 秒的诊断警告、最终审批结果和执行耗时（不打印命令及密钥）；弹窗是否出现由 DSH Desktop 管理。审批取消不自动重试，调用方中止后的迟到许可不会执行命令，也不会缓存授权。
+
+**远程目录：** `workdir` 省略或写 `.`；登录目录不一定是当前远程项目根目录。越过项目根目录的 `workdir` 必须被拒绝，但项目根目录限制不构成 SSH 进程沙箱。
+
+**glob 语义：** `*.py` 在指定目录中只检查一层，`**/*.py` 显式递归，`projects/**/*.py` 使用字面前缀剪枝。递归 SFTP 搜索最多 8 并发，内置 20 秒 / 50,000 条目预算；超限输出 `SSH_SEARCH_TIMEOUT` / `SSH_SEARCH_LIMIT`，请缩小 `path`，避免对同一巨大工作区反复重试。SFTP 搜索不需要远端 Bash 审批。
+
+**验证范围：** 自动测试涵盖远程文件路由、授权安全、浅层与递归匹配、并发预算、SSH 功能；真实 Git 仓库、右侧原生终端以及不同 DSH Host 版本仍建议单独验证。不要把 CI 通过当成完整跨平台端到端验收。
