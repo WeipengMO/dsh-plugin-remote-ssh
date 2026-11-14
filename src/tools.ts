@@ -721,13 +721,6 @@ export function registerRemoteBashTool(
         }
         ctx.logger?.info?.('remote-ssh: remote_bash approval ' + outcome +
           ' after ' + (Date.now() - approvalStartedAt) + 'ms');
-        // An approval response that arrives after run_code cancellation
-        // must never be cached as a session grant or execute a command.
-        if (exec.signal?.aborted) {
-          ctx.logger?.warn('remote-ssh: remote_bash ignored late approval after caller cancellation');
-          throw new RemoteSshError('SSH_APPROVAL_DENIED',
-            'remote Bash approval arrived after caller cancellation; command was not executed');
-        }
         if (outcome !== 'allowed-once') {
           const explanation = outcome === 'cancelled'
             ? 'remote Bash approval was cancelled before command execution; do not retry automatically'
@@ -735,6 +728,13 @@ export function registerRemoteBashTool(
               ? 'remote Bash approval UI/answerer is unavailable; check DSH Desktop approval handling, do not elevate run_code sandbox'
               : 'remote Bash permission was ' + outcome + '; the command was not executed, do not elevate run_code sandbox';
           throw new RemoteSshError('SSH_APPROVAL_DENIED', explanation);
+        }
+        // An approval response that arrives after run_code cancellation
+        // must never be cached as a session grant or execute a command.
+        if (exec.signal?.aborted) {
+          ctx.logger?.warn('remote-ssh: remote_bash ignored late approval after caller cancellation');
+          throw new RemoteSshError('SSH_APPROVAL_DENIED',
+            'remote Bash approval arrived after caller cancellation; command was not executed');
         }
         if (approvalMode === 'session') {
           const allowed = grants.get(session) ?? new Set<string>();
