@@ -95,38 +95,20 @@ pnpm pack
 
 **发布日志前请删去用户名、主机地址、内网 IP、远端路径、Token、密钥内容和其他不希望公开的信息。** 可在 [GitHub Issues](https://github.com/WeipengMO/dsh-plugin-remote-ssh/issues) 提交经过脱敏的复现信息。
 
-## 测试版 v1.1.3-beta.2：远程审批与 glob 性能优化
+## v1.1.3 正式版：审批、搜索与安装安全
 
-本测试版在 v1.1.2 Worker 修复基础上，改进 remote_bash 审批阶段诊断与远程工作区动态指引。**测试分支仅产出 GitHub Actions 安装包，不自动发布到 npm 或正式 GitHub Release。**
+本版本正式整合 PR #24、#29、#30。Jupyter Viewer 的 PR #25 继续独立开发，**不包含在本版安装包中**。
 
-1. 打开该测试分支 Pull Request 的 GitHub Actions「Test and package (Node 22)」构建，确认 CI 全部通过。
-2. 在该 Actions 页面 Artifacts 直接下载 `dsh-plugin-remote-ssh-1.1.3-beta.2.tgz`，**没有额外 ZIP**。仅在依赖漏洞检查和 ClamAV 病毒扫描均通过后才提供该测试产物。若 Chrome 仍将文件判断为危险，请保留拦截并反馈，不要绕过保护。
-3. 在 DSH Desktop 所在机器上，使用 `dsh plugin --profile desktop add ./dsh-plugin-remote-ssh-1.1.3-beta.2.tgz`（注意 `./` 表示本地路径），然后**完全退出并重新启动 DSH Host**。
+**安装和升级：** 从 [v1.1.3 GitHub Release](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/tag/v1.1.3) 下载已检验的 `dsh-plugin-remote-ssh-1.1.3.tgz`，校验 Release/CI 提供的 SHA-256，然后 `dsh plugin --profile desktop add ./dsh-plugin-remote-ssh-1.1.3.tgz`。完全退出 DSH Desktop（包括后台 Host）后重启。npm 安装以 Registry 实际可用情况为准。
 
-**审批等待不是 SSH 执行超时。** DSH 的 PTC `run_code` 总时间预算包含嵌套工具和用户审批等待。插件现在在 Host 日志中记录 `awaiting user approval`、审批结果/耗时和命令执行阶段（不记录原始命令或主机信息）；但是否显示审批弹窗、是否让父级 `run_code` 超时，仍由 DSH 宿主控制。不要把扩大 `run_code` 的 `danger-full-access` 权限当成远端 SSH 审批的替代方案。
+**Chrome 安全提示：** CI 通过高危依赖审计、更新病毒库的 ClamAV 对包本体及解压内容扫描，并使用直接 `.tgz` 分发和下载 SHA-256 校验。这不构成无恶意软件证明，也不能保证 Chrome 不拦截；若仍提示危险，请先核查原因，不要绕过浏览器保护。
 
-**工作目录：** 默认不传 `workdir` 或传 `.`。登录目录（例如 `/home/user`）不一定等于所选项目根目录；显式指定的 `workdir` 必须位于当前远程项目内。注意工作目录范围检查**不构成远程进程沙箱**：获批的命令仍使用 SSH 账号本身的权限。
+**远程工具隔离：** 只有 `remote_bash` 用于远端 Linux Shell。支持 Agent-scoped 限制的 DSH 宿主会对远程 Agent 隐藏原生 `bash/pwsh`，本地工作区继续使用原生 Shell；旧宿主即使仍显示原生 Shell，远程未授权调用也必须拒绝。禁止把 `run_code danger-full-access` 当作 SSH 审批替代品。
 
-测试推荐：先在远程项目内执行 `console.log("worker alive")`、`remote_ssh_status`、`remote_bash pwd`，再测试首次审批允许/拒绝/取消；最后在单独的临时测试目录验证远程文件读写、只读 Git 状态和原生终端。不要以这组单元测试替代真实 Desktop → SSH 端到端验证。
+**审批耗时：** DSH PTC `run_code` 的总时间包含审批等待。插件记录等待开始、超过 20 秒的诊断警告、最终审批结果和执行耗时（不打印命令及密钥）；弹窗是否出现由 DSH Desktop 管理。审批取消不自动重试，调用方中止后的迟到许可不会执行命令，也不会缓存授权。
 
-### Beta 安装包完整性与 Chrome 安全提示
+**远程目录：** `workdir` 省略或写 `.`；登录目录不一定是当前远程项目根目录。越过项目根目录的 `workdir` 必须被拒绝，但项目根目录限制不构成 SSH 进程沙箱。
 
-CI 使用 `actions/upload-artifact@v7` 的 `archive: false` 直接分发 `.tgz`；发布流程中使用 `actions/download-artifact@v8` 下载同一份测试通过的文件。构建会检查生产依赖高危漏洞，并使用更新签名的 ClamAV 扫描打包文件及解压内容。扫描中断、病毒命中或依赖审计失败时，流程会拒绝上传测试安装包。
+**glob 语义：** `*.py` 在指定目录中只检查一层，`**/*.py` 显式递归，`projects/**/*.py` 使用字面前缀剪枝。递归 SFTP 搜索最多 8 并发，内置 20 秒 / 50,000 条目预算；超限输出 `SSH_SEARCH_TIMEOUT` / `SSH_SEARCH_LIMIT`，请缩小 `path`，避免对同一巨大工作区反复重试。SFTP 搜索不需要远端 Bash 审批。
 
-GitHub Actions 页面显示的 SHA-256 是本次上传的 `.tgz` 本体，可与本地 `shasum -a 256 dsh-plugin-remote-ssh-1.1.3-beta.2.tgz` 比较。扫描通过**不保证**浏览器一定解除拦截，也不构成无恶意代码证明；如 Chrome 仍报危险内容，不要强制保留，优先调查具体警告和下载 URL。
-
-### v1.1.3-beta.2 新增修复
-
-- 普通 glob 文件名模式（例如 `*.ts`、`.dsh-ssh-smoke.*`）仅搜索当前目录，`src/*.ts` 等带路径模式按指定层级扫描；需要递归搜索请显式使用 `**/*.ts`。此变化使单层搜索不再意外扫描全部子目录。
-- 远程 glob 设置 20 秒搜索预算与最多 50,000 个文件项限制，并支持取消正在等待的 SFTP readdir。到达时间预算返回 `SSH_SEARCH_TIMEOUT`，而非外层泛化的工具超时。
-- `remote_bash` 等待审批 20 秒仍未完成时，在 DSH Host 日志记录诊断警告。用户取消或外层 `run_code` 中止后，即使审批延迟返回允许，也不会执行命令或缓存授权。Agent 指引明确报告每次审批尝试。
-- 本版本不会改变原有远程执行权限边界；单独的 SSH 审批和工作目录限制保持启用。审批弹窗本身仍由 DSH Desktop 控制。
-
-## v1.1.3-beta.3 集成测试与搜索说明
-
-此版本同时整合 [PR #24](https://github.com/WeipengMO/dsh-plugin-remote-ssh/pull/24) 与 [PR #29](https://github.com/WeipengMO/dsh-plugin-remote-ssh/pull/29)，并加速递归 `glob` 搜索。此测试分支不会自动发布 npm 或正式 Release。
-
-- 下载 `dsh-plugin-remote-ssh-1.1.3-beta.3.tgz` 并核对 CI SHA-256；如 Chrome 仍提示危险下载不要绕过。
-- 只读 SFTP 浅层搜索仍使用 `*.py`。递归搜索显式使用 `**/*.py`，目录前缀可缩小不必要的遍历。
-- 测试大目录搜索时依次验证 `**/*.py`、`src/**/*.py`、取消正在运行的工具，以及缩小 path 之后的行为。确保没有未经用户批准的远程命令执行。
-- 旧版本 20 秒搜索预算与最多 50,000 文件项限制继续保留；超时必须明确报告 `SSH_SEARCH_TIMEOUT`，不能将结果静默截断为完整搜索。
+**验证范围：** 自动测试涵盖远程文件路由、授权安全、浅层与递归匹配、并发预算、SSH 功能；真实 Git 仓库、右侧原生终端以及不同 DSH Host 版本仍建议单独验证。不要把 CI 通过当成完整跨平台端到端验收。
