@@ -86,5 +86,17 @@
     "react": {
       "optional": true
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WeipengMO/dsh-plugin-remote-ssh.git"
+  },
+  "homepage": "https://github.com/WeipengMO/dsh-plugin-remote-ssh#readme",
+  "bugs": {
+    "url": "https://github.com/WeipengMO/dsh-plugin-remote-ssh/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   }
 }
