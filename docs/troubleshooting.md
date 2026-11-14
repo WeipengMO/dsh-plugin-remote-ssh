@@ -94,3 +94,17 @@ pnpm pack
 - 是否使用 SSH Config、ssh-agent 或 Cloudflare Access。
 
 **发布日志前请删去用户名、主机地址、内网 IP、远端路径、Token、密钥内容和其他不希望公开的信息。** 可在 [GitHub Issues](https://github.com/WeipengMO/dsh-plugin-remote-ssh/issues) 提交经过脱敏的复现信息。
+
+## 测试版 v1.1.3-beta.1：远程审批与 Agent 指引
+
+本测试版在 v1.1.2 Worker 修复基础上，改进 remote_bash 审批阶段诊断与远程工作区动态指引。**测试分支仅产出 GitHub Actions 安装包，不自动发布到 npm 或正式 GitHub Release。**
+
+1. 打开该测试分支 Pull Request 的 GitHub Actions「Test and package (Node 22)」构建，确认 CI 全部通过。
+2. 在该 Actions 页面 Artifacts 下载压缩包，解压得到 `dsh-plugin-remote-ssh-1.1.3-beta.1.tgz`。
+3. 在 DSH Desktop 所在机器上，使用 `dsh plugin --profile desktop add ./dsh-plugin-remote-ssh-1.1.3-beta.1.tgz`（注意 `./` 表示本地路径），然后**完全退出并重新启动 DSH Host**。
+
+**审批等待不是 SSH 执行超时。** DSH 的 PTC `run_code` 总时间预算包含嵌套工具和用户审批等待。插件现在在 Host 日志中记录 `awaiting user approval`、审批结果/耗时和命令执行阶段（不记录原始命令或主机信息）；但是否显示审批弹窗、是否让父级 `run_code` 超时，仍由 DSH 宿主控制。不要把扩大 `run_code` 的 `danger-full-access` 权限当成远端 SSH 审批的替代方案。
+
+**工作目录：** 默认不传 `workdir` 或传 `.`。登录目录（例如 `/home/user`）不一定等于所选项目根目录；显式指定的 `workdir` 必须位于当前远程项目内。注意工作目录范围检查**不构成远程进程沙箱**：获批的命令仍使用 SSH 账号本身的权限。
+
+测试推荐：先在远程项目内执行 `console.log("worker alive")`、`remote_ssh_status`、`remote_bash pwd`，再测试首次审批允许/拒绝/取消；最后在单独的临时测试目录验证远程文件读写、只读 Git 状态和原生终端。不要以这组单元测试替代真实 Desktop → SSH 端到端验证。

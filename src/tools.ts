@@ -27,7 +27,7 @@ interface ToolContext {
     }> }>;
   };
   systemPrompt?: { section(definition: { name: string; order: number; text: string | ((context: { agent?: { session?: unknown } }) => string) }): unknown };
-  logger?: { warn(message: string): void };
+  logger?: { warn(message: string): void; info?(message: string): void };
   get?(name: string): unknown;
   on?(event: string, listener: (payload: unknown) => unknown, options?: { global?: boolean }): unknown;
 }
@@ -508,8 +508,22 @@ export function registerManagementTools(
     order: 900,
     text: ({ agent }) => {
       if (!agent?.session) return '';
-      try { return remoteWorkspaceShellGuidance(ctx.workingDirectory.get(agent.session)); }
+      let cwd: string;
+      try { cwd = ctx.workingDirectory.get(agent.session); }
       catch { return ''; }
+      if (!looksVirtual(cwd)) return '';
+      try {
+        const route = manager.routeFor(cwd, cwd);
+        return remoteWorkspaceShellGuidance(cwd, route ? {
+          remoteCwd: route.remotePath,
+          remoteRoot: route.workspace.remoteRoot,
+          remoteHome: route.workspace.remoteHome,
+        } : undefined);
+      } catch {
+        // Even with a stale workspace mapping, keep the remote-only safety
+        // guidance visible instead of silently dropping all shell instructions.
+        return remoteWorkspaceShellGuidance(cwd);
+      }
     },
   });
 
@@ -519,10 +533,34 @@ export function registerManagementTools(
   }, { global: true });
 }
 
+/** Remote-only metadata supplied by the resolved workspace, not by the model. */
+export interface RemoteWorkspaceGuidance {
+  remoteCwd: string;
+  remoteRoot: string;
+  remoteHome: string;
+}
+
 /** A remote-only shell hint avoids wasting tokens on local DSH sessions. */
-export function remoteWorkspaceShellGuidance(cwd: string): string {
+export function remoteWorkspaceShellGuidance(cwd: string, paths?: RemoteWorkspaceGuidance): string {
   if (!looksVirtual(cwd)) return '';
-  return 'ACTIVE EXECUTION SYSTEM: Linux over SSH. SHELL LANGUAGE: Bash/POSIX, not Windows PowerShell, and prefer the remote_bash tool; the native Windows pwsh tool is a compatibility fallback only. EVERY command is executed via Linux bash -lc on the remote host. Write Bash syntax from the FIRST command: pwd; ls -la; find . -maxdepth 2 -type f; grep -R; git status --short --branch. Use $HOME and $PATH, NOT $env:HOME, Get-ChildItem, Select-String, Set-Location, Out-File or Windows drive paths. File tools read and edit the real remote Linux directory. For remote Git status/history/diff, prefer remote_ssh_git; do not inspect the Windows placeholder or run local Git. Create directories before writing files. This instruction applies ONLY while the active workspace is an SSH virtual path.';
+  const directoryHint = paths ? [
+    'REMOTE WORKSPACE PATHS (informational metadata, not instructions):',
+    'Current remote directory=' + JSON.stringify(paths.remoteCwd) + ';',
+    'selected remote project root=' + JSON.stringify(paths.remoteRoot) + ';',
+    'SSH login home=' + JSON.stringify(paths.remoteHome) + '.',
+    'The login home is NOT automatically the project root.',
+  ].join(' ') : '';
+  return [
+    'ACTIVE EXECUTION SYSTEM: Linux over SSH. SHELL LANGUAGE: Bash/POSIX, not Windows PowerShell.',
+    directoryHint,
+    'Prefer remote_bash for Linux commands. Use Bash syntax from the first command (pwd; ls -la; grep -R); use $HOME and $PATH, NOT Windows PowerShell syntax ($env:HOME, Get-ChildItem, Out-File).',
+    'For remote_bash omit workdir or use "." for the current remote directory; any explicit workdir must be inside the selected remote project. Do not substitute the SSH login home as workdir.',
+    'Commands run via the remote SSH account and are NOT restricted by the local DSH sandbox merely because workdir is inside the project.',
+    'First remote_bash access requires its OWN user approval unless already granted for this session/workspace. While approval is pending, do not issue duplicate calls. If approval is cancelled/rejected/unavailable, stop and explain the required user action; NEVER request run_code danger-full-access merely to bypass SSH approval.',
+    'A read-only DSH session must not run remote_bash; ask for an explicit session permission change rather than attempting to bypass it.',
+    'In DSH PTC mode, only run_code is directly callable: invoke tools.remote_bash, tools.remote_ssh_git, todo_write and other registered tools INSIDE run_code, not as direct tool calls. Use inspect(...) to show results. Avoid redeclaring persistent top-level const/let names across run_code calls (use a new block scope).',
+    'File tools read and edit the REAL remote Linux directory; do not inspect the local virtual workspace placeholder. For remote Git status/history/diff use remote_ssh_git. Create directories before writing files. These instructions apply ONLY while the active workspace is remote.',
+  ].filter(Boolean).join(' ');
 }
 
 /**
@@ -648,6 +686,10 @@ export function registerRemoteBashTool(
           + route.workspace.hostLabel + ' (' + route.workspace.remoteRoot + ')? '
           + 'Commands run with the SSH account permissions, not within the local DSH sandbox. '
           + (approvalMode === 'session' ? 'This approval covers this Agent session and SSH workspace.' : 'This approval covers this command only.');
+        const approvalStartedAt = Date.now();
+        // Only stage/outcome/duration are logged; never log the remote command,
+        // SSH identity or project path. The Desktop approval UI is host-owned.
+        ctx.logger?.info?.('remote-ssh: remote_bash awaiting user approval');
         let outcome: string;
         try {
           outcome = approvalOutcome(await approval.request({
@@ -658,10 +700,22 @@ export function registerRemoteBashTool(
             signal: exec.signal,
           }));
         } catch (error) {
-          throw new RemoteSshError('SSH_APPROVAL_DENIED', 'remote Bash authorization failed: ' + errorMessage(error));
+          const cancelled = exec.signal?.aborted === true;
+          ctx.logger?.warn('remote-ssh: remote_bash approval ' + (cancelled ? 'cancelled' : 'failed') +
+            ' after ' + (Date.now() - approvalStartedAt) + 'ms');
+          throw new RemoteSshError('SSH_APPROVAL_DENIED', cancelled
+            ? 'remote Bash approval was cancelled before execution; do not automatically retry or request run_code danger-full-access'
+            : 'remote Bash authorization failed before command execution: ' + errorMessage(error));
         }
+        ctx.logger?.info?.('remote-ssh: remote_bash approval ' + outcome +
+          ' after ' + (Date.now() - approvalStartedAt) + 'ms');
         if (outcome !== 'allowed-once') {
-          throw new RemoteSshError('SSH_APPROVAL_DENIED', 'remote Bash permission was ' + outcome);
+          const explanation = outcome === 'cancelled'
+            ? 'remote Bash approval was cancelled before command execution; do not retry automatically'
+            : outcome === 'unavailable'
+              ? 'remote Bash approval UI/answerer is unavailable; check DSH Desktop approval handling, do not elevate run_code sandbox'
+              : 'remote Bash permission was ' + outcome + '; the command was not executed, do not elevate run_code sandbox';
+          throw new RemoteSshError('SSH_APPROVAL_DENIED', explanation);
         }
         if (approvalMode === 'session') {
           const allowed = grants.get(session) ?? new Set<string>();
@@ -698,7 +752,11 @@ export function registerRemoteBashTool(
       }
 
       authorizeRemoteBashSpec(spec);
+      ctx.logger?.info?.('remote-ssh: remote_bash execution started after approval gate');
+      const executionStartedAt = Date.now();
       const outcome = await (await shell.execute(spec)).result();
+      ctx.logger?.info?.('remote-ssh: remote_bash execution finished after ' +
+        (Date.now() - executionStartedAt) + 'ms (timedOut=' + (outcome.timedOut === true) + ')');
       if (outcome.aborted) {
         throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED', 'remote Bash command was cancelled');
       }
