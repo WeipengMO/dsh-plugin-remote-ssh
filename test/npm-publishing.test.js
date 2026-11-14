@@ -27,7 +27,7 @@ test('npm publishing is gated on new successful main release and explicit repo o
   assert.match(section, /github\.ref == 'refs\/heads\/main'/);
   assert.match(section, /github\.repository == 'WeipengMO\/dsh-plugin-remote-ssh'/);
   assert.match(section, /vars\.NPM_PUBLISH_ENABLED == 'true'/);
-  assert.match(section, /needs\.release\.outputs\.published == 'true'/);
+  assert.match(section, /needs\.release\.outputs\.npm_eligible == 'true'/);
   assert.match(workflow, /release:[\s\S]*?published: \$\{\{ steps\.tag_check\.outputs\.publish \}\}/);
 });
 
@@ -40,7 +40,7 @@ test('the npm job uses OIDC and the exact verified installer artifact', () => {
   assert.match(section, /uses: actions\/download-artifact@v8/);
   assert.match(section, /name: dsh-plugin-remote-ssh-\$\{\{ needs\.build\.outputs\.package_version \}\}\.tgz/);
   assert.match(section, /tar -xOzf "\$file" package\/package\.json/);
-  assert.match(section, /npm publish "artifacts\/dsh-plugin-remote-ssh-\$\{version\}\.tgz" --access public --tag latest --ignore-scripts/);
+  assert.match(section, /npm publish "\.\/artifacts\/dsh-plugin-remote-ssh-\$\{version\}\.tgz" --access public --tag latest --ignore-scripts/);
   assert.match(section, /npm view "dsh-plugin-remote-ssh@\$\{version\}" version --silent/);
   assert.doesNotMatch(section, /secrets\.NPM_TOKEN|NODE_AUTH_TOKEN|--\/\/registry\.npmjs\.org/);
 });
@@ -72,4 +72,15 @@ test('PR installer is uploaded directly only after package security checks', () 
   assert.match(build, /clamscan --infected "\$package_file"/);
   assert.ok(build.indexOf('Audit production dependencies') < build.indexOf('Upload verified installer'));
   assert.ok(build.indexOf('Malware-scan packaged installer') < build.indexOf('Upload verified installer'));
+});
+
+test('existing tagged release permits npm retry only after exact release asset digest comparison', () => {
+  const release = workflow.split('\n  release:\n')[1].split('\n  npm_publish:\n')[0];
+  assert.match(release, /npm_eligible: \$\{\{ steps\.tag_check\.outputs\.npm_eligible \}\}/);
+  assert.match(release, /EXPECTED_DIGEST: sha256:\$\{\{ needs\.build\.outputs\.installer_sha256 \}\}/);
+  assert.match(release, /asset_digest=.*gh api/);
+  assert.match(release, /\[ "\$asset_digest" = "\$EXPECTED_DIGEST" \]/);
+  assert.match(release, /npm_eligible=false/);
+  assert.match(release, /npm_eligible=true/);
+  assert.match(release, /needs: \[build, verify_artifact\]/);
 });
