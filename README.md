@@ -9,7 +9,7 @@
 
 *Remote Linux workspaces for DeepSeek Harness, with SSH/SFTP file operations, Agent shell routing, and integration with the native DSH UI.*
 
-> **最新正式版本：v1.1.0。** 当前项目为社区插件，不是 DeepSeek Harness 官方内置功能。兼容性取决于 DSH 宿主暴露的插件接口；请在重要项目上使用前自行验证。
+> **最新正式版本：v1.1.2。** 当前项目为社区插件，不是 DeepSeek Harness 官方内置功能。兼容性取决于 DSH 宿主暴露的插件接口；请在重要项目上使用前自行验证。
 
 ## 功能
 
@@ -30,20 +30,20 @@
 
 ## 安装
 
-**推荐：安装经过 CI 打包检查的正式版压缩包。**
+**当前可用：GitHub Release 安装包。** npm 自动发布已准备 GitHub Actions 工作流，但需 npm 包所有者完成 [首次发布和 OIDC 关联](docs/npm-publishing.md)；在 Registry 查询验证前不要假设 npm 包已经可安装。
 
-1. 从 [v1.1.0 Release](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/tag/v1.1.0) 下载 `dsh-plugin-remote-ssh-1.1.0.tgz`。
+1. 从 [v1.1.2 Release](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/tag/v1.1.2) 下载 `dsh-plugin-remote-ssh-1.1.2.tgz`。
 2. 完全退出 DSH（Windows 需同时退出托盘进程）。
 3. 在运行 DSH 的机器上执行：
 
 ```powershell
 # Windows DSH Desktop
-dsh plugin --profile desktop add "C:\path\to\dsh-plugin-remote-ssh-1.1.0.tgz"
+dsh plugin --profile desktop add "C:\path\to\dsh-plugin-remote-ssh-1.1.2.tgz"
 ```
 
 ```bash
 # DSH Web Host
-dsh plugin --profile web add /path/to/dsh-plugin-remote-ssh-1.1.0.tgz
+dsh plugin --profile web add /path/to/dsh-plugin-remote-ssh-1.1.2.tgz
 ```
 
 4. 完全重启对应 DSH 进程；Web 页面如显示旧前端内容，再刷新浏览器。
@@ -51,7 +51,7 @@ dsh plugin --profile web add /path/to/dsh-plugin-remote-ssh-1.1.0.tgz
 **从 GitHub 安装（仓库公开后可尝试）：** DSH CLI 支持 Git 来源，示例：
 
 ```powershell
-dsh plugin --profile desktop add "github:WeipengMO/dsh-plugin-remote-ssh#v1.1.0"
+dsh plugin --profile desktop add "github:WeipengMO/dsh-plugin-remote-ssh#v1.1.2"
 ```
 
 Git 安装路径尚未在本项目的干净 Windows Desktop 环境完成端到端验收。若 pnpm 阻止 Git 构建脚本，优先使用上面的正式 `.tgz` 包；不要为了安装插件而全局关闭构建脚本安全限制。**GitHub 公开并不等于插件自动进入 DSH 插件市场。**
@@ -67,7 +67,9 @@ Git 安装路径尚未在本项目的干净 Windows Desktop 环境完成端到�
 
 ## 版本与更新
 
-正式版以 [GitHub Releases](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases) 中的版本标签与 `.tgz` 附件为准。`main` 分支的后续代码不会自动改变已经发布的 Release。升级插件时应安装与 Release 版本一致的 `.tgz`，并**完全退出 DSH Desktop（含托盘进程）再启动**。
+**双渠道发布计划：** 后续正式版继续发布到 [GitHub Releases](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases)，并在 npm Trusted Publisher 经账号所有者启用后，将**同一 CI 验证过的安装包**同步发布至 npm Registry。通过 Registry 安装的 DSH 插件有条件显示新版本与更新操作；已有本地 `.tgz` 安装不会自动转换成 npm 安装源。
+
+**开通状态：** GitHub Releases 已可用；npm 包首次发布、Trusted Publisher 关联及 `NPM_PUBLISH_ENABLED` 开关仍需一次性配置，故暂不宣称 npm 包已发布。具体见 [npm 发布与自动更新说明](docs/npm-publishing.md)。每次升级后应完全重启 DSH Host（Desktop 含托盘进程）。
 
 本版 `remote_bash` 只支持前台执行；旧的 `pwsh` 远程入口默认拒绝，需显式启用不安全兼容选项才能继续使用。更新详情请参阅 [CHANGELOG](CHANGELOG.md)。
 
