@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — v1.1.3-beta.3 combined test build
+
+### Fixed
+- Integrated PR #24: native `bash` (macOS/Linux) and `pwsh` (Windows) are hidden only for remote SSH Agents; local Agents retain their native tools.
+- Integrated PR #29: improved approval diagnostics, dynamic remote workspace guidance, PTC tool guidance, direct `.tgz` distribution, security scans and checksum verification.
+- Accelerated recursive glob discovery with bounded concurrent SFTP directory listings; local basename searches remain shallow.
+
+
 ## v1.1.2 — 2026-11-14
 
 ### Fixed
