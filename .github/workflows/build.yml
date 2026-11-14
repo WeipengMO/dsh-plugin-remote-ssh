@@ -150,6 +150,7 @@ jobs:
     needs: [build, verify_artifact]
     outputs:
       published: ${{ steps.tag_check.outputs.publish }}
+      npm_eligible: ${{ steps.tag_check.outputs.npm_eligible }}
     if: >-
       github.event_name == 'push' &&
       github.repository == 'WeipengMO/dsh-plugin-remote-ssh' &&
@@ -164,12 +165,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.build.outputs.release_tag }}
+          PACKAGE_VERSION: ${{ needs.build.outputs.package_version }}
+          EXPECTED_DIGEST: sha256:${{ needs.build.outputs.installer_sha256 }}
         run: |
+          set -euo pipefail
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
             echo "publish=false" >> "$GITHUB_OUTPUT"
-            echo "Version $TAG is already tagged; skipping automatic release."
+            # Allow an npm-only retry only if the already-released installer
+            # is byte-for-byte identical to this freshly scanned artifact.
+            # Missing release assets or missing digest must fail closed.
+            asset_name="dsh-plugin-remote-ssh-${PACKAGE_VERSION}.tgz"
+            asset_digest="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG"               --jq ".assets[] | select(.name == \"$asset_name\") | .digest" 2>/dev/null || true)"
+            if [ "$asset_digest" = "$EXPECTED_DIGEST" ]; then
+              echo "npm_eligible=true" >> "$GITHUB_OUTPUT"
+              echo "Existing release asset digest matches verified installer; npm retry is eligible."
+            else
+              echo "npm_eligible=false" >> "$GITHUB_OUTPUT"
+              echo "Existing release asset missing or digest mismatch; npm retry is disabled."
+            fi
           else
             echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "npm_eligible=true" >> "$GITHUB_OUTPUT"
             echo "Creating a new release for $TAG."
           fi
 
@@ -217,14 +233,15 @@ jobs:
     name: Publish tested installer to npm (Trusted Publishing)
     needs: [build, release]
     # Opt-in after npm package ownership and OIDC publisher setup.
-    # A PR, manual run, tag push or existing already-tagged version can never
-    # publish here. Existing GitHub Release behavior remains independent.
+    # A PR, manual run or tag push can never publish here. An existing tag
+    # allows npm-only retry only when its Release asset SHA-256 exactly matches
+    # the newly scanned installer; npm immutability remains enforced.
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
       github.repository == 'WeipengMO/dsh-plugin-remote-ssh' &&
       vars.NPM_PUBLISH_ENABLED == 'true' &&
-      needs.release.outputs.published == 'true'
+      needs.release.outputs.npm_eligible == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -285,7 +302,7 @@ jobs:
           NPM_CONFIG_REGISTRY: https://registry.npmjs.org
         run: |
           version="$(node -p 'require("./package.json").version')"
-          npm publish "artifacts/dsh-plugin-remote-ssh-${version}.tgz" --access public --tag latest --ignore-scripts
+          npm publish "./artifacts/dsh-plugin-remote-ssh-${version}.tgz" --access public --tag latest --ignore-scripts
 
       - name: Verify npm version is visible
         env:
