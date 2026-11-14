@@ -45,6 +45,8 @@ interface WalkOptions {
   maxDepth?: number;
   deadlineAt?: number;
   maxEntries?: number;
+  concurrency?: number;
+  literalPrefix?: string[];
 }
 function checkSearchBudget(options: WalkOptions): void {
   throwIfAborted(options.signal, 'search');
@@ -97,40 +99,72 @@ async function walk(
   options: WalkOptions,
 ): Promise<WalkedFile[]> {
   const files: WalkedFile[] = [];
-  const queue: Array<{ directory: string; depth: number }> = [{ directory: root, depth: 1 }];
+  let frontier: Array<{ directory: string; depth: number }> = [{ directory: root, depth: 1 }];
   let visited = 0;
-  while (queue.length > 0) {
-    checkSearchBudget(options);
-    const { directory, depth } = queue.pop() as { directory: string; depth: number };
-    let entries: FileEntryWithStats[];
+  // Cancel other directory workers after the first error. Remote SFTP calls
+  // are read-only; pending callbacks are ignored once the local wait aborts.
+  const internalAbort = new AbortController();
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, internalAbort.signal])
+    : internalAbort.signal;
+  const scoped = { ...options, signal };
+  const workerCount = Math.max(1, Math.min(8, options.concurrency ?? 1));
+  while (frontier.length > 0) {
+    checkSearchBudget(scoped);
+    const batch = frontier;
+    const next: Array<{ directory: string; depth: number }> = [];
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+      while (true) {
+        checkSearchBudget(scoped);
+        const index = cursor++;
+        if (index >= batch.length) return;
+        const { directory, depth } = batch[index] as { directory: string; depth: number };
+        let entries: FileEntryWithStats[];
+        try {
+          entries = await rawList(connection, directory, scoped);
+        } catch (error) {
+          if (error instanceof RemoteSshError && error.code === 'FS_NOT_FOUND') continue;
+          throw error;
+        }
+        for (const entry of entries) {
+          checkSearchBudget(scoped);
+          visited += 1;
+          const maxEntries = options.maxEntries ?? MAX_WALK_ENTRIES;
+          if (visited > maxEntries) {
+            throw new RemoteSshError('SSH_SEARCH_LIMIT',
+              'remote search visited more than ' + maxEntries + ' entries; narrow the path or pattern');
+          }
+          if (entry.attrs.isSymbolicLink()) continue;
+          const remote = path.posix.join(directory, entry.filename);
+          const rel = path.posix.relative(root, remote);
+          if (rel.startsWith('..') || rel.length === 0) continue;
+          if (VCS_DIRECTORIES.has(entry.filename)) continue;
+          if (!options.includeHidden && entry.filename.startsWith('.')) continue;
+          if (entry.attrs.isDirectory()) {
+            if (options.maxDepth !== undefined && depth >= options.maxDepth) continue;
+            // Skip branches that cannot possibly satisfy a literal leading
+            // path prefix, e.g. ignore other/ for glob src/**/*.py.
+            const prefix = options.literalPrefix ?? [];
+            const parts = rel.split('/');
+            if (prefix.length > 0 && parts.length <= prefix.length &&
+                parts.some((segment, i) => segment !== prefix[i])) continue;
+            next.push({ directory: remote, depth: depth + 1 });
+          } else if (entry.attrs.isFile()) {
+            files.push({ remote, rel, size: Number(entry.attrs.size), mtime: entry.attrs.mtime });
+          }
+        }
+      }
+    };
+    const workers = Array.from({ length: Math.min(workerCount, batch.length) }, () => worker());
     try {
-      entries = await rawList(connection, directory, options);
+      await Promise.all(workers);
     } catch (error) {
-      if (error instanceof RemoteSshError && error.code === 'FS_NOT_FOUND') continue;
+      internalAbort.abort();
+      await Promise.allSettled(workers);
       throw error;
     }
-    for (const entry of entries) {
-      checkSearchBudget(options);
-      visited += 1;
-      const maxEntries = options.maxEntries ?? MAX_WALK_ENTRIES;
-      if (visited > maxEntries) {
-        throw new RemoteSshError('SSH_SEARCH_LIMIT',
-          'remote search visited more than ' + maxEntries + ' entries; narrow the path or pattern');
-      }
-      if (entry.attrs.isSymbolicLink()) continue;
-      const remote = path.posix.join(directory, entry.filename);
-      const rel = path.posix.relative(root, remote);
-      if (rel.startsWith('..') || rel.length === 0) continue;
-      if (VCS_DIRECTORIES.has(entry.filename)) continue;
-      if (!options.includeHidden && entry.filename.startsWith('.')) continue;
-      if (entry.attrs.isDirectory()) {
-        if (options.maxDepth === undefined || depth < options.maxDepth) {
-          queue.push({ directory: remote, depth: depth + 1 });
-        }
-      } else if (entry.attrs.isFile()) {
-        files.push({ remote, rel, size: Number(entry.attrs.size), mtime: entry.attrs.mtime });
-      }
-    }
+    frontier = next;
   }
   return files;
 }
@@ -200,13 +234,33 @@ async function remoteGlob(search: SearchContext, args: { pattern?: unknown; path
   const normalized = pattern.replaceAll('\\', '/').replace(/^\.\//, '');
   const segments = normalized.split('/').filter(Boolean);
   const recursive = segments.includes('**');
-  const files = await walk(connection, target.remotePath, {
-    includeHidden: true,
-    signal: exec.signal,
-    maxDepth: recursive ? undefined : Math.max(1, segments.length),
-    deadlineAt: Date.now() + GLOB_BUDGET_MS,
-    maxEntries: MAX_GLOB_WALK_ENTRIES,
-  });
+  const literalPrefix: string[] = [];
+  for (const segment of segments.slice(0, -1)) {
+    if (/[?*\[\]{}()+!@]/.test(segment)) break;
+    literalPrefix.push(segment);
+  }
+  let files: WalkedFile[];
+  try {
+    files = await walk(connection, target.remotePath, {
+      includeHidden: true,
+      signal: exec.signal,
+      maxDepth: recursive ? undefined : Math.max(1, segments.length),
+      deadlineAt: Date.now() + GLOB_BUDGET_MS,
+      maxEntries: MAX_GLOB_WALK_ENTRIES,
+      concurrency: recursive ? 8 : 1,
+      literalPrefix,
+    });
+  } catch (error) {
+    // DSH can wrap RemoteSshError in ToolCallError and strip its .code.
+    // Keep a stable machine-searchable marker in the human-readable message.
+    if (error instanceof RemoteSshError &&
+        (error.code === 'SSH_SEARCH_TIMEOUT' || error.code === 'SSH_SEARCH_LIMIT')) {
+      throw new RemoteSshError(error.code, error.code + ': ' + error.message, {
+        searchPattern: normalized, searchedRoot: pathArg ?? '.',
+      });
+    }
+    throw error;
+  }
   const hits: Array<{ display: string; mtime: number }> = [];
   for (const file of files) {
     throwIfAborted(exec.signal, 'glob');
