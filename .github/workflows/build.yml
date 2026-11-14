@@ -17,6 +17,7 @@ jobs:
     outputs:
       release_tag: ${{ steps.version.outputs.tag }}
       package_version: ${{ steps.version.outputs.version }}
+      installer_sha256: ${{ steps.installer_sha.outputs.sha256 }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -101,6 +102,14 @@ jobs:
           clamscan --infected "$package_file"
           sha256sum "$package_file"
 
+      - name: Record scanned installer SHA-256
+        id: installer_sha
+        shell: bash
+        run: |
+          set -euo pipefail
+          file="artifacts/dsh-plugin-remote-ssh-${{ steps.version.outputs.version }}.tgz"
+          echo "sha256=$(sha256sum "$file" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
       # GitHub's upload-artifact v7 can publish one file directly without an
       # additional outer ZIP; the artifact name is the file basename.
       - name: Upload verified installer (direct .tgz)
@@ -110,6 +119,30 @@ jobs:
           archive: false
           if-no-files-found: error
           retention-days: 30
+
+  verify_artifact:
+    name: Verify direct installer download (SHA-256)
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the direct .tgz artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: dsh-plugin-remote-ssh-${{ needs.build.outputs.package_version }}.tgz
+          path: downloaded
+      - name: Verify round-trip integrity and expected package structure
+        shell: bash
+        env:
+          EXPECTED_SHA256: ${{ needs.build.outputs.installer_sha256 }}
+          PACKAGE_VERSION: ${{ needs.build.outputs.package_version }}
+        run: |
+          set -euo pipefail
+          file="downloaded/dsh-plugin-remote-ssh-${PACKAGE_VERSION}.tgz"
+          test -s "$file"
+          echo "${EXPECTED_SHA256}  ${file}" | sha256sum -c -
+          tar -tzf "$file" | grep -qx 'package/package.json'
+          tar -tzf "$file" | grep -qx 'package/dist/index.js'
+          echo "Direct artifact download matches the scanned installer"
 
   release:
     name: Publish GitHub Release
