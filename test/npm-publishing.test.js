@@ -40,7 +40,8 @@ test('the npm job uses OIDC and the exact verified installer artifact', () => {
   assert.match(section, /uses: actions\/download-artifact@v8/);
   assert.match(section, /name: dsh-plugin-remote-ssh-\$\{\{ needs\.build\.outputs\.package_version \}\}\.tgz/);
   assert.match(section, /tar -xOzf "\$file" package\/package\.json/);
-  assert.match(section, /npm publish "\.\/artifacts\/dsh-plugin-remote-ssh-\$\{version\}\.tgz" --access public --tag latest --ignore-scripts/);
+  assert.match(section, /file="\.\/artifacts\/dsh-plugin-remote-ssh-\$\{version\}\.tgz"/);
+  assert.match(section, /npm publish "\$file" --access public --tag latest --ignore-scripts/);
   assert.match(section, /npm view "dsh-plugin-remote-ssh@\$\{version\}" version --silent/);
   assert.doesNotMatch(section, /secrets\.NPM_TOKEN|NODE_AUTH_TOKEN|--\/\/registry\.npmjs\.org/);
 });
@@ -83,4 +84,16 @@ test('existing tagged release permits npm retry only after exact release asset d
   assert.match(release, /npm_eligible=false/);
   assert.match(release, /npm_eligible=true/);
   assert.match(release, /needs: \[build, verify_artifact\]/);
+});
+
+test('npm staged package processing is not republished indefinitely and registry digest is verified', () => {
+  const section = workflow.split('\n  npm_publish:\n')[1];
+  assert.match(section, /Cannot publish over previously staged version/);
+  assert.match(section, /if grep -q/);
+  assert.match(section, /else\s+exit 1/);
+  assert.match(section, /for attempt in \$\(seq 1 36\)/);
+  assert.match(section, /npm view "dsh-plugin-remote-ssh@\$\{version\}" dist\.shasum --silent/);
+  assert.match(section, /expected_sha1="\$\(sha1sum "\$file"/);
+  assert.match(section, /\[ "\$actual_sha1" = "\$expected_sha1" \]/);
+  assert.match(section, /npm did not expose the validated version after the registry visibility retry budget/);
 });
