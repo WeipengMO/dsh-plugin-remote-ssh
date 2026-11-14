@@ -86,6 +86,8 @@ jobs:
   release:
     name: Publish GitHub Release
     needs: build
+    outputs:
+      published: ${{ steps.tag_check.outputs.publish }}
     if: >-
       github.event_name == 'push' &&
       github.repository == 'WeipengMO/dsh-plugin-remote-ssh' &&
@@ -140,3 +142,86 @@ jobs:
           generate_release_notes: true
           files: artifacts/*.tgz
           fail_on_unmatched_files: true
+
+  npm_publish:
+    name: Publish tested installer to npm (Trusted Publishing)
+    needs: [build, release]
+    # Opt-in after npm package ownership and OIDC publisher setup.
+    # A PR, manual run, tag push or existing already-tagged version can never
+    # publish here. Existing GitHub Release behavior remains independent.
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'WeipengMO/dsh-plugin-remote-ssh' &&
+      vars.NPM_PUBLISH_ENABLED == 'true' &&
+      needs.release.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js for npm OIDC
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Pin npm CLI with trusted-publishing support
+        run: npm install --global npm@11.21.0
+
+      - name: Download the same CI-validated installer as GitHub Release
+        uses: actions/download-artifact@v4
+        with:
+          name: dsh-remote-ssh-${{ github.sha }}
+          path: artifacts
+
+      - name: Verify package identity and release version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./package.json").version')"
+          test "$RELEASE_TAG" = "v$version"
+          file="artifacts/dsh-plugin-remote-ssh-${version}.tgz"
+          test -s "$file"
+          tar -xOzf "$file" package/package.json > "$RUNNER_TEMP/npm-manifest.json"
+          node -e 'const fs=require("node:fs"); const pkg=require("./package.json"); const tar=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (pkg.name !== "dsh-plugin-remote-ssh" || tar.name !== pkg.name || tar.version !== pkg.version || !tar.repository?.url?.includes("github.com/WeipengMO/dsh-plugin-remote-ssh")) { console.error("Validated release tarball metadata does not match repository"); process.exit(1); }' "$RUNNER_TEMP/npm-manifest.json"
+          sha256sum "$file"
+
+      - name: Check if npm already has this immutable version
+        id: registry
+        env:
+          REGISTRY_URL: https://registry.npmjs.org
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const manifest = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const url = process.env.REGISTRY_URL + '/' + encodeURIComponent(manifest.name) + '/' + encodeURIComponent(manifest.version);
+          const response = await fetch(url, { headers: { accept: 'application/json' } });
+          if (response.status !== 200 && response.status !== 404) throw new Error('npm registry lookup failed: HTTP ' + response.status);
+          const exists = response.status === 200;
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, 'exists=' + exists + '\n');
+          console.log(exists ? 'Package version already on npm; will not republish.' : 'New version available for publishing to npm.');
+          NODE
+
+      - name: Publish verified tarball to npm (OIDC, no NPM_TOKEN)
+        if: steps.registry.outputs.exists == 'false'
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          npm publish "artifacts/dsh-plugin-remote-ssh-${version}.tgz" --access public --tag latest --ignore-scripts
+
+      - name: Verify npm version is visible
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          published="$(npm view "dsh-plugin-remote-ssh@${version}" version --silent)"
+          test "$published" = "$version"
+          echo "npm now serves dsh-plugin-remote-ssh@${version}"
