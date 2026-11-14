@@ -147,6 +147,81 @@ test('native Forge Git reaches SSH repo without leaking into local placeholder',
   assert.equal(runtime.spawn, original);
 });
 
+test('run_code PTC worker retains DSH native process and sandbox in an SSH workspace', () => {
+  const localSpawns = [];
+  let remoteQueries = 0;
+  const runtime = { spawn(request) {
+    localSpawns.push(request);
+    return { local: true, request };
+  } };
+  const original = runtime.spawn;
+  const manager = {
+    routeFor() {
+      remoteQueries++;
+      return { remotePath: '/data/repository', workspace: { token: 'test-workspace', connectionId: 'host' } };
+    },
+    async connection() { throw new Error('PTC launch must never reach SSH'); },
+  };
+  const ptcStdio = { stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', control: 'pipe' };
+  // Packaged Windows Desktop: DSH runs its embedded PTC worker through the
+  // original subprocess provider. An ACL sandbox wrapper may prefix argv.
+  const packaged = {
+    argv: ['C:\\Program Files\\DSH\\dsh.exe', '1048576'], cwd,
+    env: { DSH_PTC_RUNTIME_NODE: '1', NODE_OPTIONS: '--experimental-vm-modules' },
+    stdio: ptcStdio,
+  };
+  const windowsAcl = {
+    ...packaged, argv: ['C:\\Program Files\\nodejs\\node.exe', 'C:\\DSH\\sandbox\\runner.js',
+      '--mode', 'read-only', '--', ...packaged.argv],
+  };
+  // Non-packaged Node host and TypeScript source-mode bootstraps are also
+  // supported by DSH's ptc-runtime-node launcher.
+  const nodeScript = {
+    ...packaged, env: {},
+    argv: ['C:\\Program Files\\nodejs\\node.exe', '--max-old-space-size=512',
+      '--experimental-vm-modules',
+      'C:\\DSH\\node_modules\\@deepseek-ai\\dsh-ptc-runtime-node\\dist\\process.js', '1048576'],
+  };
+  const nodeSourceMode = {
+    ...packaged, env: {},
+    argv: ['node', '--max-old-space-size=512', '--experimental-vm-modules',
+      '--input-type=module', '--eval',
+      'await runNodeMain(openInheritedControlChannel(),1048576,process);', '1048576'],
+  };
+
+  const router = installNativeGitRouter(runtime, manager);
+  try {
+    for (const request of [packaged, windowsAcl, nodeScript, nodeSourceMode]) {
+      const result = runtime.spawn(request);
+      assert.equal(result.local, true);
+      assert.equal(result.request, request, 'preserve exact native sandbox argv, env, cwd and control pipes');
+    }
+    assert.equal(localSpawns.length, 4);
+    assert.equal(remoteQueries, 0, 'host control-plane processes must not be treated as remote Git');
+
+    // A subprocess cannot impersonate PTC merely by requesting a pipe.
+    for (const request of [
+      { ...packaged, env: {}, argv: ['node', '-e', 'console.log("local")', '1048576'] },
+      { ...packaged, argv: ['bash', '-c', 'echo local'] },
+      { ...packaged, stdio: { ...ptcStdio, control: undefined } },
+      { ...nodeScript, argv: ['node', '--experimental-vm-modules',
+        'C:\\tmp\\process.js', '1048576'] },
+    ]) {
+      assert.throws(() => runtime.spawn(request), /Remote Git\/Forge query blocked/);
+    }
+    assert.equal(localSpawns.length, 4, 'unrecognized subprocesses cannot fall back to local');
+    assert.equal(remoteQueries, 4);
+
+    // Read-only Git remains routed remotely; no new fallback for mutable Git.
+    assert.throws(() => runtime.spawn(spec(cwd, ['git', 'reset', '--hard'])),
+      /Remote Git\/Forge query blocked/);
+    assert.equal(localSpawns.length, 4);
+  } finally {
+    router.dispose();
+  }
+  assert.equal(runtime.spawn, original);
+});
+
 test('Agent gets POSIX hint only for remote workspace', () => {
   assert.equal(remoteWorkspaceShellGuidance('/tmp/local'), '');
   assert.match(remoteWorkspaceShellGuidance(cwd), /Bash\/POSIX/);
