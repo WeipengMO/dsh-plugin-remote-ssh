@@ -305,7 +305,7 @@ export function registerManagementTools(
   register(ctx, {
     name: 'remote_workspace_open',
     description:
-      'Open a remote directory as this session\'s workspace. After this succeeds, the native read, write, edit, glob, grep and bash/pwsh tools operate on the remote host and remote cwd; there is no local mirror. Call remote_workspace_close to switch back.',
+      'Open a remote directory as this session\'s workspace. After this succeeds, native read/write/edit/glob/grep tools use the remote cwd without a local mirror. For remote commands use the approved remote_bash tool, never native bash or pwsh. Call remote_workspace_close to switch back.',
     parameters: object(
       {
         host: string('Saved host id, label, or destination.'),
@@ -553,7 +553,7 @@ export function remoteWorkspaceShellGuidance(cwd: string, paths?: RemoteWorkspac
   return [
     'ACTIVE EXECUTION SYSTEM: Linux over SSH. SHELL LANGUAGE: Bash/POSIX, not Windows PowerShell.',
     directoryHint,
-    'Prefer remote_bash for Linux commands. Use Bash syntax from the first command (pwd; ls -la; grep -R); use $HOME and $PATH, NOT Windows PowerShell syntax ($env:HOME, Get-ChildItem, Out-File).',
+    'Use ONLY the remote_bash tool for Linux commands. Never call host-native bash or pwsh in an SSH workspace; those tools cannot bypass remote SSH approval. Use Bash syntax from the first command (pwd; ls -la; grep -R); use $HOME and $PATH, NOT Windows PowerShell syntax ($env:HOME, Get-ChildItem, Out-File).',
     'For remote_bash omit workdir or use "." for the current remote directory; any explicit workdir must be inside the selected remote project. Do not substitute the SSH login home as workdir.',
     'Commands run via the remote SSH account and are NOT restricted by the local DSH sandbox merely because workdir is inside the project.',
     'First remote_bash access requires its OWN user approval unless already granted for this session/workspace. While approval is pending, do not issue duplicate calls. If approval is cancelled/rejected/unavailable, stop and explain the required user action; NEVER request run_code danger-full-access merely to bypass SSH approval.',
@@ -799,8 +799,9 @@ export function registerRemoteBashTool(
 }
 
 /**
- * In Agent scopes, hide the inherited Windows pwsh schema only while the
- * session is remote. Scope changes are reversible on workdir changes.
+ * Hide native bash (macOS/Linux) and pwsh (Windows) for remote Agents only.
+ * Local Agent shells are restored on cwd changes; execution stays fail-closed
+ * on older hosts without Agent-scoped tool restriction support.
  */
 export function installRemoteShellScope(ctx: ToolContext): () => void {
   const masks = new Map<string, { agent: any; dispose: () => void }>();
@@ -831,17 +832,17 @@ export function installRemoteShellScope(ctx: ToolContext): () => void {
     if (typeof restrict !== 'function') {
       if (!warned.has(id)) {
         warned.add(id);
-        ctx.logger?.warn('remote-ssh: Agent-scoped tool restrictions unavailable; remote_bash is visible, but the host may also show pwsh');
+        ctx.logger?.warn('remote-ssh: Agent-scoped tool restrictions unavailable; native bash/pwsh may remain visible, but remote execution remains gated by remote_bash approval');
       }
       return;
     }
     try {
-      const dispose = restrict.call(agent.ctx.tools, { deny: ['pwsh'] });
+      const dispose = restrict.call(agent.ctx.tools, { deny: ['bash', 'pwsh'] });
       if (typeof dispose === 'function') masks.set(id, { agent, dispose });
     } catch (error) {
       if (!warned.has(id)) {
         warned.add(id);
-        ctx.logger?.warn('remote-ssh: cannot hide native pwsh for Agent ' + id + ': ' + errorMessage(error));
+        ctx.logger?.warn('remote-ssh: cannot hide native bash/pwsh for Agent ' + id + ': ' + errorMessage(error));
       }
     }
   };
