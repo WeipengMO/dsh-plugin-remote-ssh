@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — 1.1.2-aliasfix.1 test build
+## v1.1.2 — 2026-11-14
 
 ### Fixed
 - Quick-import SSH aliases from the Settings page now automatically resolve `~/.ssh/config` parameters on modal open (HostName, username, port, and identity file), without requiring a second dropdown selection.
