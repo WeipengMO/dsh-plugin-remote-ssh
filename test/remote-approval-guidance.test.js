@@ -165,3 +165,21 @@ test('out-of-project workdirs and read-only mode fail closed without requesting 
   assert.equal(readOnly.calls, 0);
   assert.equal(readOnly.executed, 0);
 });
+
+test('late approval after outer run_code cancellation never executes or caches permission', async () => {
+  const controller = new AbortController();
+  const h = makeHarness({ approvalResult: async () => {
+    controller.abort();
+    return 'allowed-once';
+  } });
+  await assert.rejects(() => h.invoke({}, { signal: controller.signal }), error =>
+    error.code === 'SSH_APPROVAL_DENIED' && /arrived after caller cancellation/.test(error.message));
+  assert.equal(h.executed, 0);
+  assert.equal(h.calls, 1);
+  assert.ok(h.logs.some(x => x.message.includes('ignored late approval')));
+  // A later explicit user-requested attempt must ask again, never reuse a
+  // grant from the cancelled request.
+  await h.invoke();
+  assert.equal(h.calls, 2);
+  assert.equal(h.executed, 1);
+});

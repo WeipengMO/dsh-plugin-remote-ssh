@@ -559,6 +559,8 @@ export function remoteWorkspaceShellGuidance(cwd: string, paths?: RemoteWorkspac
     'First remote_bash access requires its OWN user approval unless already granted for this session/workspace. While approval is pending, do not issue duplicate calls. If approval is cancelled/rejected/unavailable, stop and explain the required user action; NEVER request run_code danger-full-access merely to bypass SSH approval.',
     'A read-only DSH session must not run remote_bash; ask for an explicit session permission change rather than attempting to bypass it.',
     'In DSH PTC mode, only run_code is directly callable: invoke tools.remote_bash, tools.remote_ssh_git, todo_write and other registered tools INSIDE run_code, not as direct tool calls. Use inspect(...) to show results. Avoid redeclaring persistent top-level const/let names across run_code calls (use a new block scope).',
+    'For glob, a basename pattern (e.g. *.py or .dsh-ssh-smoke.*) searches the selected directory only; use **/*.py for recursive search. Use narrower paths if SSH_SEARCH_TIMEOUT or SSH_SEARCH_LIMIT occurs; do not repeatedly retry an expensive glob.',
+    'When reporting SSH approvals, count EACH approval attempt, including earlier cancelled or timed-out requests before a later success. Do not claim approval was requested only once when multiple approval/asked events occurred. If approval is cancelled, report it and do not automatically retry or elevate run_code.',
     'File tools read and edit the REAL remote Linux directory; do not inspect the local virtual workspace placeholder. For remote Git status/history/diff use remote_ssh_git. Create directories before writing files. These instructions apply ONLY while the active workspace is remote.',
   ].filter(Boolean).join(' ');
 }
@@ -690,6 +692,14 @@ export function registerRemoteBashTool(
         // Only stage/outcome/duration are logged; never log the remote command,
         // SSH identity or project path. The Desktop approval UI is host-owned.
         ctx.logger?.info?.('remote-ssh: remote_bash awaiting user approval');
+        // The host owns approval UI and run_code's elapsed timeout. Emit a
+        // diagnostic warning rather than silently appearing to hang or
+        // widening local sandbox permissions.
+        const pendingWarning = setTimeout(() => {
+          ctx.logger?.warn('remote-ssh: remote_bash approval still pending after 20s; ' +
+            'check DSH Desktop approval UI; run_code timeout includes approval time');
+        }, 20_000);
+        pendingWarning.unref?.();
         let outcome: string;
         try {
           outcome = approvalOutcome(await approval.request({
@@ -706,9 +716,18 @@ export function registerRemoteBashTool(
           throw new RemoteSshError('SSH_APPROVAL_DENIED', cancelled
             ? 'remote Bash approval was cancelled before execution; do not automatically retry or request run_code danger-full-access'
             : 'remote Bash authorization failed before command execution: ' + errorMessage(error));
+        } finally {
+          clearTimeout(pendingWarning);
         }
         ctx.logger?.info?.('remote-ssh: remote_bash approval ' + outcome +
           ' after ' + (Date.now() - approvalStartedAt) + 'ms');
+        // An approval response that arrives after run_code cancellation
+        // must never be cached as a session grant or execute a command.
+        if (exec.signal?.aborted) {
+          ctx.logger?.warn('remote-ssh: remote_bash ignored late approval after caller cancellation');
+          throw new RemoteSshError('SSH_APPROVAL_DENIED',
+            'remote Bash approval arrived after caller cancellation; command was not executed');
+        }
         if (outcome !== 'allowed-once') {
           const explanation = outcome === 'cancelled'
             ? 'remote Bash approval was cancelled before command execution; do not retry automatically'
