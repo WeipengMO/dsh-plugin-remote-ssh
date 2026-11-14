@@ -301,14 +301,48 @@ jobs:
         env:
           NPM_CONFIG_REGISTRY: https://registry.npmjs.org
         run: |
+          set -euo pipefail
           version="$(node -p 'require("./package.json").version')"
-          npm publish "./artifacts/dsh-plugin-remote-ssh-${version}.tgz" --access public --tag latest --ignore-scripts
+          file="./artifacts/dsh-plugin-remote-ssh-${version}.tgz"
+          log="$RUNNER_TEMP/npm-publish.log"
+          if npm publish "$file" --access public --tag latest --ignore-scripts >"$log" 2>&1; then
+            cat "$log"
+          else
+            cat "$log" >&2
+            # npm's first publish can remain staged for several minutes while
+            # the public metadata endpoint still returns 404. This specific
+            # immutable staged-version E409 is not a reason to publish again.
+            # Do not conceal any other publication failure.
+            if grep -q 'Cannot publish over previously staged version' "$log"; then
+              echo "Version is already staged at npm; waiting for verified registry visibility."
+            else
+              exit 1
+            fi
+          fi
 
-      - name: Verify npm version is visible
+      - name: Verify npm version and immutable tarball digest are visible
         env:
           NPM_CONFIG_REGISTRY: https://registry.npmjs.org
         run: |
+          set -euo pipefail
           version="$(node -p 'require("./package.json").version')"
-          published="$(npm view "dsh-plugin-remote-ssh@${version}" version --silent)"
-          test "$published" = "$version"
-          echo "npm now serves dsh-plugin-remote-ssh@${version}"
+          file="artifacts/dsh-plugin-remote-ssh-${version}.tgz"
+          expected_sha1="$(sha1sum "$file" | cut -d' ' -f1)"
+          # Allow npm's staging/processing phase to finish without failing a
+          # genuinely successful Trusted Publisher upload at the first 404.
+          for attempt in $(seq 1 36); do
+            visible="$(npm view "dsh-plugin-remote-ssh@${version}" version --silent 2>/dev/null || true)"
+            if [ "$visible" = "$version" ]; then
+              actual_sha1="$(npm view "dsh-plugin-remote-ssh@${version}" dist.shasum --silent 2>/dev/null || true)"
+              if [ "$actual_sha1" = "$expected_sha1" ]; then
+                echo "npm now serves dsh-plugin-remote-ssh@${version} with matching tarball digest"
+                exit 0
+              fi
+              echo "::error::npm version is visible but its immutable tarball digest does not match the CI-verified installer"
+              exit 1
+            fi
+            echo "npm package still processing (attempt ${attempt}/36); retrying registry read"
+            sleep 10
+          done
+          echo "::error::npm did not expose the validated version after the registry visibility retry budget"
+          exit 1
