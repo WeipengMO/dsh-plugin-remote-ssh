@@ -12,7 +12,7 @@ interface SpawnSpec {
   cwd: string;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
-  stdio: { stdin: unknown; stdout: unknown; stderr: unknown };
+  stdio: { stdin: unknown; stdout: unknown; stderr: unknown; control?: unknown };
 }
 interface SpawnProvider { spawn(spec: SpawnSpec): unknown }
 interface StreamReader { readFrom(offset: number): { text: string; nextOffset: number; lossy: boolean } }
@@ -150,6 +150,39 @@ export function forgeGitQuery(argv: readonly string[]): readonly string[] | null
   return READ_ONLY.has(command) ? args : null;
 }
 
+/**
+ * DSH's run_code PTC worker is a *local host control-plane process*, even when
+ * the current Agent cwd is an SSH workspace placeholder. Its own SDK tools
+ * subsequently route filesystem and approved shell operations to the remote
+ * host. It MUST retain DSH's native spawn + sandbox confinement and its
+ * dedicated protocol control pipe; it is not a Git query.
+ *
+ * Match the upstream PTC launch contract, not all non-Git processes: otherwise
+ * arbitrary subprocess calls could silently run in the local placeholder.
+ * DSH uses an embedded worker with DSH_PTC_RUNTIME_NODE=1 or a Node script
+ * bootstrap (including a TypeScript source-mode --eval bootstrap).
+ */
+function isHostPtcWorkerSpawn(spec: SpawnSpec): boolean {
+  const { stdio, argv } = spec;
+  if (stdio.stdin !== 'ignore' || stdio.stdout !== 'pipe' ||
+      stdio.stderr !== 'pipe' || stdio.control !== 'pipe') return false;
+  // The PTC launcher always supplies the protocol frame-size argument last.
+  const frameLimit = argv.at(-1);
+  if (!frameLimit || !/^[1-9]\d*$/.test(frameLimit)) return false;
+  if (spec.env?.DSH_PTC_RUNTIME_NODE === '1') return true;
+
+  // Non-packaged DSH: Node --experimental-vm-modules .../process.js <limit>.
+  if (!argv.includes('--experimental-vm-modules')) return false;
+  const bootstrap = argv.at(-2) ?? '';
+  if (/(?:^|[\\/])dsh-ptc-runtime-node[\\/].*[\\/]process\.(?:js|ts|mjs)$/i.test(bootstrap)) {
+    return true;
+  }
+
+  // Source-build DSH bootstrap: --input-type=module --eval <fixed source> <limit>.
+  return argv.includes('--input-type=module') && argv.includes('--eval') &&
+    argv.some(arg => arg.includes('runNodeMain(openInheritedControlChannel()'));
+}
+
 function reader(content: () => string, lossy: () => boolean): StreamReader {
   return {
     readFrom(offset: number) {
@@ -169,6 +202,11 @@ export function installNativeGitRouter(
   if (typeof original !== 'function') throw new Error('DSH subprocess.spawn is unavailable');
   subprocess.spawn = (spec: SpawnSpec) => {
     if (!looksVirtual(spec.cwd)) return original.call(subprocess, spec);
+    if (isHostPtcWorkerSpawn(spec)) {
+      // DSH owns the PTC worker's lifetime, local sandbox and control channel.
+      // Forward the original spec unchanged instead of interpreting it as Git.
+      return original.call(subprocess, spec);
+    }
     const route = manager.routeFor(spec.cwd, spec.cwd);
     if (!route) throw new RemoteSshError('SSH_WORKSPACE_UNKNOWN', 'Unknown SSH workspace for native Git query');
     const args = forgeGitQuery(spec.argv);
