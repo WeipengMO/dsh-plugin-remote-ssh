@@ -36,38 +36,86 @@ interface AnyToolDefinition {
   [key: string]: unknown;
 }
 
-function rawList(connection: SshConnection, directory: string): Promise<FileEntryWithStats[]> {
+// Native glob has a 30s timeout. Return an actionable error before that limit.
+const GLOB_BUDGET_MS = 20_000;
+const MAX_GLOB_WALK_ENTRIES = 50_000;
+interface WalkOptions {
+  includeHidden: boolean;
+  signal?: AbortSignal;
+  maxDepth?: number;
+  deadlineAt?: number;
+  maxEntries?: number;
+}
+function checkSearchBudget(options: WalkOptions): void {
+  throwIfAborted(options.signal, 'search');
+  if (options.deadlineAt !== undefined && Date.now() >= options.deadlineAt) {
+    throw new RemoteSshError('SSH_SEARCH_TIMEOUT', 'remote glob exceeded its 20s budget; narrow the path or pattern');
+  }
+}
+
+/** SFTP cannot cancel a readdir already sent; settle the caller on timeout or
+ * abort and ignore a late SFTP reply without resuming the traversal. */
+function rawList(connection: SshConnection, directory: string, options: WalkOptions): Promise<FileEntryWithStats[]> {
   return new Promise((resolve, reject) => {
-    connection.sftp.readdir(directory, (error, entries) => {
-      if (error) reject(connection.mapSftpError(error, `cannot list ${directory}`));
-      else resolve(entries);
-    });
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = (): void => {
+      if (timer !== undefined) clearTimeout(timer);
+      options.signal?.removeEventListener('abort', onAbort);
+    };
+    const finish = (error?: unknown, entries?: FileEntryWithStats[]): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error !== undefined) reject(error);
+      else resolve(entries ?? []);
+    };
+    const onAbort = (): void => finish(new RemoteSshError('FS_ABORTED', 'remote search cancelled during SFTP directory listing'));
+    if (options.signal?.aborted) { onAbort(); return; }
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+    if (options.deadlineAt !== undefined) {
+      const remaining = options.deadlineAt - Date.now();
+      if (remaining <= 0) {
+        finish(new RemoteSshError('SSH_SEARCH_TIMEOUT', 'remote glob 20s budget exhausted; narrow the path'));
+        return;
+      }
+      timer = setTimeout(() => finish(new RemoteSshError('SSH_SEARCH_TIMEOUT',
+        'remote glob 20s budget exhausted during SFTP listing; narrow the path or pattern')), remaining);
+    }
+    try {
+      connection.sftp.readdir(directory, (error, entries) => {
+        if (error) finish(connection.mapSftpError(error, 'cannot list ' + directory));
+        else finish(undefined, entries);
+      });
+    } catch (error) { finish(error); }
   });
 }
 
 async function walk(
   connection: SshConnection,
   root: string,
-  options: { includeHidden: boolean; signal?: AbortSignal },
+  options: WalkOptions,
 ): Promise<WalkedFile[]> {
   const files: WalkedFile[] = [];
-  const queue = [root];
+  const queue: Array<{ directory: string; depth: number }> = [{ directory: root, depth: 1 }];
   let visited = 0;
   while (queue.length > 0) {
-    throwIfAborted(options.signal, 'search');
-    const directory = queue.pop() as string;
+    checkSearchBudget(options);
+    const { directory, depth } = queue.pop() as { directory: string; depth: number };
     let entries: FileEntryWithStats[];
     try {
-      entries = await rawList(connection, directory);
+      entries = await rawList(connection, directory, options);
     } catch (error) {
       if (error instanceof RemoteSshError && error.code === 'FS_NOT_FOUND') continue;
       throw error;
     }
     for (const entry of entries) {
-      throwIfAborted(options.signal, 'search');
+      checkSearchBudget(options);
       visited += 1;
-      if (visited > MAX_WALK_ENTRIES) {
-        throw new RemoteSshError('SSH_SEARCH_LIMIT', `remote search visited more than ${MAX_WALK_ENTRIES} entries; narrow the path or pattern`);
+      const maxEntries = options.maxEntries ?? MAX_WALK_ENTRIES;
+      if (visited > maxEntries) {
+        throw new RemoteSshError('SSH_SEARCH_LIMIT',
+          'remote search visited more than ' + maxEntries + ' entries; narrow the path or pattern');
       }
       if (entry.attrs.isSymbolicLink()) continue;
       const remote = path.posix.join(directory, entry.filename);
@@ -76,7 +124,9 @@ async function walk(
       if (VCS_DIRECTORIES.has(entry.filename)) continue;
       if (!options.includeHidden && entry.filename.startsWith('.')) continue;
       if (entry.attrs.isDirectory()) {
-        queue.push(remote);
+        if (options.maxDepth === undefined || depth < options.maxDepth) {
+          queue.push({ directory: remote, depth: depth + 1 });
+        }
       } else if (entry.attrs.isFile()) {
         files.push({ remote, rel, size: Number(entry.attrs.size), mtime: entry.attrs.mtime });
       }
@@ -145,7 +195,18 @@ async function remoteGlob(search: SearchContext, args: { pattern?: unknown; path
   if (!looksVirtual(cwd)) throw new RemoteSshError('SSH_PATH_INVALID', 'glob is not running in a remote workspace');
   const { target, connection } = await resolveSearchRoot(search, cwd, pathArg, exec.signal);
   const rootCwd = remoteWorkdir(search.manager, cwd);
-  const files = await walk(connection, target.remotePath, { includeHidden: true, signal: exec.signal });
+  // A plain basename glob searches only the selected directory; use **/*.ext
+  // for recursive matching. Directory-qualified patterns scan bounded depth.
+  const normalized = pattern.replaceAll('\\', '/').replace(/^\.\//, '');
+  const segments = normalized.split('/').filter(Boolean);
+  const recursive = segments.includes('**');
+  const files = await walk(connection, target.remotePath, {
+    includeHidden: true,
+    signal: exec.signal,
+    maxDepth: recursive ? undefined : Math.max(1, segments.length),
+    deadlineAt: Date.now() + GLOB_BUDGET_MS,
+    maxEntries: MAX_GLOB_WALK_ENTRIES,
+  });
   const hits: Array<{ display: string; mtime: number }> = [];
   for (const file of files) {
     throwIfAborted(exec.signal, 'glob');
