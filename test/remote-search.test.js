@@ -7,7 +7,7 @@ const token = 'w0123456789abcdef';
 const nativeCwd = workspacePlaceholderPath(token);
 const remoteCwd = '/data/user/mowp/test/dsh_test';
 
-function setup() {
+function setup({ readdirOverride } = {}) {
   const calls = { stat: [], readdir: [], reads: [] };
   const attrs = (kind, size = 42) => ({
     isFile: () => kind === 'file',
@@ -24,6 +24,12 @@ function setup() {
       },
       readdir(remote, cb) {
         calls.readdir.push(remote);
+        if (readdirOverride) {
+          const intercepted = readdirOverride(remote, attrs);
+          // null means keep this SFTP request pending until the caller aborts.
+          if (intercepted === null) return;
+          if (intercepted !== undefined) { cb(null, intercepted); return; }
+        }
         const entries = remote === remoteCwd ? [
           { filename: 'alpha.py', attrs: attrs('file') },
           { filename: '.hidden.py', attrs: attrs('file') },
@@ -106,5 +112,77 @@ test('remote glob outputs Linux-relative file paths rather than Windows placehol
     assert.deepEqual(value.paths, ['.hidden.py', 'alpha.py']);
     assert.equal(value.root, '.');
     assert.ok(value.paths.every(x => !x.includes('.dsh') && !x.includes('remote-ssh-workspaces')));
+  } finally { restore(); }
+});
+
+
+test('basename glob is root-only and does not traverse unrelated directories', async () => {
+  const { scope, tools, calls, restore } = setup({
+    readdirOverride(remote, attrs) {
+      if (remote.endsWith('/.hidden-dir')) return [
+        { filename: 'deep.py', attrs: attrs('file') },
+      ];
+      return undefined;
+    },
+  });
+  try {
+    const glob = tools.view(scope).visible.get('glob');
+    const first = await glob.execute({ pattern: '*.py', path: '.' }, { agent: scope });
+    assert.deepEqual(first.paths, ['.hidden.py', 'alpha.py']);
+    assert.deepEqual(calls.readdir, [remoteCwd], 'basename glob must not enumerate nested directories');
+
+    calls.readdir.length = 0;
+    const recursive = await glob.execute({ pattern: '**/*.py', path: '.' }, { agent: scope });
+    assert.deepEqual(recursive.paths, ['.hidden-dir/deep.py', '.hidden.py', 'alpha.py']);
+    assert.ok(calls.readdir.includes(remoteCwd + '/.hidden-dir'),
+      'explicit recursive glob must still traverse nested directories');
+  } finally { restore(); }
+});
+
+test('glob for a specific subdirectory does not recurse beyond the pattern depth', async () => {
+  const { scope, tools, calls, restore } = setup({
+    readdirOverride(remote, attrs) {
+      if (remote === remoteCwd) return [
+        { filename: 'src', attrs: attrs('directory') },
+        { filename: 'other', attrs: attrs('directory') },
+      ];
+      if (remote === remoteCwd + '/src') return [
+        { filename: 'file.py', attrs: attrs('file') },
+        { filename: 'sub', attrs: attrs('directory') },
+      ];
+      if (remote === remoteCwd + '/other') return [
+        { filename: 'ignored.py', attrs: attrs('file') },
+      ];
+      if (remote === remoteCwd + '/src/sub') return [
+        { filename: 'deep.py', attrs: attrs('file') },
+      ];
+      return [];
+    },
+  });
+  try {
+    const glob = tools.view(scope).visible.get('glob');
+    const result = await glob.execute({ pattern: 'src/*.py' }, { agent: scope });
+    assert.deepEqual(result.paths, ['src/file.py']);
+    assert.ok(!calls.readdir.includes(remoteCwd + '/src/sub'),
+      'a two-segment pattern should not traverse third-level directories');
+  } finally { restore(); }
+});
+
+test('glob aborts an in-flight SFTP listing without waiting for a hanging callback', async () => {
+  const { scope, tools, calls, restore } = setup({
+    readdirOverride(remote) {
+      if (remote === remoteCwd) return null;
+      return undefined;
+    },
+  });
+  const controller = new AbortController();
+  try {
+    const glob = tools.view(scope).visible.get('glob');
+    const pending = glob.execute({ pattern: '.dsh-ssh-smoke.*', path: '.' },
+      { agent: scope, signal: controller.signal });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(calls.readdir, [remoteCwd]);
+    controller.abort();
+    await assert.rejects(pending, error => error.code === 'FS_ABORTED');
   } finally { restore(); }
 });
