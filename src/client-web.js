@@ -147,6 +147,17 @@ window.__ModuleLoader__.load({
           if (id === request.current) setResolving(false);
         }
       }
+      // The quick-import chips preselect an alias. Resolve its SSH Config
+      // immediately on modal mount, just as the picker onChange does.
+      // Saved-host edits must preserve the stored fields until explicitly changed.
+      useEffect(() => {
+        if (!value?.id && value?.useSshConfig && value?.sshAlias) {
+          void selectAlias(value.sshAlias);
+        }
+        // Ignore late network responses after the modal closes or changes host.
+        return () => { ++request.current; };
+      }, [value?.id, value?.useSshConfig, value?.sshAlias]);
+
       function field(name, label, placeholder, opts = {}) {
         return h('label', { className: 'rss-field', key: name },
           h('span', null, label),
@@ -182,14 +193,14 @@ window.__ModuleLoader__.load({
               aliases.map(alias => h('option', { value: alias, key: alias }, alias)))),
           resolving && h('p', { className: 'rss-hint', role: 'status' }, '正在读取 SSH 配置…'),
           configError && h('p', { className: 'rss-config-warning', role: 'alert' }, configError),
-          field('label', '显示名称', '例如：Nansha GPU'),
+          field('label', '显示名称', '例如：开发服务器'),
           field('host', '主机地址 / HostName', 'IP 地址或域名', { required: true, autoFocus: !value?.host }),
           h('div', { className: 'rss-form-columns' },
-            field('user', '用户名', '例如：mowp', { required: true }),
+            field('user', '用户名', '例如：developer', { required: true }),
             field('port', 'SSH 端口', '22', { type: 'number', min: 1, max: 65535, required: true })),
           field('identityFile', '私钥路径（可选）', '~/.ssh/id_ed25519'),
           missingKey && h('p', { className: 'rss-config-warning', role: 'alert' },
-            '本机找不到这个私钥：' + missingKey + '。请确认 Windows 文件路径。'),
+            '本机找不到这个私钥：' + missingKey + '。请确认路径在运行 DSH 的设备上存在。'),
           h('label', { className: 'rss-checkbox-line' },
             h('input', { type: 'checkbox', checked: form.useAgent, onChange: e => set('useAgent', e.target.checked) }),
             '允许 ssh-agent'),
@@ -350,12 +361,12 @@ window.__ModuleLoader__.load({
                 h('div', { className: 'rss-empty-icon' }, h(Icon, { name: 'server', size: 21 })),
                 h('div', null, h('strong', null, '还没有 SSH 主机'),
                   h('p', null, '添加远程服务器后，可浏览其目录并连接 Agent。'))),
-            state.aliases.some(alias => !state.hosts.some(host => host.host === alias)) &&
+            state.aliases.some(alias => !state.hosts.some(host => (host.sshAlias || host.host) === alias)) &&
               h('details', { className: 'rss-disclosure' },
                 h('summary', null, '从 ~/.ssh/config 导入', h(Icon, { name: 'chevron', size: 14 })),
                 h('div', { className: 'rss-alias-grid' },
-                  state.aliases.filter(alias => !state.hosts.some(host => host.host === alias)).slice(0, 12).map(alias =>
-                    h('button', { type: 'button', key: alias, onClick: () => setModal({ label: alias, host: alias, useSshConfig: true }) },
+                  state.aliases.filter(alias => !state.hosts.some(host => (host.sshAlias || host.host) === alias)).slice(0, 12).map(alias =>
+                    h('button', { type: 'button', key: alias, onClick: () => setModal({ label: alias, host: alias, sshAlias: alias, useSshConfig: true }) },
                       h(Icon, { name: 'plus', size: 13 }), alias))))),
           currentHost && h('section', { className: 'rss-main', 'aria-label': '当前 SSH 主机' },
             h('div', { className: 'rss-connection-head' },
@@ -491,7 +502,7 @@ window.__ModuleLoader__.load({
                           loadDir(entry.connectionId, entry.remoteRoot); setTab('files'); } },
                       h(Icon, { name: 'folder', size: 14 }), h('span', null, entry.remoteRoot)))))),
         ),
-        modal && h(HostModal, { key: modal === 'new' ? 'new' : modal.id || 'alias', value: modal === 'new' ? null : modal,
+        modal && h(HostModal, { key: modal === 'new' ? 'new' : modal.id || modal.sshAlias || 'alias', value: modal === 'new' ? null : modal,
           busy: busy === 'save', aliases: state.aliases, onClose: () => setModal(null), onSave: saveHost }),
         trust && probe && h(TrustModal, { probe, busy: busy === 'trust', onClose: () => setTrust(false),
           onConfirm: async fingerprint => {
