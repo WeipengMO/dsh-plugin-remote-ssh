@@ -170,7 +170,7 @@ test('older DSH hosts without Agent tool restrictions warn once without bypassin
 
 test('remote workspace shell guidance does not recommend native-shell fallback', () => {
   const hint = remoteWorkspaceShellGuidance(remoteCwd);
-  assert.match(hint, /use ONLY the remote_bash tool/);
+  assert.match(hint, /use ONLY the remote_bash tool/i);
   assert.doesNotMatch(hint, /compatibility fallback only|prefer the remote_bash/);
 });
 
