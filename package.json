@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-remote-ssh",
-  "version": "1.1.3-beta.3",
-  "description": "Remote Linux workspaces for DeepSeek Harness via SSH/SFTP, with Agent file and shell routing and native UI integration.",
+  "version": "1.1.3",
+  "description": "Remote Linux workspaces for DeepSeek Harness via SSH/SFTP, with scoped Agent tools, approval-gated remote Bash, file search, Git and native terminal integration.",
   "type": "module",
   "main": "dist/index.js",
   "exports": {

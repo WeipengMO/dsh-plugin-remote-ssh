@@ -147,7 +147,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: build
+    needs: [build, verify_artifact]
     outputs:
       published: ${{ steps.tag_check.outputs.publish }}
     if: >-
@@ -197,10 +197,18 @@ jobs:
           name: DSH Remote SSH ${{ needs.build.outputs.release_tag }}
           prerelease: false
           body: |
-            Official DSH Remote SSH release. Install the attached verified .tgz package using:
-            `dsh plugin --profile desktop add <path-to-downloaded-tgz>`
+            Official DSH Remote SSH release. This release combines the fixes from PR #24, #29 and #30.
 
-            See [CHANGELOG](https://github.com/WeipengMO/dsh-plugin-remote-ssh/blob/${{ needs.build.outputs.release_tag }}/CHANGELOG.md) for this version's features, security behavior, and migration notes.
+            Highlights:
+            - Restrict host-native bash/pwsh tools in remote SSH Agent scopes where supported; use approval-gated remote_bash.
+            - Improve SSH approval diagnostics and remote workspace guidance.
+            - Speed up recursive glob with up to 8 concurrent read-only SFTP listings and literal-prefix pruning; preserve the 20s safety budget.
+            - Distribute the exact SHA-256-verified and ClamAV-scanned .tgz installer directly.
+
+            Install: `dsh plugin --profile desktop add <path-to-downloaded-tgz>`
+            Restart the DSH Host after upgrading. Jupyter Notebook Viewer (PR #25) is not included in this release.
+
+            See [CHANGELOG](https://github.com/WeipengMO/dsh-plugin-remote-ssh/blob/${{ needs.build.outputs.release_tag }}/CHANGELOG.md) for details, security boundaries and migration notes.
           generate_release_notes: true
           files: artifacts/*.tgz
           fail_on_unmatched_files: true
