@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workflow = fs.readFileSync(path.join(root, '.github/workflows/build.yml'), 'utf8');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-const docs = fs.readFileSync(path.join(root, 'docs/npm-publishing.md'), 'utf8');
+const docs = fs.readFileSync(path.join(root, 'docs/releasing.md'), 'utf8');
+const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
 
 test('npm metadata identifies the canonical public repository and package', () => {
   assert.equal(manifest.name, 'dsh-plugin-remote-ssh');
@@ -54,12 +55,16 @@ test('GitHub Release retains the previously validated installer', () => {
   assert.match(release, /files: artifacts\/\*\.tgz/);
 });
 
-test('onboarding instructions do not claim npm is live without ownership and trust', () => {
-  assert.match(docs, /首次人工发布/);
+test('published npm package is the primary install path and release operations stay documented', () => {
+  assert.match(readme, /npm Registry/);
+  assert.match(readme, /dsh plugin --profile desktop add dsh-plugin-remote-ssh/);
+  assert.match(readme, /dsh plugin --profile web add dsh-plugin-remote-ssh/);
+  assert.match(readme, /dsh plugin --profile desktop update dsh-plugin-remote-ssh/);
+  assert.match(docs, /npm 包 `dsh-plugin-remote-ssh` 已作为正式安装渠道使用/);
   assert.match(docs, /Trusted Publisher/);
   assert.match(docs, /NPM_PUBLISH_ENABLED/);
   assert.match(docs, /build\.yml/);
-  assert.match(docs, /已经.*\.tgz|\.tgz.*安装/);
+  assert.doesNotMatch(docs, /如果包名未注册|拟发布的.*包名|npm 渠道开通并确认可用后/);
 });
 
 test('PR installer is uploaded directly only after package security checks', () => {

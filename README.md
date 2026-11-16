@@ -1,119 +1,114 @@
 # DSH Remote SSH
 
-[![Build](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml/badge.svg)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml)
-[![Secret scanning](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/security.yml/badge.svg)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/security.yml)
-[![Release](https://img.shields.io/github/v/release/WeipengMO/dsh-plugin-remote-ssh)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/latest)
-[![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml/badge.svg)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml)
+[![Security](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/security.yml/badge.svg)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/security.yml)
+[![npm](https://img.shields.io/npm/v/dsh-plugin-remote-ssh?label=npm)](https://www.npmjs.com/package/dsh-plugin-remote-ssh)
+[![GitHub Release](https://img.shields.io/github/v/release/WeipengMO/dsh-plugin-remote-ssh)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/latest)
+[![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-在 **DeepSeek Harness (DSH)** 的原生界面中使用远程 Linux 项目：通过 SSH/SFTP 访问文件、运行 Agent 命令和终端，不需要在远端部署 DSH CLI/Core 或独立 Web 服务，也无需将源码同步到本地电脑。
+**在 DeepSeek Harness（DSH）中直接打开和操作远程 Linux 项目。** 插件使用 SSH/SFTP 将远程目录接入 DSH 原生项目、Agent 文件工具与可选终端/Git 入口；不需要在远端安装第二套 DSH，也不必把项目源码同步到本机。
 
-*Remote Linux workspaces for DeepSeek Harness, with SSH/SFTP file operations, Agent shell routing, and integration with the native DSH UI.*
+*Remote Linux workspaces for DeepSeek Harness via SSH/SFTP, with Agent file operations, approval-gated remote Bash, remote Git status and optional native terminal integration.*
 
-> **最新正式版本：v1.1.3。** 当前项目为社区插件，不是 DeepSeek Harness 官方内置功能。兼容性取决于 DSH 宿主暴露的插件接口；请在重要项目上使用前自行验证。
+> 社区维护插件，非 DeepSeek 官方内置功能。仓库当前版本为 **1.1.3**；安装时可不指定版本，让 npm Registry 解析当前正式版。完整发布记录见 [CHANGELOG](CHANGELOG.md)。
 
-## 功能
+## 安装（推荐：npm Registry）
 
-- **远程项目 / 工作区**：在 DSH 的新建项目与工作区目录选择流程中选择 SSH 主机和远程 Linux 目录。
-- **Agent 远程文件操作**：在已激活的远程工作区中，将文件读取、写入、编辑及 `glob`/`grep` 搜索路由到 SSH/SFTP；本地工作区继续使用 DSH 原有实现。普通文件名 glob 仅搜索选定目录，显式 `**` 递归模式使用最多 8 个并发 SFTP 目录列举，并提供搜索预算与超限诊断。
-- **Agent 专用 Linux 命令工具**：远程 SSH 会话使用 `remote_bash`（Bash/POSIX Schema），在宿主支持 Agent 级工具限制时隐藏 macOS/Linux 的 `bash` 与 Windows 的 `pwsh`；返回本地项目时恢复对应工具。远程原生 Shell 执行仍默认拒绝，不绕过 SSH 审批。
-- **原生终端**：在宿主提供 `subprocess.spawnTerminal()` 时，将 DSH 右侧终端的远程工作区会话连接到 SSH PTY；不新增独立终端窗口。
-- **Git 状态**：在 Remote SSH 设置页查看远程 `git status`、Diff 统计和近期提交；在兼容的宿主版本中也会尝试适配原生 Git 子进程入口。
-- **SSH 主机管理**：支持 `~/.ssh/config`、密钥文件与 ssh-agent、显式主机指纹确认，以及受限的 Cloudflare Access `cloudflared` ProxyCommand。
-- **本地/远程隔离**：通过本地空占位目录登记项目，真实代码仍保留在 Linux 主机上。
+插件已以 **[dsh-plugin-remote-ssh](https://www.npmjs.com/package/dsh-plugin-remote-ssh)** 包名发布到 npm。请使用 **DSH 的插件命令**安装，而不是将插件 `npm install -g` 到全局 Node.js 环境。
 
-## 运行要求
-
-- 支持插件安装且提供必需 Host 服务的 DSH Desktop 或 DSH Web Host（包括 `fs`、`shell`、`tools`、`workingDirectory`、`webServer` 和 `connection`）。
-- 可通过 SSH 公钥或 ssh-agent 认证访问的 Linux 主机，启用 SFTP 子系统；Agent 远程 Shell 需要远端 Bash。
-- 在运行 DSH Host 的机器上提供 OpenSSH 客户端（`ssh`）；可选的原生终端与 Git 集成依赖 DSH `subprocess` 服务。
-- 构建与测试：Node.js 22、pnpm 10（插件 `package.json` 声明 Node.js >=20）。
-
-## 安装
-
-**推荐渠道：GitHub Release 正式安装包。** 主分支新版本通过测试、生产依赖审计与 ClamAV 检查后自动生成 Release，发布的 `.tgz` 与 CI 校验文件一致。npm 发布仅在所有权、OIDC Trusted Publisher 和 Actions 变量已启用时执行；请先在 Registry 核实可用性，不要假设一定已经发布。详情见 [npm 发布说明](docs/npm-publishing.md)。
-
-1. 从 [v1.1.3 Release](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/tag/v1.1.3) 下载 `dsh-plugin-remote-ssh-1.1.3.tgz`。
-2. 完全退出 DSH（Windows 需同时退出托盘进程）。
-3. 在运行 DSH 的机器上执行：
+**Windows/macOS DSH Desktop：** 先启动过一次 Desktop 并完成 profile 初始化，然后**完全退出 Desktop（Windows 还需退出托盘进程）**，在可用的 DSH CLI 中执行：
 
 ```powershell
-# Windows DSH Desktop
+dsh plugin --profile desktop add dsh-plugin-remote-ssh
+```
+
+**Linux / DSH Web Host：** 停止正在运行的 DSH Host，再安装到 Web profile：
+
+```bash
+dsh plugin --profile web add dsh-plugin-remote-ssh
+```
+
+安装完成后**重新启动 DSH Host**，并在 Web 模式下刷新浏览器。Desktop 与 Web 是不同 profile，必须安装到实际使用的那个 profile。可用以下命令检查：
+
+```bash
+dsh plugin --profile desktop list
+# Web 用户改为 --profile web
+```
+
+要求：DSH Host 支持本插件依赖的 `fs`、`shell`、`tools`、`workingDirectory`、`webServer`、`connection` 等插件服务；远端为启用 SSH/SFTP 的 Linux 主机，使用密钥或 ssh-agent 认证；运行 DSH Host 的机器需要 OpenSSH 客户端（`ssh`），远端命令运行需要 Bash。兼容性由实际 DSH 版本和宿主所暴露的可选 API 决定。
+
+### 更新插件
+
+npm 安装的版本可使用 DSH 插件管理界面提供的更新入口（若当前宿主支持），或用 CLI 更新**单个插件**：
+
+```bash
+dsh plugin --profile desktop update dsh-plugin-remote-ssh
+# Web 用户：
+dsh plugin --profile web update dsh-plugin-remote-ssh
+```
+
+若需要明确切换到 Registry 最新版本，可用 `add dsh-plugin-remote-ssh@latest`；若要固定版本，可用 `add dsh-plugin-remote-ssh@1.1.3`。更改后均需完全重启相应 DSH Host。更新的是 **DSH 插件**，不是 DSH 主程序。
+
+**之前通过本地 `.tgz` 安装？** 本地文件来源不会自动变成 npm 来源。先备份 DSH profile 和插件配置（通常在 `~/.dsh/remote-ssh/`），完全退出 Host，再用 `dsh plugin --profile desktop add dsh-plugin-remote-ssh@latest`（Web 替换 profile）切换安装来源，重启后检查主机配置和工作区是否保留。不要直接删除远程项目或工作区映射文件。
+
+### 备用安装：GitHub Releases
+
+无法访问 npm 包页面或需要固定构建产物时，可从 [GitHub Releases](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/latest) 下载正式 `.tgz`。例如已发布的 [v1.1.3](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/tag/v1.1.3)：
+
+```powershell
 dsh plugin --profile desktop add "C:\path\to\dsh-plugin-remote-ssh-1.1.3.tgz"
 ```
 
 ```bash
-# DSH Web Host
 dsh plugin --profile web add /path/to/dsh-plugin-remote-ssh-1.1.3.tgz
 ```
 
-4. 完全重启对应 DSH 进程；Web 页面如显示旧前端内容，再刷新浏览器。
+安装前核对 Release 版本及文件来源；离线下载 tarball 也不保证其依赖在安装时完全不需要访问 npm Registry。源码 `github:` 安装可能受构建脚本安全策略影响，不作为推荐方式。更多说明见 [安装与排障](docs/troubleshooting.md)。
 
-**从 GitHub 安装（仓库公开后可尝试）：** DSH CLI 支持 Git 来源，示例：
+## 能做什么
 
-```powershell
-dsh plugin --profile desktop add "github:WeipengMO/dsh-plugin-remote-ssh#v1.1.3"
-```
+| 能力 | 当前实现 |
+| --- | --- |
+| SSH 主机管理 | 在 **设置 → Remote SSH** 添加/编辑主机，支持 `~/.ssh/config` 别名快速导入、密钥或 ssh-agent、首次 Host Key 指纹核验 |
+| 原生项目入口 | 在新建项目的源文件夹选择器中选择 **远程 SSH** 主机和 Linux 目录 |
+| Agent 文件与搜索 | 将已映射远程工作区的读取、写入、编辑、`glob` / `grep` 请求经 SSH/SFTP 路由到远端 |
+| Linux 命令 | 通过 `remote_bash` 运行远端 Bash；默认需要 Agent 会话/远程工作区级审批 |
+| 终端与 Git | 宿主提供所需 `subprocess` 能力时适配原生 SSH PTY / Git；设置页提供远端 Git 状态、Diff 统计、近期提交 |
+| 本地/远端隔离 | 本地项目仍走 DSH 原生路径，远端项目只在本机登记空占位目录而非同步源码 |
 
-Git 安装路径尚未在本项目的干净 Windows Desktop 环境完成端到端验收。若 pnpm 阻止 Git 构建脚本，优先使用上面的正式 `.tgz` 包；不要为了安装插件而全局关闭构建脚本安全限制。**GitHub 公开并不等于插件自动进入 DSH 插件市场。**
-
-无论选择哪种方式，安装器仍可能需要从 npm Registry 下载依赖；网络代理、Registry 连接失败与插件源码公开状态无关。
+**尚未包含：** Jupyter Notebook Viewer、远端 DSH Host 代理/托管、RDP、离线文件镜像。原生终端与原生 Git 是否可用依赖具体 DSH Host，不能仅凭文件工具正常工作推断它们已经完整接管。
 
 ## 快速开始
 
-1. 进入 **设置 → Remote SSH**，添加 SSH 主机或读取 `~/.ssh/config` 中的主机别名，测试连接。首次连接请通过可信渠道核对并确认完整 SSH Host Key SHA256 指纹。
-2. 在 **新建项目 → 源文件夹 → 远程 SSH** 中选择主机和 Linux 路径。插件创建的是本机空占位工作区，真实文件不会复制到这里。
-3. 打开远程项目的 DSH 会话；首次使用 `remote_bash` 会请求对当前 Agent 会话/SSH 工作区的 Bash 命令执行授权。可执行 `pwd; uname -s; hostname` 验证平台。
-4. 通过设置页中的 **Git 状态** 查看未提交文件、Diff 统计和提交历史。DSH 的 **变更请求** 面板主要面向 Pull Request，不能当作工作区未提交文件列表的唯一依据。
+1. 在 **设置 → Remote SSH** 中新建主机，或使用 `~/.ssh/config` 快速导入。检查地址、用户、端口与密钥路径；首次连接时通过可信渠道核对 **SSH Host Key SHA256 指纹**再确认。
+2. 进入 **新建项目 → 源文件夹 → 远程 SSH**，选择主机和远程 Linux 目录，创建项目。插件登记的是本地**空占位目录**，并不会把代码复制到本地。
+3. 进入该项目的 Agent 会话，使用 `remote_ssh_status` 检查远程映射，再使用 `remote_bash` 执行 `pwd; uname -s; hostname`。首次命令需要批准；取消/拒绝会阻止执行。
+4. 正常使用 DSH 文件工具读写远程项目；检查 Git 状态可打开 **设置 → Remote SSH → Git 状态**。DSH 的“变更请求”面板主要面向 PR，不一定代表远端工作目录的未提交文件。
 
-## 版本与更新
+## 安全边界与已知限制
 
-**双渠道发布计划：** 后续正式版继续发布到 [GitHub Releases](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases)，并在 npm Trusted Publisher 经账号所有者启用后，将**同一 CI 验证过的安装包**同步发布至 npm Registry。通过 Registry 安装的 DSH 插件有条件显示新版本与更新操作；已有本地 `.tgz` 安装不会自动转换成 npm 安装源。
+- **远程 Bash 不是本地 Sandbox。** 被批准的 `remote_bash` 使用远端 SSH 用户权限，可能访问远程工作区以外该用户有权访问的文件；`read-only` 会话禁止执行，审批缺失或拒绝时默认失败。
+- `remoteBashApproval` 可设为 `session`（默认，每会话/工作区一次）、`command`（每命令一次）、`off`（不推荐）；`allowLegacyRemoteShell: true` 为不推荐的旧路由兼容开关。旧版 DSH 可能仍显示原生 `bash` / `pwsh` 工具，但默认不能借此绕过远端审批。
+- SSH Host Key 未经核实不能自动信任；密钥变化时默认拒绝。插件保存主机/密钥**路径**等配置，不会要求将私钥正文提交到仓库。
+- 文件搜索通过 SFTP 完成：`*.py` 只匹配指定目录当前层，`**/*.py` 才递归；递归最多 8 个并发目录读取，预算为 20 秒 / 50,000 条目。超限使用 `SSH_SEARCH_TIMEOUT` 或 `SSH_SEARCH_LIMIT` 标识，请缩小搜索范围。
+- 远端执行仅支持前台命令；SSH/SFTP 失败不得静默回退成本地同名目录或本地 Shell。
 
-**开通状态：** GitHub Releases 已可用；npm 包首次发布、Trusted Publisher 关联及 `NPM_PUBLISH_ENABLED` 开关仍需一次性配置，故暂不宣称 npm 包已发布。具体见 [npm 发布与自动更新说明](docs/npm-publishing.md)。每次升级后应完全重启 DSH Host（Desktop 含托盘进程）。
-
-本版 `remote_bash` 仅支持前台执行；远程 Agent 在宿主支持 Agent 级工具限制时隐藏原生 `bash` 和 `pwsh`，并默认阻止旧远程入口。更新详情请参阅 [CHANGELOG](CHANGELOG.md)。
-
-## 远程命令执行权限
-
-**本机 DSH Sandbox 不会隔离远端 Linux Bash。** 因此默认使用 DSH Approval 请求一次 Agent 会话与 SSH 工作区级别的授权，未批准或缺少审批服务时拒绝执行。会话处于 `read-only` 时一律禁止远端 Bash。切换到新 Agent 会话需要重新授权。远端 Bash 命令可访问该 SSH 用户有权限的文件，即使指定的工作目录位于工作区内，也不能视为远端文件系统沙箱。
-
-可选插件配置：`remoteBashApproval: 'session'`（默认，每会话/工作区批准一次）、`'command'`（每条命令批准）、`'off'`（不推荐，关闭额外审批）。旧路由只有显式设置 `allowLegacyRemoteShell: true` 才允许从 `pwsh` 进入 SSH（不推荐）。这些选项不会改变 Linux 账号本身的权限或本地与远端隔离关系。
-
-## 远程搜索性能与限制
-
-- `glob({pattern: "*.py", path: "."})`：只检查当前目录；要递归查找请显式使用 `**/*.py`。
-- `glob({pattern: "projects/**/*.py", path: "."})`：以 `projects` 字面前缀剪枝，最多并发 8 个只读 SFTP 目录列举。不会为了搜索自动执行远程 Bash 或绕过审批。
-- 递归 glob 最多遍历 50,000 个条目，内置 20 秒预算，超过时报告 `SSH_SEARCH_TIMEOUT` 或 `SSH_SEARCH_LIMIT`；该限制旨在避免长时间挂起，不能保证巨型目录总能搜索完。`grep` 仍可能需要大量远端读操作。
-- 原生 DSH、远端文件系统和网络条件会影响搜索耗时；工具可能将结构化 `.code` 包装为 `ToolCallError`，可从错误文本中的稳定标识判断原因。
-
-## 工作原理
+## 设计与文档
 
 ```mermaid
 flowchart LR
-    DSH["DSH Desktop / Web Host"]
-    UI["原生界面与 Agent"]
-    Plugin["Remote SSH 插件"]
-    Placeholder["本地空占位目录"]
-    Linux["Linux 主机：项目、Bash、Git"]
-    DSH --> UI
-    UI --> Plugin
-    Placeholder -. "登记项目 / 映射路径" .-> Plugin
-    Plugin -->|"SSH / SFTP / PTY"| Linux
+    UI["DSH Desktop / Web + Agent"] --> Plugin["Remote SSH 插件（DSH Host）"]
+    Local["本地空占位目录"] -. "登记与映射" .-> Plugin
+    Plugin -->|"ssh2 / SFTP 文件与搜索"| Linux["远端 Linux 项目"]
+    Plugin -->|"OpenSSH / Bash 与可选 PTY"| Linux
 ```
 
-DSH 在本机登记一个稳定的目录；插件根据该目录对应的工作区映射，将远程操作路由到 Linux。**占位目录不是源码镜像，也不是远程 Linux 文件系统的本地挂载。**
+- [架构、安全和工作区映射](docs/architecture.md)
+- [安装、迁移与故障排查](docs/troubleshooting.md)
+- [维护者：版本发布与 npm Trusted Publishing](docs/releasing.md)
+- [CHANGELOG](CHANGELOG.md) · [第三方许可](docs/THIRD_PARTY.md) · [Issues](https://github.com/WeipengMO/dsh-plugin-remote-ssh/issues)
 
-## 安全与限制
-
-- 主机公钥首次使用时必须人工核对；密钥发生变化时默认拒绝连接。
-- 插件使用本机私钥或 ssh-agent 进行认证，不将私钥内容写入插件主机配置；配置文件包含主机地址、用户名和密钥路径，应妥善保护。
-- 远程 SSH 命令以远端 Linux 账号的权限运行，并不受本机 Sandbox 约束。请避免在高权限服务器或包含敏感数据的目录中未经审查运行 Agent 命令。
-- 原生终端和原生 Git 入口依赖宿主是否暴露对应服务；它们不可用不代表 SFTP 文件路由不可用。
-- 当前版本针对 Linux SSH 目标；不提供 RDP、远端 DSH Host 代理服务或离线同步。
-
-详见 [架构与安全](docs/architecture.md)、[故障排查](docs/troubleshooting.md)、[第三方许可](docs/THIRD_PARTY.md)。
-
-## 开发
+## 本地开发
 
 ```bash
 corepack enable
@@ -122,6 +117,4 @@ pnpm test
 pnpm pack
 ```
 
-`pnpm test` 包含构建和本地自动化测试；测试通过不等于已覆盖所有 Windows/Electron、DSH 版本及真实 SSH 服务器组合。PR 请附复现步骤与测试结果。
-
-[MIT License](LICENSE)
+`pnpm test` 会编译并运行自动化测试；这不等于所有 Desktop/Web、操作系统、真实 SSH 服务器组合都已通过端到端验证。项目遵循 [MIT License](LICENSE)。
