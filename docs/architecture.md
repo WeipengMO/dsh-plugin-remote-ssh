@@ -1,6 +1,6 @@
 # 架构与安全边界
 
-本文档描述 DSH Remote SSH v1.1.3 的架构与安全边界；正式发布包以对应版本标签为准。
+本文档以 DSH Remote SSH v1.1.3 的实现为基础，描述工作区映射、安全边界与宿主依赖；用户应以实际安装版本为准。最新安装与更新方式见 [README](../README.md)，发行流程见 [维护者指南](releasing.md)。
 
 ## 组件和职责
 
@@ -64,4 +64,4 @@ Web API 可以管理 SSH 主机、选择远程路径和切换工作区，因此�
 - 运行时命令和错误信息仍可能包含路径、主机名或上游传入的环境变量。不要把 SSH 连接日志或完整配置文件当作可公开材料。
 - 插件并不提供多租户隔离；远程执行能力由运行 DSH Host 的账户权限及远端 SSH 用户权限决定。
 
-第三方依赖与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。安装和宿主兼容问题见 [troubleshooting.md](troubleshooting.md)。
+第三方依赖与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。npm 安装、旧 tarball 迁移及宿主兼容问题见 [troubleshooting.md](troubleshooting.md)。
