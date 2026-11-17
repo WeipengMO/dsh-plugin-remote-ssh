@@ -1,7 +1,8 @@
 # DSH Remote SSH
 
-[![CI](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml/badge.svg)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml)
-[![Security](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/security.yml/badge.svg)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/security.yml)
+[![Build & tests](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml)
+[![ClamAV & dependency audit](https://img.shields.io/github/actions/workflow/status/WeipengMO/dsh-plugin-remote-ssh/build.yml?branch=main&label=ClamAV%20%26%20dependency%20audit)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml)
+[![Gitleaks secret scan](https://img.shields.io/github/actions/workflow/status/WeipengMO/dsh-plugin-remote-ssh/security.yml?branch=main&label=Gitleaks%20secret%20scan)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/security.yml)
 [![npm](https://img.shields.io/npm/v/dsh-plugin-remote-ssh?label=npm)](https://www.npmjs.com/package/dsh-plugin-remote-ssh)
 [![GitHub Release](https://img.shields.io/github/v/release/WeipengMO/dsh-plugin-remote-ssh)](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases/latest)
 [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -113,6 +114,21 @@ dsh plugin --profile desktop add "C:\path\to\dsh-plugin-remote-ssh-1.2.0.tgz"
 - 不执行 HTML/JavaScript/SVG。对 HTML 输出仅提取符合白名单的表格结构和纯文本单元格内容，不载入脚本、样式、外链或图片。
 - 支持 nbformat 4；单文件上限 **12 MiB**，最多 **2,000 个单元格**。Markdown、LaTeX 和复杂富媒体输出不保证完整保真。
 - 正式包包含可选 Cordis 组件 `dsh-plugin-remote-ssh/notebook`：它提供经过 Cookie/同源校验的远程只读 SFTP 接口；工作区文档预览本身通过 DSH 已有的文件读取与扩展渲染能力工作。
+
+## 发布安全检查
+
+每次 `main` 更新或提交 Pull Request，GitHub Actions 会执行以下安全检查；**上方徽章反映的是 CI 工作流状态，不代表独立机构安全认证，也不能保证软件不存在漏洞或恶意行为**。
+
+| 检查 | 运行位置 | 作用 |
+| --- | --- | --- |
+| ClamAV 病毒扫描 | [Build and release](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml) | 更新病毒特征库后，扫描生成的 `.tgz` 安装包与解包文件；扫描失败会阻止本次构建/发布 |
+| 生产依赖审计 | [Build and release](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml) | `pnpm audit --prod --audit-level high`；检测高危或严重的已知依赖漏洞 |
+| Gitleaks 密钥扫描 | [Secret scanning](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/security.yml) | 检查提交历史中的凭据和敏感信息泄漏 |
+| SHA-256 安装包校验 | [Build and release](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions/workflows/build.yml) | 校验 CI 下载的安装包与扫描过的构建产物字节一致，防止发布前意外替换 |
+
+> **如何解读徽章？**「ClamAV & dependency audit」共用构建工作流的整体状态，不是两份独立的实时扫描报告；展开 [Actions 运行记录](https://github.com/WeipengMO/dsh-plugin-remote-ssh/actions) 才能查看各步骤的通过/失败情况。历史版本的检查应以对应版本发布时的日志为准。
+
+目前**未启用 VirusTotal 第三方扫描**，因此不会展示 VirusTotal「已认证」或「0 检出」标识。VirusTotal 的文件上传需要 API Key，且会向外部服务提交安装包；正式接入后应仅针对可公开分发的发布包运行，并公开实际结果链接。参考 [VirusTotal 上传 API 文档](https://docs.virustotal.com/reference/files-scan)。
 
 ## 系统要求与安全说明
 
