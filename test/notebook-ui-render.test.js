@@ -107,3 +107,26 @@ test('Notebook document preserves execution labels, read-only state and markdown
   assert.match(textOf(tree), /In \[8\]:/);
   assert.ok(nodes(tree).some(n => /\brss-nb-h1\b/.test(n.props.className || '')));
 });
+
+
+test('execution counter sits above the full-width source; gutter stays compact on small screens', () => {
+  const { viewer } = setup();
+  const tree = viewer.NotebookDocument({ filename: 'n.ipynb', notebook: {
+    metadata: { language_info: { name: 'python' } },
+    cells: [
+      { cell_type: 'code', source: ['print(1)'], execution_count: 1, outputs: [] },
+      { cell_type: 'raw', source: ['raw note'] },
+    ],
+  } });
+  const stacks = nodes(tree).filter(n => n.props.className === 'rss-nb-cell-stack');
+  assert.equal(stacks.length, 2);
+  assert.deepEqual(stacks.map(s => s.children[0].props.className), ['rss-nb-cell-label', 'rss-nb-cell-label']);
+  assert.equal(textOf(stacks[0].children[0]), 'In [1]:');
+  assert.equal(textOf(stacks[1].children[0]), 'Raw');
+  assert.equal(stacks[0].children[1].props.className, 'rss-nb-cell-main');
+  assert.equal(nodes(stacks[0].children[1]).filter(n => n.props.className === 'rss-nb-line-number').length, 1);
+  assert.match(css, /\.rss-nb-cell-stack\s*\{[^}]*flex-direction:column/);
+  assert.match(css, /\.rss-nb-cell-label\s*\{[^}]*text-align:left/);
+  assert.match(css, /\.rss-nb-line-number\s*\{[^}]*min-width:max\(32px,5ch\)/);
+  assert.doesNotMatch(css, /rss-nb-cell-grid|grid-template-columns:65px/);
+});
