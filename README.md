@@ -75,6 +75,7 @@ dsh plugin --profile web add /path/to/dsh-plugin-remote-ssh-1.1.3.tgz
 | Linux 命令 | 通过 `remote_bash` 运行远端 Bash；默认需要 Agent 会话/远程工作区级审批 |
 | 终端与 Git | 宿主提供所需 `subprocess` 能力时适配原生 SSH PTY / Git；设置页提供远端 Git 状态、Diff 统计、近期提交 |
 | 本地/远端隔离 | 本地项目仍走 DSH 原生路径，远端项目只在本机登记空占位目录而非同步源码 |
+| Web 本地目录选择 | Linux DSH Web 的“本地电脑”指 Web Host 文件系统；原生选框不可用时自动切换网页内目录浏览，可跳转、显示隐藏文件夹和新建目录。Desktop 继续使用原生目录选择框 |
 
 **尚未包含：** Jupyter Notebook Viewer、远端 DSH Host 代理/托管、RDP、离线文件镜像。原生终端与原生 Git 是否可用依赖具体 DSH Host，不能仅凭文件工具正常工作推断它们已经完整接管。
 
