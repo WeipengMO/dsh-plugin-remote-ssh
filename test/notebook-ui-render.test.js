@@ -105,5 +105,5 @@ test('Notebook document preserves execution labels, read-only state and markdown
   assert.match(textOf(tree), /demo.ipynb/);
   assert.match(textOf(tree), /只读/);
   assert.match(textOf(tree), /In \[8\]:/);
-  assert.ok(nodes(tree).some(n => n.props.className === 'rss-nb-h1'));
+  assert.ok(nodes(tree).some(n => /\brss-nb-h1\b/.test(n.props.className || '')));
 });
