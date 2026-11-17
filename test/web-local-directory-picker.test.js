@@ -14,8 +14,13 @@ function nodes(tree) {
   if (Array.isArray(tree)) return tree.flatMap(nodes);
   return [tree, ...tree.children.flatMap(nodes)];
 }
+function contents(node) {
+  if (typeof node === 'string') return node;
+  if (Array.isArray(node)) return node.map(contents).join('');
+  return node && typeof node === 'object' ? contents(node.children) : '';
+}
 function button(tree, text) {
-  const match = nodes(tree).find(node => node.tag === 'button' && node.children.includes(text));
+  const match = nodes(tree).find(node => node.tag === 'button' && contents(node).trim() === text);
   assert.ok(match, 'button missing: ' + text);
   return match;
 }
@@ -103,7 +108,7 @@ test('Web browse capability falls back inside directory flow and adopts selected
   assert.deepEqual(ui.errors, [], 'native capability mismatch must not reach the owner error modal');
   assert.deepEqual(ui.cancelled, [], 'fallback is not a cancellation');
   assert.ok(button(ui.render(), 'src'));
-  assert.ok(!nodes(ui.render()).some(n => n.tag === 'button' && n.children.includes('.secret')));
+  assert.ok(!nodes(ui.render()).some(n => n.tag === 'button' && contents(n).includes('.secret')));
   await button(ui.render(), 'src').props.onClick();
   assert.deepEqual(listed, [undefined, '/home/dev/src']);
   await button(ui.render(), '使用此本地文件夹').props.onClick();
