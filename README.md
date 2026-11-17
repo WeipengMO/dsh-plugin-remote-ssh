@@ -77,7 +77,7 @@ dsh plugin --profile web add /path/to/dsh-plugin-remote-ssh-1.1.3.tgz
 | 本地/远端隔离 | 本地项目仍走 DSH 原生路径，远端项目只在本机登记空占位目录而非同步源码 |
 | Web 本地目录选择 | Linux DSH Web 的“本地电脑”指 Web Host 文件系统；原生选框不可用时自动切换网页内目录浏览，可跳转、显示隐藏文件夹和新建目录。Desktop 继续使用原生目录选择框 |
 
-**尚未包含：** Jupyter Notebook Viewer、远端 DSH Host 代理/托管、RDP、离线文件镜像。原生终端与原生 Git 是否可用依赖具体 DSH Host，不能仅凭文件工具正常工作推断它们已经完整接管。
+**当前正式版尚未包含：** Jupyter Notebook Viewer、远端 DSH Host 代理/托管、RDP、离线文件镜像。此开发分支已加入 Notebook 只读预览。原生终端与原生 Git 是否可用依赖具体 DSH Host，不能仅凭文件工具正常工作推断它们已经完整接管。
 
 ## 快速开始
 
@@ -86,17 +86,18 @@ dsh plugin --profile web add /path/to/dsh-plugin-remote-ssh-1.1.3.tgz
 3. 进入该项目的 Agent 会话，使用 `remote_ssh_status` 检查远程映射，再使用 `remote_bash` 执行 `pwd; uname -s; hostname`。首次命令需要批准；取消/拒绝会阻止执行。
 4. 正常使用 DSH 文件工具读写远程项目；检查 Git 状态可打开 **设置 → Remote SSH → Git 状态**。DSH 的“变更请求”面板主要面向 PR，不一定代表远端工作目录的未提交文件。
 
-## Notebook Viewer（可选组件，实验版）
+## Notebook Viewer（实验版，只读预览）
 
-在 DSH **设置 → Notebook** 中预览 Jupyter Notebook：
+本开发分支可以直接在 **DSH 工作区文件树**里打开 `.ipynb`，通过内置文档标签页预览。对于本地工作区，DSH 读取本机文件；对于 Remote SSH 工作区，则复用已经接入的工作区文件读取路由。无需新建 Notebook Settings 页面，也不需要启动 Jupyter Server。
 
-- **本地**：通过文件选择器打开当前 Mac/Windows/Linux 浏览器设备上的 `.ipynb` 文件；文件仅在页面本地解析，不上传到远程 SSH 主机。
-- **远程**：选择已保存的 SSH 主机，浏览远程目录并打开 `.ipynb`；由单独的 `remote-ssh-notebook` Cordis 组件通过已验证的 SSH/SFTP 通道只读获取。
-- 支持 nbformat 4 Markdown（基础格式）、Python/R/其他语言的代码块、文本输出和 PNG/JPEG/GIF 图片输出。未实现完整 Markdown/LaTeX/HTML/交互输出保真。
-- **不执行代码、不启动 Jupyter Server**，不执行 notebook 中的 HTML、JavaScript 或 SVG。文件预览限制为 12 MiB。
-- 在 DSH 插件管理的「包含的组件」里可独立禁用 Notebook Viewer 的服务端读取组件；禁用后浏览器本地选择文件仍可使用。
+- **自适应阅读页面**：取消独立的 68vh 高度限制，让 DSH 工作区负责纵向滚动；窄屏自动收起代码执行提示的侧边留白。
+- **表格输出**：优先显示受限解析后的 pandas `text/html` 表格；当 Notebook 只保存了典型 DataFrame `text/plain` 表示时，也会尝试转换为表格。普通文本/日志保持原样。
+- **代码单元格**：显示行号、Python 语法高亮、`In [n]` 执行标记，长代码行可横向滚动。非 Python 代码保留原文，不进行错误的 Python 着色。
+- **其他输出**：支持基础 Markdown、stdout/stderr、异常信息、PNG/JPEG/GIF 图片与 Notebook `text/markdown` 输出。
+- **安全边界**：只读，不执行单元格、JavaScript、SVG 或 Notebook HTML。HTML **仅提取表格结构和纯文本单元格内容**，忽略样式、链接、脚本、图片和事件属性；交互式 widget 不渲染。Notebook 最大 12 MiB，nbformat 4，最多 2000 个单元格。
+- **独立组件**：`dsh-plugin-remote-ssh/notebook` 仍提供可选的签名 Cookie / 同源鉴权 SSH/SFTP 读取接口；工作区文件标签预览则通过 DSH 现有文档读取能力工作。
 
-功能开发阶段版本 `1.2.0-notebook.1` 仅通过 GitHub Actions 提供测试安装包，尚未发布正式版。当前单独维护的 Bash 工具修复 PR #24 不包含在此功能分支中。
+当前开发分支的预览包版本为 `1.2.0-notebook.2`，**不是 npm 正式版**。请使用 PR #34 的 GitHub Actions 构建产物测试，不要用 `@latest` 代替预览包。真实 Desktop / Linux Web 上的布局、表格和行号仍需实机验收。
 
 ## 安全边界与已知限制
 
