@@ -519,7 +519,7 @@ window.__ModuleLoader__.load({
      * Both official slots are covered; no direct Agent mutation is needed.
      */
     function RemoteProjectDirectoryFlow(props) {
-      const { open, busy, onPicked, onCancel, onError, pickDirectory } = props;
+      const { open, busy, onPicked, onCancel, onError, pickDirectory, listLocalDirectory, createLocalDirectory } = props;
       const [mode, setMode] = useState('remote');
       const [hosts, setHosts] = useState([]);
       const [hostId, setHostId] = useState('');
@@ -527,14 +527,24 @@ window.__ModuleLoader__.load({
       const [listing, setListing] = useState(null);
       const [loading, setLoading] = useState(false);
       const [picking, setPicking] = useState(false);
+      const [localBrowse, setLocalBrowse] = useState(false);
+      const [localListing, setLocalListing] = useState(null);
+      const [localPath, setLocalPath] = useState('');
+      const [localLoading, setLocalLoading] = useState(false);
+      const [localShowHidden, setLocalShowHidden] = useState(false);
+      const [localFolderName, setLocalFolderName] = useState('');
+      const [localCreating, setLocalCreating] = useState(false);
       const [error, setError] = useState('');
       const requestId = React.useRef(0);
+      const localRequestId = React.useRef(0);
       const reported = React.useRef(false);
       useEffect(() => {
         if (!open) return;
         let disposed = false;
         reported.current = false;
         setError(''); setListing(null); setHostId(''); setLoading(true);
+        setLocalBrowse(false); setLocalListing(null); setLocalPath('');
+        setLocalFolderName(''); setLocalShowHidden(false);
         api('/state').then(state => {
           if (disposed) return;
           const list = state.hosts || [];
@@ -545,7 +555,7 @@ window.__ModuleLoader__.load({
           if (disposed) return;
           setError(e.message || String(e)); setLoading(false);
         });
-        return () => { disposed = true; ++requestId.current; };
+        return () => { disposed = true; ++requestId.current; ++localRequestId.current; };
       }, [open]);
       async function browse(host, remotePath) {
         if (!host) return;
@@ -578,20 +588,69 @@ window.__ModuleLoader__.load({
           setError(e.message || String(e));
         } finally { setPicking(false); }
       }
+      // The DSH directory picker has mutually exclusive native/browse
+      // capabilities. Web/headless Hosts cannot launch a native OS chooser.
+      // In that case keep the user's project flow open and browse the Host FS.
+      async function browseLocal(target) {
+        const id = ++localRequestId.current;
+        setLocalLoading(true); setLocalListing(null); setError('');
+        try {
+          if (typeof listLocalDirectory !== 'function') {
+            throw Error('DSH Web 未提供目录浏览接口；请检查 DSH Host 的目录选择器配置。');
+          }
+          const result = await listLocalDirectory(target || undefined);
+          if (localRequestId.current !== id || reported.current) return;
+          if (!result || typeof result.path !== 'string' || !Array.isArray(result.entries)) {
+            throw Error('DSH Web 返回了无效的目录列表');
+          }
+          setLocalListing(result); setLocalPath(result.path);
+        } catch (e) {
+          if (localRequestId.current !== id || reported.current) return;
+          setError(e.message || String(e));
+        } finally {
+          if (localRequestId.current === id) setLocalLoading(false);
+        }
+      }
       async function chooseLocal() {
         if (reported.current || busy || picking) return;
+        if (localBrowse) {
+          if (!localListing || localLoading || localCreating || localPath !== localListing.path) return;
+          reported.current = true;
+          onPicked(localListing.path);
+          return;
+        }
         setPicking(true); setError('');
         try {
+          // Preserve the Desktop native picker where it actually exists.
           const picked = await pickDirectory();
           if (reported.current) return;
           reported.current = true;
           if (picked == null) onCancel();
           else onPicked(picked);
         } catch (e) {
-          if (typeof onError === 'function') {
-            reported.current = true; onError(e.message || String(e));
-          } else setError(e.message || String(e));
+          if (reported.current) return;
+          const message = e?.message || String(e);
+          if (/needs the native capability|composed picker serves ["']browse["']|directory-picker\/unavailable/i.test(message)) {
+            setLocalBrowse(true);
+            await browseLocal();
+          } else if (typeof onError === 'function') {
+            reported.current = true; onError(message);
+          } else setError(message);
         } finally { setPicking(false); }
+      }
+      async function createLocalFolder(event) {
+        event.preventDefault();
+        const name = localFolderName.trim();
+        if (!name || !localListing || localCreating || localLoading) return;
+        setLocalCreating(true); setError('');
+        try {
+          if (typeof createLocalDirectory !== 'function') throw Error('DSH Web 未提供新建文件夹功能');
+          const created = await createLocalDirectory(localListing.path, name);
+          setLocalFolderName('');
+          await browseLocal(created);
+        } catch (e) {
+          setError(e.message || String(e));
+        } finally { setLocalCreating(false); }
       }
       function cancel() {
         if (busy || picking || reported.current) return;
@@ -613,10 +672,53 @@ window.__ModuleLoader__.load({
             'aria-pressed': mode === 'local', onClick: () => setMode('local') }, '本地电脑'),
           h('button', { type: 'button', className: mode === 'remote' ? 'rss-project-active' : '',
             'aria-pressed': mode === 'remote', onClick: () => setMode('remote') }, '远程 SSH')),
-        mode === 'local' ? h('div', { className: 'rss-project-local' },
-          h('p', null, '使用本机文件夹创建 DSH 项目。'),
-          h('button', { type: 'button', className: 'rss-btn rss-primary', disabled: !!busy || picking, onClick: chooseLocal }, '选择本地文件夹…')) :
-          h('div', { className: 'rss-project-remote' },
+        mode === 'local' ? (localBrowse
+          ? h('div', { className: 'rss-project-remote' },
+              h('p', { className: 'rss-project-hint' }, '浏览 DSH Host 上的目录（不是当前浏览器所在电脑）。'),
+              h('div', { className: 'rss-project-path-row' },
+                h('button', { type: 'button', className: 'rss-project-nav-button',
+                  title: '上级目录', 'aria-label': '本地上级目录',
+                  disabled: localLoading || !localListing?.crumbs?.at(-2),
+                  onClick: () => browseLocal(localListing.crumbs.at(-2).path) },
+                  h(Icon, { name: 'back', size: 17 })),
+                h('form', { onSubmit: e => { e.preventDefault(); browseLocal(localPath); } },
+                  h('input', { 'aria-label': 'DSH Host 目录', spellCheck: false, value: localPath,
+                    onChange: e => setLocalPath(e.target.value), placeholder: '输入服务器上的绝对路径' }),
+                  h('button', { type: 'submit', className: 'rss-project-nav-button',
+                    'aria-label': '跳转本地目录', title: '跳转目录', disabled: localLoading },
+                    h(Icon, { name: 'arrow', size: 16 }))),
+                h('button', { type: 'button', className: 'rss-project-nav-button',
+                  title: '刷新目录', 'aria-label': '刷新本地目录', disabled: localLoading,
+                  onClick: () => browseLocal(localListing?.path || localPath) },
+                  h(Icon, { name: 'refresh', size: 17 }))),
+              h('div', { className: 'rss-project-dir-list', role: 'list' },
+                localLoading ? h('p', { className: 'rss-project-hint' }, '读取目录中…') :
+                !localListing ? h('p', { className: 'rss-project-hint' }, '无法读取目录，可在上方输入绝对路径。') :
+                localListing.entries.filter(entry => localShowHidden || !entry.hidden).length === 0 ?
+                  h('p', { className: 'rss-project-hint' }, '这里没有可显示的文件夹，可以直接选用当前目录。') :
+                  localListing.entries.filter(entry => localShowHidden || !entry.hidden).map(entry =>
+                    h('button', { type: 'button', key: entry.path,
+                      title: entry.path, disabled: localLoading, onClick: () => browseLocal(entry.path) },
+                      h(Icon, { name: 'folder', size: 15 }), h('span', null, entry.name),
+                      h(Icon, { name: 'chevron', size: 14 })))),
+              h('div', { className: 'rss-local-options' },
+                h('label', { className: 'rss-local-hidden' },
+                  h('input', { type: 'checkbox', checked: localShowHidden,
+                    onChange: e => setLocalShowHidden(e.target.checked) }), '显示隐藏文件夹'),
+                h('form', { className: 'rss-local-create', onSubmit: createLocalFolder },
+                  h('input', { 'aria-label': '新文件夹名称', placeholder: '新文件夹名称', value: localFolderName,
+                    disabled: !localListing || localCreating || localLoading,
+                    onChange: e => setLocalFolderName(e.target.value) }),
+                  h('button', { type: 'submit', className: 'rss-btn',
+                    disabled: !localFolderName.trim() || !localListing || localCreating || localLoading },
+                    localCreating ? '创建中…' : '新建'))),
+              localListing && h('div', { className: 'rss-project-selected' },
+                '选中的 Host 目录：', h('code', null, localListing.path)))
+          : h('div', { className: 'rss-project-local' },
+              h('p', null, '使用 DSH Host 上的文件夹创建项目。'),
+              h('button', { type: 'button', className: 'rss-btn rss-primary',
+                disabled: !!busy || picking, onClick: chooseLocal }, '选择本地文件夹…')))
+          : h('div', { className: 'rss-project-remote' },
             h('label', { className: 'rss-project-label' }, 'SSH 主机',
               h('span', { className: 'rss-project-select-wrap' },
                 h('select', { value: hostId, disabled: !!busy || picking, onChange: e => chooseHost(e.target.value) },
@@ -656,6 +758,9 @@ window.__ModuleLoader__.load({
         error && h('p', { className: 'rss-project-error', role: 'alert' }, error),
         h('div', { className: 'rss-project-footer' },
           h('button', { type: 'button', className: 'rss-btn', onClick: cancel, disabled: !!busy || picking }, '取消'),
+          mode === 'local' && localBrowse && h('button', { type: 'button', className: 'rss-btn rss-primary',
+            onClick: chooseLocal, disabled: !!busy || picking || localLoading || localCreating ||
+              !localListing || localPath !== localListing.path }, '使用此本地文件夹'),
           mode === 'remote' && h('button', { type: 'button', className: 'rss-btn rss-primary',
             onClick: chooseRemote, disabled: !!busy || picking || loading || !listing || !hostId },
             picking ? '正在打开…' : '使用此远程文件夹')))));
@@ -770,11 +875,17 @@ window.__ModuleLoader__.load({
       // On Windows/Electron prefer the desktop bridge as the official
       // ui-directory-picker-native plugin does; never call the absent
       // former workspace-service picker API.
-      const injectFlow = () => ({ pickDirectory: () => {
-        const desktop = window.__DSH_DIRECTORY_PICKER__;
-        if (desktop && typeof desktop.pick === 'function') return desktop.pick();
-        return ctx.uiWorkspace.pickDirectory();
-      } });
+      const injectFlow = () => ({
+        pickDirectory: () => {
+          const desktop = window.__DSH_DIRECTORY_PICKER__;
+          if (desktop && typeof desktop.pick === 'function') return desktop.pick();
+          return ctx.uiWorkspace.pickDirectory();
+        },
+        // The browse capability is separate from native pick; do not use
+        // directoryPicker.pick() as a fallback for a headless Web Host.
+        listLocalDirectory: (directory, signal) => ctx.uiWorkspace.listDirectory(directory, signal),
+        createLocalDirectory: (directory, name) => ctx.uiWorkspace.createDirectory(directory, name),
+      });
       ctx.slots.inject('conversation.hero.workspace.directoryFlow', () =>
         ctx.slots.inject('sidebar.workspaces.directoryFlow', function* () {
           yield ctx.slots.register({
