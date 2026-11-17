@@ -621,7 +621,7 @@ body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block
 .rss-nb-output img {display:block;max-width:100%;height:auto;object-fit:contain}
 .rss-nb-rich-markdown {margin-top:12px}
 .rss-nb-table-wrap {max-width:100%;width:100%;overflow-x:auto;margin:10px 0 16px;border:1px solid var(--nb-border);border-radius:7px;overscroll-behavior-x:contain}
-.rss-nb-dataframe {border-collapse:collapse;border-spacing:0;width:max-content;min-width:60%;font:13px/1.5 inherit;color:inherit;text-align:left}
+.rss-nb-dataframe {border-collapse:collapse;border-spacing:0;width:max-content;min-width:60%;font-family:inherit;font-size:13px;line-height:1.5;color:inherit;text-align:left}
 .rss-nb-dataframe th,.rss-nb-dataframe td {font:inherit;white-space:pre;padding:7px 12px;border-bottom:1px solid var(--nb-border);text-align:left}
 .rss-nb-dataframe th {font-weight:650;background:var(--nb-subtle)}
 .rss-nb-dataframe tr:last-child > * {border-bottom:0}
