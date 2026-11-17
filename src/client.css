@@ -599,8 +599,8 @@ body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block
 .rss-nb-listitem {padding-left:14px;line-height:1.7}
 .rss-nb-markdown blockquote {border-left:3px solid var(--nb-border);padding-left:12px;margin:10px 0;color:var(--nb-muted)}
 .rss-nb-md-code {padding:12px;border:1px solid var(--nb-border);border-radius:6px;background:var(--nb-subtle);font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-x:auto;white-space:pre}
-.rss-nb-cell-grid {display:grid;grid-template-columns:65px minmax(0,1fr);align-items:start;gap:8px}
-.rss-nb-cell-label {font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap;text-align:right;padding:9px 2px 0 0;color:#3975d0}
+.rss-nb-cell-stack {display:flex;flex-direction:column;gap:5px;min-width:0;width:100%}
+.rss-nb-cell-label {font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap;text-align:left;padding:0 0 0 2px;color:#3975d0}
 .rss-nb-cell-main {min-width:0}
 .rss-nb-code-scroll {background:var(--nb-subtle);border:1px solid var(--nb-border);border-radius:7px;width:100%;max-width:100%;overflow-x:auto;overflow-y:visible;overscroll-behavior-x:contain;tab-size:4}
 .rss-nb-code-scroll:focus-visible,.rss-nb-table-wrap:focus-visible {outline:2px solid #3975d0;outline-offset:2px}
@@ -608,7 +608,7 @@ body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block
 .rss-nb-code-line {display:table-row}
 .rss-nb-code-line:hover {background:color-mix(in srgb,currentColor 4%,transparent)}
 .rss-nb-line-number,.rss-nb-line-content {display:table-cell;white-space:pre}
-.rss-nb-line-number {position:sticky;left:0;z-index:1;min-width:38px;width:38px;padding:0 9px 0 6px;text-align:right;user-select:none;color:var(--nb-muted);border-right:1px solid var(--nb-border);background:color-mix(in srgb,currentColor 2%,transparent)}
+.rss-nb-line-number {position:sticky;left:0;z-index:1;min-width:max(32px,5ch);width:max(32px,5ch);padding:0 6px 0 3px;text-align:right;user-select:none;color:var(--nb-muted);border-right:1px solid var(--nb-border);background:color-mix(in srgb,currentColor 2%,transparent)}
 .rss-nb-line-content {padding-left:12px;padding-right:20px}
 .rss-nb-token-keyword {color:#8654c4;font-weight:600}
 .rss-nb-token-string {color:#258455}
@@ -634,9 +634,9 @@ body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block
   .rss-nb-markdown {font-size:13px}
   .rss-nb-h1 {font-size:21px}
   .rss-nb-h2 {font-size:18px}
-  .rss-nb-cell-grid {grid-template-columns:1fr;gap:3px}
-  .rss-nb-cell-label {padding:0 1px;text-align:left}
+  .rss-nb-cell-stack {gap:4px}
+  .rss-nb-cell-label {padding:0 0 0 1px}
   .rss-nb-code-lines {font-size:12px}
-  .rss-nb-line-number {min-width:32px;width:32px}
+  .rss-nb-line-number {min-width:max(30px,5ch);width:max(30px,5ch)}
   .rss-nb-dataframe {font-size:12px}
 }
