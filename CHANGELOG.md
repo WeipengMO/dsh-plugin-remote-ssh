@@ -11,6 +11,7 @@
 ### Changed
 - Notebooks now open rendered directly from the workspace file tree: a `.ipynb` document-preview renderer replaces the separate Notebook Settings page. It reads the opened workspace file through DSH's standard file reader, so it works for both local and remote-SSH workspaces.
 - Notebook documents now fill the available workspace viewport without a nested 68vh scroll cap, with responsive layout and larger readable typography.
+- Move Notebook `In [n]`/`Raw` labels above each code cell to use the full page width; narrow the code line-number gutter and keep the layout consistent on mobile.
 - Add safe React table rendering for pandas HTML output plus aligned text/plain DataFrame fallback, with Python code-cell syntax colors, line numbers and horizontal scrolling.
 - Add UI-focused regression tests for output formatting, HTML sanitization and workspace sizing.
 
