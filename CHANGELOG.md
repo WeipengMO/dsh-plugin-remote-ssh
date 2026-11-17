@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — 1.2.0-notebook.1 (preview)
+
+### Added
+- A second optional Cordis component, `dsh-plugin-remote-ssh/notebook`, for authenticated read-only Jupyter Notebook previews over verified SSH/SFTP.
+- A dedicated Notebook Settings view for browser-local `.ipynb` files and files on saved remote SSH hosts.
+- Safe rendering of code, basic Markdown, text streams/errors, and PNG/JPEG/GIF outputs. Notebook HTML/SVG/script outputs are never executed or embedded.
+- Maximum 12 MiB per notebook, nbformat 4 validation, signed-cookie/origin checks and viewer regression tests.
+
+### Notes
+- Preview only; no kernel, cell execution, notebook editing, arbitrary HTML rendering or Jupyter Server dependency.
+- Merged on top of the v1.1.3 macOS/Linux native Bash routing, remote approval and SFTP search improvements.
+
 ## v1.1.3 — 2026-11-14
 
 ### Added / improved
@@ -25,7 +37,6 @@
 - Generic display-name and username placeholders replace project-specific examples.
 - Missing identity-file guidance works across macOS/Linux/Windows.
 - Add UI regression tests for automatic prefill and manual editing.
-
 ## v1.1.1 — 2026-11-13
 
 ### Fixed

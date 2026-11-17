@@ -4,7 +4,9 @@ export declare const inject: string[];
 export interface Config {
     storageDir?: string;
     maxRecent?: number;
+    /** Approval for the unrestricted remote SSH shell (default: once per session/workspace). */
     remoteBashApproval?: 'session' | 'command' | 'off';
+    /** Unsafe legacy compatibility: allow native pwsh to route to SSH without the remote_bash gate (default false). */
     allowLegacyRemoteShell?: boolean;
 }
 interface PluginContext {

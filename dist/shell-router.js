@@ -2,16 +2,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { RemoteSshError, errorMessage } from './errors.js';
 import { encodeRemoteEnv, looksVirtual, shellQuote } from './paths.js';
-/** Detect unmistakable PowerShell-only syntax before sending it to Linux. */
-// Authorize only the exact resolved ShellSpec from a policy-gated remote_bash call.
+// Only a remote_bash tool call that passed the explicit policy/approval
+// gate can authorize its exact resolved spec. WeakSet identity cannot be
+// forged by constructing a similarly shaped native pwsh request.
 const approvedRemoteSpecs = new WeakSet();
 export function authorizeRemoteBashSpec(spec) {
-  if (!looksVirtual(spec.workdir)) {
-    throw new RemoteSshError('SSH_PATH_INVALID', 'cannot authorize a local command as remote_bash');
-  }
-  approvedRemoteSpecs.add(spec);
+    if (!looksVirtual(spec.workdir)) {
+        throw new RemoteSshError('SSH_PATH_INVALID', 'cannot authorize a local command as remote_bash');
+    }
+    approvedRemoteSpecs.add(spec);
 }
-
+/** Detect unmistakable PowerShell-only syntax before sending it to Linux. */
 export function usesPowerShellSyntax(command) {
     return /\$env:[A-Za-z_]/i.test(command)
         || /(?:^|[;&|]\s*|\n\s*)(?:Get-ChildItem|Set-Location|Select-String|Get-Content|Set-Content|Out-File|Remove-Item|New-Item|Write-Output|Get-Location|Test-Path)(?=\s|$)/i.test(command);

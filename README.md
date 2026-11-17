@@ -86,6 +86,18 @@ dsh plugin --profile web add /path/to/dsh-plugin-remote-ssh-1.1.3.tgz
 3. 进入该项目的 Agent 会话，使用 `remote_ssh_status` 检查远程映射，再使用 `remote_bash` 执行 `pwd; uname -s; hostname`。首次命令需要批准；取消/拒绝会阻止执行。
 4. 正常使用 DSH 文件工具读写远程项目；检查 Git 状态可打开 **设置 → Remote SSH → Git 状态**。DSH 的“变更请求”面板主要面向 PR，不一定代表远端工作目录的未提交文件。
 
+## Notebook Viewer（可选组件，实验版）
+
+在 DSH **设置 → Notebook** 中预览 Jupyter Notebook：
+
+- **本地**：通过文件选择器打开当前 Mac/Windows/Linux 浏览器设备上的 `.ipynb` 文件；文件仅在页面本地解析，不上传到远程 SSH 主机。
+- **远程**：选择已保存的 SSH 主机，浏览远程目录并打开 `.ipynb`；由单独的 `remote-ssh-notebook` Cordis 组件通过已验证的 SSH/SFTP 通道只读获取。
+- 支持 nbformat 4 Markdown（基础格式）、Python/R/其他语言的代码块、文本输出和 PNG/JPEG/GIF 图片输出。未实现完整 Markdown/LaTeX/HTML/交互输出保真。
+- **不执行代码、不启动 Jupyter Server**，不执行 notebook 中的 HTML、JavaScript 或 SVG。文件预览限制为 12 MiB。
+- 在 DSH 插件管理的「包含的组件」里可独立禁用 Notebook Viewer 的服务端读取组件；禁用后浏览器本地选择文件仍可使用。
+
+功能开发阶段版本 `1.2.0-notebook.1` 仅通过 GitHub Actions 提供测试安装包，尚未发布正式版。当前单独维护的 Bash 工具修复 PR #24 不包含在此功能分支中。
+
 ## 安全边界与已知限制
 
 - **远程 Bash 不是本地 Sandbox。** 被批准的 `remote_bash` 使用远端 SSH 用户权限，可能访问远程工作区以外该用户有权访问的文件；`read-only` 会话禁止执行，审批缺失或拒绝时默认失败。

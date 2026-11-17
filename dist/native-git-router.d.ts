@@ -8,6 +8,7 @@ interface SpawnSpec {
         stdin: unknown;
         stdout: unknown;
         stderr: unknown;
+        control?: unknown;
     };
 }
 interface SpawnProvider {

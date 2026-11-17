@@ -12,6 +12,7 @@ import { agentFromCreatedEvent, createNativeHttpHandler } from './http-api.js';
 import { installWorkspaceCleanup } from './workspace-cleanup.js';
 import { installNativeTerminalRouter } from './native-terminal-router.js';
 import { installNativeGitRouter } from './native-git-router.js';
+import { attachNotebookManager } from './notebook-runtime.js';
 export const name = 'remote-ssh';
 /** The plugin needs the native tool seams before it can route remote work. */
 export const inject = ['fs', 'shell', 'tools', 'workingDirectory', 'systemPrompt', 'webServer', 'connection'];
@@ -105,6 +106,7 @@ export function apply(ctx, config = {}) {
         }
     }, { global: true });
     ctx.effect(() => {
+        const detachNotebookManager = attachNotebookManager(manager);
         const workspaceCleanup = installWorkspaceCleanup(ctx, manager, storageDir, ctx.logger, {
             registered: () => {
                 const registry = ctx.get('workspaceRegistry');
@@ -154,6 +156,7 @@ export function apply(ctx, config = {}) {
             restoreWorkingDirectory();
             shellHandle.dispose();
             fsHandle.dispose();
+            detachNotebookManager();
             manager.closeAll();
         };
     });
