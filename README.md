@@ -27,7 +27,7 @@
 
 ## 安装与升级
 
-使用 **DSH 插件管理器** 安装，不要将插件 `npm install -g` 到全局 Node.js。请将插件安装到实际运行 DSH 的 profile：Desktop 使用 `desktop`，Linux Web Host 使用 `web`。
+推荐从 **npm Registry** 获取正式版，并通过 **DSH 插件管理器** 安装，不要将插件 `npm install -g` 到全局 Node.js。请将插件安装到实际运行 DSH 的 profile：Desktop 使用 `desktop`，Linux Web Host 使用 `web`。
 
 ### Windows / macOS — DSH Desktop
 
