@@ -212,7 +212,7 @@
             },
             cell.cell_type === 'markdown'
               ? h('div', { className: 'rss-nb-markdown' }, notebookMarkdown(notebookText(cell.source)))
-              : h('div', { className: 'rss-nb-cell-grid' },
+              : h('div', { className: 'rss-nb-cell-stack' },
                   h('div', { className: 'rss-nb-cell-label' },
                     cell.cell_type === 'code' ? 'In [' + (cell.execution_count ?? ' ') + ']:' : 'Raw'),
                   h('div', { className: 'rss-nb-cell-main' },
