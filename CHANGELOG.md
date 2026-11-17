@@ -10,9 +10,12 @@
 
 ### Changed
 - Notebooks now open rendered directly from the workspace file tree: a `.ipynb` document-preview renderer replaces the separate Notebook Settings page. It reads the opened workspace file through DSH's standard file reader, so it works for both local and remote-SSH workspaces.
+- Notebook documents now fill the available workspace viewport without a nested 68vh scroll cap, with responsive layout and larger readable typography.
+- Add safe React table rendering for pandas HTML output plus aligned text/plain DataFrame fallback, with Python code-cell syntax colors, line numbers and horizontal scrolling.
+- Add UI-focused regression tests for output formatting, HTML sanitization and workspace sizing.
 
 ### Notes
-- Preview only; no kernel, cell execution, notebook editing, arbitrary HTML rendering or Jupyter Server dependency.
+- Preview only; no kernel, cell execution, notebook editing, arbitrary HTML/script execution or Jupyter Server dependency. Rich HTML support is limited to sanitized, non-interactive data tables.
 - Merged on top of the v1.1.3 macOS/Linux native Bash routing, remote approval and SFTP search improvements.
 
 ## v1.1.3 — 2026-11-14
