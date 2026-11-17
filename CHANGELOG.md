@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.2.0 — 2026-11-17
+
+### Added
+- A second optional Cordis component, `dsh-plugin-remote-ssh/notebook`, for authenticated read-only Jupyter Notebook previews over verified SSH/SFTP.
+- Open local and remote `.ipynb` files directly from the DSH workspace file tree using the host document-preview extension; no separate Notebook Settings page is needed.
+- Safe read-only rendering of basic Markdown, numbered and syntax-highlighted Python code, text streams/errors, PNG/JPEG/GIF images, and restricted pandas HTML/DataFrame tables. Scripts, SVG and arbitrary HTML are not executed or embedded.
+- Maximum 12 MiB per notebook, nbformat 4 validation, signed-cookie/origin checks and viewer regression tests.
+
+### Changed
+- Linux DSH Web local directory selection now falls back to a built-in browse-capable folder picker when the native picker is unavailable; native Desktop selection remains unchanged.
+- Notebooks now open rendered directly from the workspace file tree: a `.ipynb` document-preview renderer replaces the separate Notebook Settings page. It reads the opened workspace file through DSH's standard file reader, so it works for both local and remote-SSH workspaces.
+- Notebook documents now fill the available workspace viewport without a nested 68vh scroll cap, with responsive layout and larger readable typography.
+- Move Notebook `In [n]`/`Raw` labels above each code cell to use the full page width; narrow the code line-number gutter and keep the layout consistent on mobile.
+- Add safe React table rendering for pandas HTML output plus aligned text/plain DataFrame fallback, with Python code-cell syntax colors, line numbers and horizontal scrolling.
+- Add UI-focused regression tests for output formatting, HTML sanitization and workspace sizing.
+
+### Notes
+- Notebook preview remains strictly read-only: no kernel, cell execution, notebook editing, arbitrary HTML/script execution or Jupyter Server dependency. Rich HTML support is limited to sanitized, non-interactive data tables.
+- Builds on v1.1.3 macOS/Linux native Bash routing, remote approval and SFTP search improvements.
+
 ## v1.1.3 — 2026-11-14
 
 ### Added / improved
@@ -25,7 +45,6 @@
 - Generic display-name and username placeholders replace project-specific examples.
 - Missing identity-file guidance works across macOS/Linux/Windows.
 - Add UI regression tests for automatic prefill and manual editing.
-
 ## v1.1.1 — 2026-11-13
 
 ### Fixed

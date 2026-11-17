@@ -42,18 +42,29 @@ test('client registers settings plus native remote project directory flows', () 
   };
   const source = fs.readFileSync(path.join(root, 'lib', 'client.js'), 'utf8');
   vm.runInNewContext(source, sandbox);
-  assert.deepEqual([...result.inject], ['slots', 'workspaces', 'uiWorkspace']);
+  assert.deepEqual([...result.inject], ['slots', 'workspaces', 'uiWorkspace', 'documentPreviews']);
+  const documentPreviews = [];
   result.apply({
     effect(callback) { callback(); },
+    documentPreviews: {
+      register(definition) { documentPreviews.push(definition); return () => {}; },
+    },
     slots: {
-      inject(slot, callback) { assert.ok(['settings.section', 'settings.section.icon', 'conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow'].includes(slot)); const result = callback(); if (result && result[Symbol.iterator]) for (const _ of result) { /* Cordis effect iterator */ } },
+      inject(slot, callback) { assert.ok(['settings.section', 'settings.section.icon', 'conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow', 'sidebar.right.tab.document'].includes(slot)); const result = callback(); if (result && result[Symbol.iterator]) for (const _ of result) { /* Cordis effect iterator */ } },
       register(record, component) { registrations.push({ record, component }); return () => {}; },
     },
   });
-  assert.equal(registrations.length, 4);
-  assert.deepEqual(registrations.slice(2).map(x => x.record.name), ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow']);
-  assert.ok(registrations.slice(2).every(x => x.record.priority === -2));
-  assert.ok(registrations.slice(2).every(x => typeof x.record.inject === 'function'));
+  assert.equal(registrations.length, 5, 'Remote SSH settings section+icon, two directory flows, and the Notebook document body');
+  assert.equal(documentPreviews.length, 1, 'Notebook registers one .ipynb document preview renderer');
+  const notebookDef = documentPreviews[0];
+  assert.equal(notebookDef.id, 'dsh-plugin-remote-ssh/notebook');
+  assert.deepEqual([...notebookDef.extensions], ['ipynb']);
+  assert.equal(notebookDef.loading, 'bytes-complete');
+  assert.equal(notebookDef.priority, 'extension');
+  assert.ok(registrations.some(item => item.record.name === 'sidebar.right.tab.document' && item.record.key === 'dsh-plugin-remote-ssh/notebook'));
+  assert.deepEqual(registrations.slice(2, 4).map(x => x.record.name), ['conversation.hero.workspace.directoryFlow', 'sidebar.workspaces.directoryFlow']);
+  assert.ok(registrations.slice(2, 4).every(x => x.record.priority === -2));
+  assert.ok(registrations.slice(2, 4).every(x => typeof x.record.inject === 'function'));
   const localPicker = registrations[2].record.inject().pickDirectory;
   assert.equal(typeof localPicker, 'function');
   // The official API is uiWorkspace.pickDirectory, NOT workspaces.pickDirectory.

@@ -41,6 +41,13 @@ dsh plugin --profile web update dsh-plugin-remote-ssh
 - 更新按钮缺失：确认之前是否从 npm 安装，而非本地 `.tgz` / `github:`；检查宿主是否支持版本检查与更新 UI。CLI 可用 `dsh plugin --profile <profile> update dsh-plugin-remote-ssh`。
 - 安装成功但前端仍旧：先完全退出 Host，再重启并刷新；如果是旧 `lib/client.js` 与新版服务端混用，可通过 `/api/remote-ssh/state`（在已登录的 DSH 会话中）检查 Host 插件版本。
 
+## 3.1 Linux DSH Web 选择“本地电脑”时目录选择器报错
+
+- 报错 `directoryPicker.pick needs the native capability; the composed picker serves "browse"` 表示 DSH Host 提供了网页内目录浏览能力，而不是操作系统原生目录选框；**不属于 SSH 故障**。
+- 在包含此修复的插件构建中，点击 **新建项目 → 源文件夹 → 本地电脑 → 选择本地文件夹** 时会先尝试原生选框；若 Host 明确表示只有 `browse` 能力，插件会**留在原弹窗内**切换为目录浏览器，可按目录进入、编辑绝对路径、显示隐藏文件夹及新建目录。
+- 这里的“本地”是 **运行 DSH Web Host 的 Linux 服务器**，不是浏览器所在的 Windows/macOS 电脑。无法通过浏览器拿到访问者机器上任意绝对路径；要使用访问者机器上的项目，应在该机器运行 DSH Desktop，或通过 SSH/文件同步访问项目。
+- Desktop 原生目录选择成功、用户取消、其他原生错误的行为保持不变；只有“native capability 不可用”才会自动使用网页浏览。DSH Host 必须同时提供 `uiWorkspace.listDirectory` 对应的 browse 后端，才能列出目录。
+
 ## 4. SSH 连接、Host Key 与认证
 
 - 核实 `~/.ssh/config` 别名解析、HostName、端口、用户、IdentityFile、ssh-agent；服务器需要 sshd 和 SFTP。快速导入会填充已解析字段，编辑已保存主机不会强行覆盖其自定义值。

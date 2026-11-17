@@ -37,6 +37,6 @@ npm 包所有者在 npm 包 **Settings → Trusted publishing** 中绑定：GitH
 
 如果 npm job 被跳过，依次检查主分支事件、版本/Tag 是否已有对应发行物、GitHub Release tarball digest 是否符合验证、变量开关和工作流结果。遇到 `ENEEDAUTH` / OIDC 错误，检查包所有权、Trusted Publisher 与 workflow 名称，不要改为提交长期 npm Token。若同版本已上架但 digest 不一致，应停止发布并排查，不要强制覆盖。
 
-`v1.1.3` 是本次文档整理时仓库中的正式版本；后续新版本以 `package.json`、[npm](https://www.npmjs.com/package/dsh-plugin-remote-ssh) 和 [Releases](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases) 为准。
+当前发布目标为 `v1.2.0`（Notebook Viewer 与 Linux Web 目录选择回退）；之后的正式版本以 `package.json`、[npm](https://www.npmjs.com/package/dsh-plugin-remote-ssh) 和 [Releases](https://github.com/WeipengMO/dsh-plugin-remote-ssh/releases) 为准。
 
 参考：[npm Trusted publishing](https://docs.npmjs.com/trusted-publishers/) · [DSH CLI 插件管理](https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/cli/reference/README.md)

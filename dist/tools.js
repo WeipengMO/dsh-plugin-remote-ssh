@@ -1,5 +1,5 @@
-import { authorizeRemoteBashSpec } from './shell-router.js';
 import path from 'node:path';
+import { authorizeRemoteBashSpec } from './shell-router.js';
 import { RemoteSshError, errorMessage } from './errors.js';
 import { encodeVirtualPath, expandRemoteTilde, looksVirtual, remoteContains } from './paths.js';
 import { inspectRemoteGit } from './remote-git.js';
@@ -235,7 +235,7 @@ export function registerManagementTools(ctx, manager, remoteFs) {
     });
     register(ctx, {
         name: 'remote_workspace_open',
-        description: 'Open a remote directory as this session\'s workspace. After this succeeds, the native read, write, edit, glob, grep and bash/pwsh tools operate on the remote host and remote cwd; there is no local mirror. Call remote_workspace_close to switch back.',
+        description: 'Open a remote directory as this session\'s workspace. After this succeeds, native read/write/edit/glob/grep tools use the remote cwd without a local mirror. For remote commands use the approved remote_bash tool, never native bash or pwsh. Call remote_workspace_close to switch back.',
         parameters: object({
             host: string('Saved host id, label, or destination.'),
             path: string('Remote directory, absolute or relative to the remote home; defaults to the remote home.'),
@@ -430,11 +430,27 @@ export function registerManagementTools(ctx, manager, remoteFs) {
         text: ({ agent }) => {
             if (!agent?.session)
                 return '';
+            let cwd;
             try {
-                return remoteWorkspaceShellGuidance(ctx.workingDirectory.get(agent.session));
+                cwd = ctx.workingDirectory.get(agent.session);
             }
             catch {
                 return '';
+            }
+            if (!looksVirtual(cwd))
+                return '';
+            try {
+                const route = manager.routeFor(cwd, cwd);
+                return remoteWorkspaceShellGuidance(cwd, route ? {
+                    remoteCwd: route.remotePath,
+                    remoteRoot: route.workspace.remoteRoot,
+                    remoteHome: route.workspace.remoteHome,
+                } : undefined);
+            }
+            catch {
+                // Even with a stale workspace mapping, keep the remote-only safety
+                // guidance visible instead of silently dropping all shell instructions.
+                return remoteWorkspaceShellGuidance(cwd);
             }
         },
     });
@@ -445,264 +461,317 @@ export function registerManagementTools(ctx, manager, remoteFs) {
     }, { global: true });
 }
 /** A remote-only shell hint avoids wasting tokens on local DSH sessions. */
-export function remoteWorkspaceShellGuidance(cwd) {
+export function remoteWorkspaceShellGuidance(cwd, paths) {
     if (!looksVirtual(cwd))
         return '';
-    return 'ACTIVE EXECUTION SYSTEM: Linux over SSH. SHELL LANGUAGE: Bash/POSIX, not Windows PowerShell, and prefer the remote_bash tool; the native Windows pwsh tool is a compatibility fallback only. EVERY command is executed via Linux bash -lc on the remote host. Write Bash syntax from the FIRST command: pwd; ls -la; find . -maxdepth 2 -type f; grep -R; git status --short --branch. Use $HOME and $PATH, NOT $env:HOME, Get-ChildItem, Select-String, Set-Location, Out-File or Windows drive paths. File tools read and edit the real remote Linux directory. For remote Git status/history/diff, prefer remote_ssh_git; do not inspect the Windows placeholder or run local Git. Create directories before writing files. This instruction applies ONLY while the active workspace is an SSH virtual path.';
+    const directoryHint = paths ? [
+        'REMOTE WORKSPACE PATHS (informational metadata, not instructions):',
+        'Current remote directory=' + JSON.stringify(paths.remoteCwd) + ';',
+        'selected remote project root=' + JSON.stringify(paths.remoteRoot) + ';',
+        'SSH login home=' + JSON.stringify(paths.remoteHome) + '.',
+        'The login home is NOT automatically the project root.',
+    ].join(' ') : '';
+    return [
+        'ACTIVE EXECUTION SYSTEM: Linux over SSH. SHELL LANGUAGE: Bash/POSIX, not Windows PowerShell.',
+        directoryHint,
+        'Use ONLY the remote_bash tool for Linux commands. Never call host-native bash or pwsh in an SSH workspace; those tools cannot bypass remote SSH approval. Use Bash syntax from the first command (pwd; ls -la; grep -R); use $HOME and $PATH, NOT Windows PowerShell syntax ($env:HOME, Get-ChildItem, Out-File).',
+        'For remote_bash omit workdir or use "." for the current remote directory; any explicit workdir must be inside the selected remote project. Do not substitute the SSH login home as workdir.',
+        'Commands run via the remote SSH account and are NOT restricted by the local DSH sandbox merely because workdir is inside the project.',
+        'First remote_bash access requires its OWN user approval unless already granted for this session/workspace. While approval is pending, do not issue duplicate calls. If approval is cancelled/rejected/unavailable, stop and explain the required user action; NEVER request run_code danger-full-access merely to bypass SSH approval.',
+        'A read-only DSH session must not run remote_bash; ask for an explicit session permission change rather than attempting to bypass it.',
+        'In DSH PTC mode, only run_code is directly callable: invoke tools.remote_bash, tools.remote_ssh_git, todo_write and other registered tools INSIDE run_code, not as direct tool calls. Use inspect(...) to show results. Avoid redeclaring persistent top-level const/let names across run_code calls (use a new block scope).',
+        'For glob, a basename pattern (e.g. *.py or .dsh-ssh-smoke.*) searches the selected directory only; use **/*.py for recursive search. Use narrower paths if SSH_SEARCH_TIMEOUT or SSH_SEARCH_LIMIT occurs; do not repeatedly retry an expensive glob.',
+        'When reporting SSH approvals, count EACH approval attempt, including earlier cancelled or timed-out requests before a later success. Do not claim approval was requested only once when multiple approval/asked events occurred. If approval is cancelled, report it and do not automatically retry or elevate run_code.',
+        'File tools read and edit the REAL remote Linux directory; do not inspect the local virtual workspace placeholder. For remote Git status/history/diff use remote_ssh_git. Create directories before writing files. These instructions apply ONLY while the active workspace is remote.',
+    ].filter(Boolean).join(' ');
 }
-//# sourceMappingURL=tools.js.map
-/**
- * A model-facing Bash tool for remote SSH workspaces.
- *
- * The local DSH shell sandbox confines the local SSH client process, NOT
- * the remote Bash process. Rather than pretend that the remote program is
- * locally sandboxed, require explicit consent to the unrestricted SSH
- * capability (once per Agent/workspace by default) and fail closed when
- * the effective DSH session policy is read-only.
- */
 export function registerRemoteBashTool(ctx, manager, approvalMode = 'session') {
-  const shell = ctx.shell;
-  if (!shell || typeof shell.resolve !== 'function' || typeof shell.execute !== 'function') {
-    throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'remote_bash requires the DSH shell service');
-  }
-  if (!['session', 'command', 'off'].includes(approvalMode)) {
-    throw new RemoteSshError('SSH_CONFIG_INVALID', 'remoteBashApproval must be session, command or off');
-  }
-
-  // Session objects (not strings/IDs) are the authority boundary. A new
-  // session always requires new consent; no permission survives a restart.
-  const grants = new WeakMap();
-  const sandboxPolicy = ctx.get?.('sandboxPolicy');
-
-  ctx.tools.register({
-    name: 'remote_bash',
-    description:
-      'Run a Bash command on the ACTIVE remote Linux SSH workspace. Use POSIX paths, not Windows PowerShell syntax. '
-      + 'The remote process is NOT confined by the local DSH sandbox. '
-      + 'Remote shell access requires user approval unless explicitly configured otherwise; read-only sessions cannot use remote_bash. '
-      + 'Each call runs in the foreground with a hard timeout; no background job is created.',
-    parameters: object({
-      command: string('Bash/POSIX command to run on the remote Linux server.'),
-      workdir: string('Optional remote POSIX directory inside this active SSH workspace, absolute or relative to the active remote directory.'),
-      timeoutMs: integer('Execution timeout in milliseconds, 1000–600000 (default 120000).'),
-      stdoutMaxBytes: integer('Maximum captured stdout bytes, 1024–2000000 (default 200000).'),
-    }, ['command']),
-    timeoutMs: 660000,
-    isConcurrencySafe: () => false,
-    output: {
-      schema: object({
-        cwd: string('POSIX command working directory.'),
-        exitCode: integer('Remote process exit code (-1 if signalled/timed out).'),
-        stdout: string('Captured standard output.'),
-        stderr: string('Captured standard error.'),
-        timedOut: boolean('True if command exceeded its deadline.'),
-        stdoutTruncated: boolean('True if captured stdout was truncated.'),
-        stderrTruncated: boolean('True if captured stderr was truncated.'),
-      }, ['cwd', 'exitCode', 'stdout', 'stderr', 'timedOut', 'stdoutTruncated', 'stderrTruncated']),
-      render: textRender,
-    },
-    async execute(args, exec) {
-      const agent = exec.agent;
-      if (!agent?.session) {
-        throw new RemoteSshError('SSH_PATH_INVALID', 'remote_bash requires an active Agent session');
-      }
-      const session = agent.session;
-      const cwd = ctx.workingDirectory.get(session);
-      if (!looksVirtual(cwd)) {
-        throw new RemoteSshError('SSH_PATH_INVALID', 'remote_bash is available only in an SSH workspace; use the native shell for local projects');
-      }
-      if (typeof args.command !== 'string' || !args.command.trim()) {
-        throw new RemoteSshError('SSH_PATH_INVALID', 'a non-empty Bash command is required');
-      }
-      const rawWorkdir = args.workdir === undefined ? '.' : args.workdir;
-      if (typeof rawWorkdir !== 'string' || !rawWorkdir.trim()) {
-        throw new RemoteSshError('SSH_PATH_INVALID', 'workdir must be a non-empty remote POSIX path');
-      }
-      const active = manager.routeFor(cwd, cwd);
-      const route = manager.routeFor(rawWorkdir, cwd);
-      if (!active || !route || route.workspace.token !== active.workspace.token) {
-        throw new RemoteSshError('SSH_PATH_INVALID', 'remote_bash workdir must belong to the active SSH workspace');
-      }
-      if (!remoteContains(active.workspace.remoteRoot, route.remotePath)) {
-        throw new RemoteSshError('SSH_PATH_INVALID', 'remote_bash working directory must be inside the selected remote project');
-      }
-      const timeout = args.timeoutMs === undefined ? 120000 : args.timeoutMs;
-      if (!Number.isInteger(timeout) || timeout < 1000 || timeout > 600000) {
-        throw new RemoteSshError('SSH_PATH_INVALID', 'timeoutMs must be between 1000 and 600000');
-      }
-      const stdoutMaxBytes = args.stdoutMaxBytes === undefined ? 200000 : args.stdoutMaxBytes;
-      if (!Number.isInteger(stdoutMaxBytes) || stdoutMaxBytes < 1024 || stdoutMaxBytes > 2000000) {
-        throw new RemoteSshError('SSH_PATH_INVALID', 'stdoutMaxBytes must be between 1024 and 2000000');
-      }
-      if (exec.signal?.aborted) {
-        throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED', 'remote Bash command was cancelled before execution');
-      }
-
-      // DSH may provide an effective per-session mode even when its shell
-      // executor runs without an OS-level sandbox. Never treat such an
-      // unconfined SSH run as an enforced read-only operation.
-      const standingPolicy = sandboxPolicy?.resolve({ session });
-      if (standingPolicy?.mode === 'read-only') {
-        throw new RemoteSshError(
-          'SSH_REMOTE_SHELL_FAILED',
-          'remote_bash is disabled in read-only sessions: SSH commands are not confined by the local DSH sandbox. Switch session permissions explicitly.',
-        );
-      }
-      if (shell.sandboxMode !== undefined && (!sandboxPolicy || typeof sandboxPolicy.resolve !== 'function')) {
-        throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'DSH shell advertises sandboxing but the session sandboxPolicy service is unavailable');
-      }
-
-      const grantKey = route.workspace.token;
-      if (approvalMode !== 'off' && (approvalMode === 'command' || !grants.get(session)?.has(grantKey))) {
-        const approval = approvalService(ctx);
-        if (!approval) {
-          throw new RemoteSshError(
-            'SSH_APPROVAL_DENIED',
-            'remote Bash needs explicit approval because the remote process is not constrained by the local sandbox; no approval service is available',
-          );
-        }
-        const reason =
-          'Permit Linux Bash execution over SSH on '
-          + route.workspace.hostLabel + ' (' + route.workspace.remoteRoot + ')? '
-          + 'Commands run with the SSH account permissions, not within the local DSH sandbox. '
-          + (approvalMode === 'session' ? 'This approval covers this Agent session and SSH workspace.' : 'This approval covers this command only.');
-        let outcome;
-        try {
-          outcome = approvalOutcome(await approval.request({
-            agent,
-            toolName: 'remote_bash',
-            ...(typeof exec.callId === 'string' ? { callId: exec.callId } : {}),
-            reason,
-            signal: exec.signal,
-          }));
-        } catch (error) {
-          throw new RemoteSshError('SSH_APPROVAL_DENIED', 'remote Bash authorization failed: ' + errorMessage(error));
-        }
-        if (outcome !== 'allowed-once') {
-          throw new RemoteSshError('SSH_APPROVAL_DENIED', 'remote Bash permission was ' + outcome);
-        }
-        if (approvalMode === 'session') {
-          const allowed = grants.get(session) ?? new Set();
-          allowed.add(grantKey);
-          grants.set(session, allowed);
-        }
-      }
-
-      // Approval is asynchronous. Never use a grant if this Agent moved to
-      // another directory/host while its approval dialog was pending.
-      const current = ctx.workingDirectory.get(session);
-      const live = looksVirtual(current) ? manager.routeFor(current, current) : null;
-      if (!live || live.workspace.token !== active.workspace.token || current !== cwd) {
-        throw new RemoteSshError('SSH_PATH_INVALID', 'remote workspace changed while authorizing the command; retry in the new workspace');
-      }
-      if (exec.signal?.aborted) {
-        throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED', 'remote Bash command was cancelled before execution');
-      }
-      const spec = shell.resolve({
-        command: args.command,
-        workdir: route.virtualPath,
-        timeoutMs: timeout,
-        stdoutMaxBytes,
-        onExpiry: 'kill',
-        signal: exec.signal,
-      });
-      if (!looksVirtual(spec.workdir)) {
-        throw new RemoteSshError('SSH_PATH_INVALID', 'shell.resolve returned a local workdir for a remote command');
-      }
-      const resolvedRoute = manager.routeFor(spec.workdir, spec.workdir);
-      if (!resolvedRoute || resolvedRoute.workspace.token !== active.workspace.token
-          || !remoteContains(active.workspace.remoteRoot, resolvedRoute.remotePath)) {
-        throw new RemoteSshError('SSH_PATH_INVALID', 'shell.resolve escaped the active remote workspace');
-      }
-
-      authorizeRemoteBashSpec(spec);
-      const outcome = await (await shell.execute(spec)).result();
-      if (outcome.aborted) {
-        throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED', 'remote Bash command was cancelled');
-      }
-      return {
-        cwd: resolvedRoute.remotePath,
-        exitCode: typeof outcome.exitCode === 'number' ? outcome.exitCode : -1,
-        stdout: outcome.stdout && typeof outcome.stdout.text === 'string' ? outcome.stdout.text : '',
-        stderr: outcome.stderr && typeof outcome.stderr.text === 'string' ? outcome.stderr.text : '',
-        timedOut: outcome.timedOut === true,
-        stdoutTruncated: outcome.stdout?.truncated === true,
-        stderrTruncated: outcome.stderr?.truncated === true,
-      };
-    },
-  }, {
-    when: ({ agent }) => {
-      if (!agent?.session) return false;
-      try { return looksVirtual(ctx.workingDirectory.get(agent.session)); }
-      catch { return false; }
-    },
-  });
+    const shell = ctx.shell;
+    if (!shell || typeof shell.resolve !== 'function' || typeof shell.execute !== 'function') {
+        throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'remote_bash requires the DSH shell service');
+    }
+    if (!['session', 'command', 'off'].includes(approvalMode)) {
+        throw new RemoteSshError('SSH_CONFIG_INVALID', 'remoteBashApproval must be session, command or off');
+    }
+    // Session objects (not strings/IDs) are the authority boundary. A new
+    // session always requires new consent; no permission survives a restart.
+    const grants = new WeakMap();
+    const sandboxPolicy = ctx.get?.('sandboxPolicy');
+    ctx.tools.register({
+        name: 'remote_bash',
+        description: 'Run a Bash command on the ACTIVE remote Linux SSH workspace. Use POSIX paths, not Windows PowerShell syntax. '
+            + 'The remote process is NOT confined by the local DSH sandbox. '
+            + 'Remote shell access requires user approval unless explicitly configured otherwise; read-only sessions cannot use remote_bash. '
+            + 'Each call runs in the foreground with a hard timeout; no background job is created.',
+        parameters: object({
+            command: string('Bash/POSIX command to run on the remote Linux server.'),
+            workdir: string('Optional remote POSIX directory inside this active SSH workspace, absolute or relative to the active remote directory.'),
+            timeoutMs: integer('Execution timeout in milliseconds, 1000–600000 (default 120000).'),
+            stdoutMaxBytes: integer('Maximum captured stdout bytes, 1024–2000000 (default 200000).'),
+        }, ['command']),
+        timeoutMs: 660000,
+        isConcurrencySafe: () => false,
+        output: {
+            schema: object({
+                cwd: string('POSIX command working directory.'),
+                exitCode: integer('Remote process exit code (-1 if signalled/timed out).'),
+                stdout: string('Captured standard output.'),
+                stderr: string('Captured standard error.'),
+                timedOut: boolean('True if command exceeded its deadline.'),
+                stdoutTruncated: boolean('True if captured stdout was truncated.'),
+                stderrTruncated: boolean('True if captured stderr was truncated.'),
+            }, ['cwd', 'exitCode', 'stdout', 'stderr', 'timedOut', 'stdoutTruncated', 'stderrTruncated']),
+            render: textRender,
+        },
+        async execute(args, exec) {
+            const agent = exec.agent;
+            if (!agent?.session) {
+                throw new RemoteSshError('SSH_PATH_INVALID', 'remote_bash requires an active Agent session');
+            }
+            const session = agent.session;
+            const cwd = ctx.workingDirectory.get(session);
+            if (!looksVirtual(cwd)) {
+                throw new RemoteSshError('SSH_PATH_INVALID', 'remote_bash is available only in an SSH workspace; use the native shell for local projects');
+            }
+            if (typeof args.command !== 'string' || !args.command.trim()) {
+                throw new RemoteSshError('SSH_PATH_INVALID', 'a non-empty Bash command is required');
+            }
+            const rawWorkdir = args.workdir === undefined ? '.' : args.workdir;
+            if (typeof rawWorkdir !== 'string' || !rawWorkdir.trim()) {
+                throw new RemoteSshError('SSH_PATH_INVALID', 'workdir must be a non-empty remote POSIX path');
+            }
+            const active = manager.routeFor(cwd, cwd);
+            const route = manager.routeFor(rawWorkdir, cwd);
+            if (!active || !route || route.workspace.token !== active.workspace.token) {
+                throw new RemoteSshError('SSH_PATH_INVALID', 'remote_bash workdir must belong to the active SSH workspace');
+            }
+            if (!remoteContains(active.workspace.remoteRoot, route.remotePath)) {
+                throw new RemoteSshError('SSH_PATH_INVALID', 'remote_bash working directory must be inside the selected remote project');
+            }
+            const timeout = args.timeoutMs === undefined ? 120000 : args.timeoutMs;
+            if (!Number.isInteger(timeout) || timeout < 1000 || timeout > 600000) {
+                throw new RemoteSshError('SSH_PATH_INVALID', 'timeoutMs must be between 1000 and 600000');
+            }
+            const stdoutMaxBytes = args.stdoutMaxBytes === undefined ? 200000 : args.stdoutMaxBytes;
+            if (!Number.isInteger(stdoutMaxBytes) || stdoutMaxBytes < 1024 || stdoutMaxBytes > 2000000) {
+                throw new RemoteSshError('SSH_PATH_INVALID', 'stdoutMaxBytes must be between 1024 and 2000000');
+            }
+            if (exec.signal?.aborted) {
+                throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED', 'remote Bash command was cancelled before execution');
+            }
+            // DSH may provide an effective per-session mode even when its shell
+            // executor runs without an OS-level sandbox. Never treat such an
+            // unconfined SSH run as an enforced read-only operation.
+            const standingPolicy = sandboxPolicy?.resolve({ session });
+            if (standingPolicy?.mode === 'read-only') {
+                throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED', 'remote_bash is disabled in read-only sessions: SSH commands are not confined by the local DSH sandbox. Switch session permissions explicitly.');
+            }
+            if (shell.sandboxMode !== undefined && (!sandboxPolicy || typeof sandboxPolicy.resolve !== 'function')) {
+                throw new RemoteSshError('SSH_FEATURE_UNSUPPORTED', 'DSH shell advertises sandboxing but the session sandboxPolicy service is unavailable');
+            }
+            const grantKey = route.workspace.token;
+            if (approvalMode !== 'off' && (approvalMode === 'command' || !grants.get(session)?.has(grantKey))) {
+                const approval = approvalService(ctx);
+                if (!approval) {
+                    throw new RemoteSshError('SSH_APPROVAL_DENIED', 'remote Bash needs explicit approval because the remote process is not constrained by the local sandbox; no approval service is available');
+                }
+                const reason = 'Permit Linux Bash execution over SSH on '
+                    + route.workspace.hostLabel + ' (' + route.workspace.remoteRoot + ')? '
+                    + 'Commands run with the SSH account permissions, not within the local DSH sandbox. '
+                    + (approvalMode === 'session' ? 'This approval covers this Agent session and SSH workspace.' : 'This approval covers this command only.');
+                const approvalStartedAt = Date.now();
+                // Only stage/outcome/duration are logged; never log the remote command,
+                // SSH identity or project path. The Desktop approval UI is host-owned.
+                ctx.logger?.info?.('remote-ssh: remote_bash awaiting user approval');
+                // The host owns approval UI and run_code's elapsed timeout. Emit a
+                // diagnostic warning rather than silently appearing to hang or
+                // widening local sandbox permissions.
+                const pendingWarning = setTimeout(() => {
+                    ctx.logger?.warn('remote-ssh: remote_bash approval still pending after 20s; ' +
+                        'check DSH Desktop approval UI; run_code timeout includes approval time');
+                }, 20_000);
+                pendingWarning.unref?.();
+                let outcome;
+                try {
+                    outcome = approvalOutcome(await approval.request({
+                        agent,
+                        toolName: 'remote_bash',
+                        ...(typeof exec.callId === 'string' ? { callId: exec.callId } : {}),
+                        reason,
+                        signal: exec.signal,
+                    }));
+                }
+                catch (error) {
+                    const cancelled = exec.signal?.aborted === true;
+                    ctx.logger?.warn('remote-ssh: remote_bash approval ' + (cancelled ? 'cancelled' : 'failed') +
+                        ' after ' + (Date.now() - approvalStartedAt) + 'ms');
+                    throw new RemoteSshError('SSH_APPROVAL_DENIED', cancelled
+                        ? 'remote Bash approval was cancelled before execution; do not automatically retry or request run_code danger-full-access'
+                        : 'remote Bash authorization failed before command execution: ' + errorMessage(error));
+                }
+                finally {
+                    clearTimeout(pendingWarning);
+                }
+                ctx.logger?.info?.('remote-ssh: remote_bash approval ' + outcome +
+                    ' after ' + (Date.now() - approvalStartedAt) + 'ms');
+                if (outcome !== 'allowed-once') {
+                    const explanation = outcome === 'cancelled'
+                        ? 'remote Bash approval was cancelled before command execution; do not retry automatically'
+                        : outcome === 'unavailable'
+                            ? 'remote Bash approval UI/answerer is unavailable; check DSH Desktop approval handling, do not elevate run_code sandbox'
+                            : 'remote Bash permission was ' + outcome + '; the command was not executed, do not elevate run_code sandbox';
+                    throw new RemoteSshError('SSH_APPROVAL_DENIED', explanation);
+                }
+                // An approval response that arrives after run_code cancellation
+                // must never be cached as a session grant or execute a command.
+                if (exec.signal?.aborted) {
+                    ctx.logger?.warn('remote-ssh: remote_bash ignored late approval after caller cancellation');
+                    throw new RemoteSshError('SSH_APPROVAL_DENIED', 'remote Bash approval arrived after caller cancellation; command was not executed');
+                }
+                if (approvalMode === 'session') {
+                    const allowed = grants.get(session) ?? new Set();
+                    allowed.add(grantKey);
+                    grants.set(session, allowed);
+                }
+            }
+            // Approval is asynchronous. Never use a grant if this Agent moved to
+            // another directory/host while its approval dialog was pending.
+            const current = ctx.workingDirectory.get(session);
+            const live = looksVirtual(current) ? manager.routeFor(current, current) : null;
+            if (!live || live.workspace.token !== active.workspace.token || current !== cwd) {
+                throw new RemoteSshError('SSH_PATH_INVALID', 'remote workspace changed while authorizing the command; retry in the new workspace');
+            }
+            if (exec.signal?.aborted) {
+                throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED', 'remote Bash command was cancelled before execution');
+            }
+            const spec = shell.resolve({
+                command: args.command,
+                workdir: route.virtualPath,
+                timeoutMs: timeout,
+                stdoutMaxBytes,
+                onExpiry: 'kill',
+                signal: exec.signal,
+            });
+            if (!looksVirtual(spec.workdir)) {
+                throw new RemoteSshError('SSH_PATH_INVALID', 'shell.resolve returned a local workdir for a remote command');
+            }
+            const resolvedRoute = manager.routeFor(spec.workdir, spec.workdir);
+            if (!resolvedRoute || resolvedRoute.workspace.token !== active.workspace.token
+                || !remoteContains(active.workspace.remoteRoot, resolvedRoute.remotePath)) {
+                throw new RemoteSshError('SSH_PATH_INVALID', 'shell.resolve escaped the active remote workspace');
+            }
+            authorizeRemoteBashSpec(spec);
+            ctx.logger?.info?.('remote-ssh: remote_bash execution started after approval gate');
+            const executionStartedAt = Date.now();
+            const outcome = await (await shell.execute(spec)).result();
+            ctx.logger?.info?.('remote-ssh: remote_bash execution finished after ' +
+                (Date.now() - executionStartedAt) + 'ms (timedOut=' + (outcome.timedOut === true) + ')');
+            if (outcome.aborted) {
+                throw new RemoteSshError('SSH_REMOTE_SHELL_FAILED', 'remote Bash command was cancelled');
+            }
+            return {
+                cwd: resolvedRoute.remotePath,
+                exitCode: typeof outcome.exitCode === 'number' ? outcome.exitCode : -1,
+                stdout: outcome.stdout && typeof outcome.stdout.text === 'string' ? outcome.stdout.text : '',
+                stderr: outcome.stderr && typeof outcome.stderr.text === 'string' ? outcome.stderr.text : '',
+                timedOut: outcome.timedOut === true,
+                stdoutTruncated: outcome.stdout?.truncated === true,
+                stderrTruncated: outcome.stderr?.truncated === true,
+            };
+        },
+    }, {
+        when: ({ agent }) => {
+            if (!agent?.session)
+                return false;
+            try {
+                return looksVirtual(ctx.workingDirectory.get(agent.session));
+            }
+            catch {
+                return false;
+            }
+        },
+    });
 }
-
 /**
- * In Agent scopes, hide the inherited Windows pwsh schema only while the
- * session is remote. Scope changes are reversible on workdir changes.
+ * Hide native bash (macOS/Linux) and pwsh (Windows) for remote Agents only.
+ * Local Agent shells are restored on cwd changes; execution stays fail-closed
+ * on older hosts without Agent-scoped tool restriction support.
  */
 export function installRemoteShellScope(ctx) {
-  const masks = new Map();
-  const warned = new Set();
-  const wd = ctx.workingDirectory;
-  const savedSet = wd.set;
-  const originalSet = wd.set.bind(wd);
-  const unwrap = (event) => event && typeof event === 'object' && 'agent' in event ? event.agent : event;
-  const clear = (id) => {
-    const previous = masks.get(id);
-    if (previous) {
-      previous.dispose();
-      masks.delete(id);
-    }
-  };
-  const sync = (value) => {
-    const agent = unwrap(value);
-    if (!agent || typeof agent.id !== 'string' || !agent.session) return;
-    const id = agent.id;
-    let remote = false;
-    try { remote = looksVirtual(wd.get(agent.session)); }
-    catch { return; }
-    const previous = masks.get(id);
-    if (!remote) { clear(id); return; }
-    if (previous && previous.agent === agent) return;
-    clear(id);
-    const restrict = agent.ctx && agent.ctx.tools && agent.ctx.tools.restrict;
-    if (typeof restrict !== 'function') {
-      if (!warned.has(id)) {
-        warned.add(id);
-        ctx.logger?.warn('remote-ssh: Agent-scoped tool restrictions unavailable; remote_bash is visible, but the host may also show pwsh');
-      }
-      return;
-    }
-    try {
-      const dispose = restrict.call(agent.ctx.tools, { deny: ['pwsh'] });
-      if (typeof dispose === 'function') masks.set(id, { agent, dispose });
-    } catch (error) {
-      if (!warned.has(id)) {
-        warned.add(id);
-        ctx.logger?.warn('remote-ssh: cannot hide native pwsh for Agent ' + id + ': ' + errorMessage(error));
-      }
-    }
-  };
-  wd.set = async (agent, next, signal) => {
-    const result = await originalSet(agent, next, signal);
-    sync(agent);
-    return result;
-  };
-  const offCreated = ctx.on?.('agent/created', sync, { global: true });
-  const offDisposed = ctx.on?.('agent/disposed', (payload) => {
-    const agent = unwrap(payload);
-    if (agent && typeof agent.id === 'string') {
-      clear(agent.id);
-      warned.delete(agent.id);
-    }
-  }, { global: true });
-  return () => {
-    wd.set = savedSet;
-    for (const id of [...masks.keys()]) clear(id);
-    if (typeof offCreated === 'function') offCreated();
-    if (typeof offDisposed === 'function') offDisposed();
-  };
+    const masks = new Map();
+    const warned = new Set();
+    const wd = ctx.workingDirectory;
+    const savedSet = wd.set;
+    const originalSet = wd.set.bind(wd);
+    const unwrap = (event) => event && typeof event === 'object' && 'agent' in event ? event.agent : event;
+    const clear = (id) => {
+        const previous = masks.get(id);
+        if (previous) {
+            previous.dispose();
+            masks.delete(id);
+        }
+    };
+    const sync = (value) => {
+        const agent = unwrap(value);
+        if (!agent || typeof agent.id !== 'string' || !agent.session)
+            return;
+        const id = agent.id;
+        let remote = false;
+        try {
+            remote = looksVirtual(wd.get(agent.session));
+        }
+        catch {
+            return;
+        }
+        const previous = masks.get(id);
+        if (!remote) {
+            clear(id);
+            return;
+        }
+        if (previous && previous.agent === agent)
+            return;
+        clear(id);
+        const restrict = agent.ctx && agent.ctx.tools && agent.ctx.tools.restrict;
+        if (typeof restrict !== 'function') {
+            if (!warned.has(id)) {
+                warned.add(id);
+                ctx.logger?.warn('remote-ssh: Agent-scoped tool restrictions unavailable; native bash/pwsh may remain visible, but remote execution remains gated by remote_bash approval');
+            }
+            return;
+        }
+        try {
+            const dispose = restrict.call(agent.ctx.tools, { deny: ['bash', 'pwsh'] });
+            if (typeof dispose === 'function')
+                masks.set(id, { agent, dispose });
+        }
+        catch (error) {
+            if (!warned.has(id)) {
+                warned.add(id);
+                ctx.logger?.warn('remote-ssh: cannot hide native bash/pwsh for Agent ' + id + ': ' + errorMessage(error));
+            }
+        }
+    };
+    wd.set = async (agent, next, signal) => {
+        const result = await originalSet(agent, next, signal);
+        sync(agent);
+        return result;
+    };
+    const offCreated = ctx.on?.('agent/created', sync, { global: true });
+    const offDisposed = ctx.on?.('agent/disposed', (payload) => {
+        const agent = unwrap(payload);
+        if (agent && typeof agent.id === 'string') {
+            clear(agent.id);
+            warned.delete(agent.id);
+        }
+    }, { global: true });
+    return () => {
+        wd.set = savedSet;
+        for (const id of [...masks.keys()])
+            clear(id);
+        if (typeof offCreated === 'function')
+            offCreated();
+        if (typeof offDisposed === 'function')
+            offDisposed();
+    };
 }
+//# sourceMappingURL=tools.js.map

@@ -533,3 +533,110 @@ body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block
  .rss-directory-dialog .rss-project-modes button.rss-project-active{background:#263d66!important;border-color:transparent!important;color:#cfe1ff!important;box-shadow:none!important}
  .rss-directory-dialog .rss-project-modes button.rss-project-active:hover{background:#304d80!important}
 }
+
+/* In-app Host directory browsing for DSH Web (no native OS picker). */
+.rss-directory-dialog .rss-local-options {
+  display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;
+  gap:10px;min-width:0;
+}
+.rss-directory-dialog .rss-local-hidden {
+  display:inline-flex;align-items:center;gap:7px;white-space:nowrap;
+  font-size:12px;color:var(--rss-secondary);cursor:pointer;
+}
+.rss-directory-dialog .rss-local-hidden input {accent-color:#3768db;}
+.rss-directory-dialog .rss-local-create {
+  display:flex;align-items:center;gap:7px;min-width:0;flex:1 1 190px;justify-content:flex-end;
+}
+.rss-directory-dialog .rss-local-create input {
+  min-width:90px;max-width:220px;width:100%;min-height:35px;padding:7px 10px;
+  border:1px solid var(--rss-line);border-radius:7px;
+  background:var(--rss-bg);color:inherit;font:inherit;font-size:12px;
+}
+.rss-directory-dialog .rss-local-create button {flex:none;}
+@media(max-width:440px) {
+  .rss-directory-dialog .rss-local-create {flex-basis:100%;}
+  .rss-directory-dialog .rss-local-create input {max-width:none;}
+}
+
+/* Read-only Jupyter Notebook Viewer. No nested vh-limited scrollpane: the
+ * workspace document preview remains the only vertical scrolling surface. */
+.rss-notebook-container { --nb-blue:#3975d0; width:100%;min-width:0;padding:10px 8px 20px;font-size:13px }
+.rss-notebook-container * { box-sizing:border-box }
+.rss-notebook-container button,.rss-notebook-container input,.rss-notebook-container select {font:inherit}
+.rss-notebook-container button {cursor:pointer;color:inherit;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:7px;background:transparent;padding:7px 11px}
+.rss-notebook-container button:disabled {cursor:not-allowed;opacity:.55}
+.rss-notebook-container button:hover:not(:disabled) {background:color-mix(in srgb,currentColor 6%,transparent)}
+.rss-notebook-container :is(button,input,select):focus-visible {outline:2px solid var(--nb-blue);outline-offset:2px}
+.rss-nb-top {display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.rss-nb-top strong {font-size:16px}
+.rss-nb-top p {margin:4px 0 0;opacity:.65;line-height:1.5}
+.rss-nb-switch {display:flex;gap:5px}
+.rss-nb-switch button[aria-pressed=true] {border-color:#3975d0;color:#3975d0;background:rgba(57,117,208,.07)}
+.rss-nb-picker,.rss-nb-remote {padding:12px;border:1px solid color-mix(in srgb,currentColor 17%,transparent);border-radius:9px;margin-bottom:12px}
+.rss-nb-picker label {display:flex;flex-wrap:wrap;align-items:center;gap:12px;font-weight:600}
+.rss-nb-picker input {font-size:12px;max-width:100%;font-weight:400}
+.rss-nb-picker small {display:block;margin-top:10px;opacity:.65}
+.rss-nb-controls {display:flex;flex-wrap:wrap;align-items:end;gap:10px}
+.rss-nb-controls label {display:grid;gap:5px;opacity:.75;flex:1;min-width:145px}
+.rss-nb-controls input,.rss-nb-controls select {width:100%;padding:7px;border:1px solid color-mix(in srgb,currentColor 17%,transparent);border-radius:7px;background:transparent;color:inherit}
+.rss-nb-files {max-height:240px;overflow:auto;border-top:1px solid color-mix(in srgb,currentColor 17%,transparent);margin-top:12px;padding-top:8px;display:grid;gap:4px}
+.rss-nb-files button {text-align:left;border:0;white-space:normal;overflow-wrap:anywhere}
+
+/* These rules are scoped to the actual DSH document slot, not its Settings UI. */
+.rss-nb-document {--nb-border:color-mix(in srgb,currentColor 13%,transparent);--nb-subtle:color-mix(in srgb,currentColor 4%,transparent);--nb-muted:color-mix(in srgb,currentColor 60%,transparent);box-sizing:border-box;color:inherit;width:100%;height:auto;min-height:100%;max-height:none;max-width:none;overflow:visible;min-width:0;padding:0 0 36px;border:0;background:transparent;font-size:14px}
+.rss-nb-document * {box-sizing:border-box}
+.rss-nb-document-head {display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;padding:12px 20px;border-bottom:1px solid var(--nb-border);color:var(--nb-muted);font-size:12px}
+.rss-nb-document-title {min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;color:inherit;font-weight:600}
+.rss-nb-document-meta {flex-shrink:0}
+.rss-nb-page {width:100%;max-width:1220px;min-width:0;margin:0 auto;padding:18px 24px 30px}
+.rss-nb-cell {margin:0 0 12px;min-width:0;max-width:100%;overflow-wrap:break-word}
+.rss-nb-cell.rss-nb-markdown {border:0}
+.rss-nb-markdown {font-size:14px;line-height:1.75;overflow-wrap:anywhere}
+.rss-nb-markdown p {margin:8px 0 16px;line-height:1.75;white-space:normal}
+.rss-nb-markdown code {font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.92em;padding:2px 4px;border-radius:3px;background:var(--nb-subtle)}
+.rss-nb-heading {font-weight:670;line-height:1.38;margin:18px 0 12px}
+.rss-nb-h1 {font-size:24px;margin-top:12px}.rss-nb-h2 {font-size:20px}.rss-nb-h3 {font-size:17px}.rss-nb-h4,.rss-nb-h5,.rss-nb-h6 {font-size:15px}
+.rss-nb-listitem {padding-left:14px;line-height:1.7}
+.rss-nb-markdown blockquote {border-left:3px solid var(--nb-border);padding-left:12px;margin:10px 0;color:var(--nb-muted)}
+.rss-nb-md-code {padding:12px;border:1px solid var(--nb-border);border-radius:6px;background:var(--nb-subtle);font:13px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-x:auto;white-space:pre}
+.rss-nb-cell-stack {display:flex;flex-direction:column;gap:5px;min-width:0;width:100%}
+.rss-nb-cell-label {font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:nowrap;text-align:left;padding:0 0 0 2px;color:#3975d0}
+.rss-nb-cell-main {min-width:0}
+.rss-nb-code-scroll {background:var(--nb-subtle);border:1px solid var(--nb-border);border-radius:7px;width:100%;max-width:100%;overflow-x:auto;overflow-y:visible;overscroll-behavior-x:contain;tab-size:4}
+.rss-nb-code-scroll:focus-visible,.rss-nb-table-wrap:focus-visible {outline:2px solid #3975d0;outline-offset:2px}
+.rss-nb-code-lines {display:table;min-width:100%;width:max-content;padding:9px 0;font:13px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace}
+.rss-nb-code-line {display:table-row}
+.rss-nb-code-line:hover {background:color-mix(in srgb,currentColor 4%,transparent)}
+.rss-nb-line-number,.rss-nb-line-content {display:table-cell;white-space:pre}
+.rss-nb-line-number {position:sticky;left:0;z-index:1;min-width:max(32px,5ch);width:max(32px,5ch);padding:0 6px 0 3px;text-align:right;user-select:none;color:var(--nb-muted);border-right:1px solid var(--nb-border);background:color-mix(in srgb,currentColor 2%,transparent)}
+.rss-nb-line-content {padding-left:12px;padding-right:20px}
+.rss-nb-token-keyword {color:#8654c4;font-weight:600}
+.rss-nb-token-string {color:#258455}
+.rss-nb-token-comment {color:#82909d;font-style:italic}
+.rss-nb-token-number {color:#b47a19}
+.rss-nb-token-function,.rss-nb-token-builtin {color:#2774c7}
+.rss-nb-truncated {color:var(--nb-muted);font-size:12px;padding:8px 12px;border-top:1px solid var(--nb-border)}
+.rss-nb-output,.rss-nb-stream,.rss-nb-error {max-width:100%;margin:12px 0 4px;padding:9px 12px;overflow-x:auto;white-space:pre;font:13px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;background:transparent;border-left:2px solid var(--nb-border);border-radius:0}
+.rss-nb-error {color:#b73549;border-left-color:#b73549}
+.rss-nb-output img {display:block;max-width:100%;height:auto;object-fit:contain}
+.rss-nb-rich-markdown {margin-top:12px}
+.rss-nb-table-wrap {max-width:100%;width:100%;overflow-x:auto;margin:10px 0 16px;border:1px solid var(--nb-border);border-radius:7px;overscroll-behavior-x:contain}
+.rss-nb-dataframe {border-collapse:collapse;border-spacing:0;width:max-content;min-width:60%;font-family:inherit;font-size:13px;line-height:1.5;color:inherit;text-align:left}
+.rss-nb-dataframe th,.rss-nb-dataframe td {font:inherit;white-space:pre;padding:7px 12px;border-bottom:1px solid var(--nb-border);text-align:left}
+.rss-nb-dataframe th {font-weight:650;background:var(--nb-subtle)}
+.rss-nb-dataframe tr:last-child > * {border-bottom:0}
+.rss-nb-dataframe tr:nth-child(even) td {background:color-mix(in srgb,currentColor 2%,transparent)}
+.rss-nb-alert {color:#b73549;padding:12px;border:1px solid #f2b9c0;border-radius:8px;overflow-wrap:anywhere}
+.rss-nb-muted {color:var(--nb-muted);margin:12px 0;line-height:1.5}
+@media (max-width:680px) {
+  .rss-nb-document-head {padding:9px 12px;gap:7px;font-size:11px}
+  .rss-nb-page {padding:12px 9px 24px}
+  .rss-nb-markdown {font-size:13px}
+  .rss-nb-h1 {font-size:21px}
+  .rss-nb-h2 {font-size:18px}
+  .rss-nb-cell-stack {gap:4px}
+  .rss-nb-cell-label {padding:0 0 0 1px}
+  .rss-nb-code-lines {font-size:12px}
+  .rss-nb-line-number {min-width:max(30px,5ch);width:max(30px,5ch)}
+  .rss-nb-dataframe {font-size:12px}
+}
