@@ -1,6 +1,6 @@
 # 安装、迁移与故障排查
 
-适用范围：**DSH Remote SSH v1.1.3 及其当前文档描述的功能**。推荐通过 [npm 包](https://www.npmjs.com/package/dsh-plugin-remote-ssh) 安装；实际行为以安装版本与 DSH Host 能力为准。返回 [README](../README.md)。
+适用范围：**DSH Remote SSH v1.2.0**（包括 Notebook Viewer 和 Linux Web 目录浏览回退）。推荐通过 [npm 包](https://www.npmjs.com/package/dsh-plugin-remote-ssh) 安装；实际行为以安装版本与 DSH Host 能力为准。返回 [README](../README.md)。
 
 ## 1. 安装 / 升级
 
@@ -47,6 +47,14 @@ dsh plugin --profile web update dsh-plugin-remote-ssh
 - 在包含此修复的插件构建中，点击 **新建项目 → 源文件夹 → 本地电脑 → 选择本地文件夹** 时会先尝试原生选框；若 Host 明确表示只有 `browse` 能力，插件会**留在原弹窗内**切换为目录浏览器，可按目录进入、编辑绝对路径、显示隐藏文件夹及新建目录。
 - 这里的“本地”是 **运行 DSH Web Host 的 Linux 服务器**，不是浏览器所在的 Windows/macOS 电脑。无法通过浏览器拿到访问者机器上任意绝对路径；要使用访问者机器上的项目，应在该机器运行 DSH Desktop，或通过 SSH/文件同步访问项目。
 - Desktop 原生目录选择成功、用户取消、其他原生错误的行为保持不变；只有“native capability 不可用”才会自动使用网页浏览。DSH Host 必须同时提供 `uiWorkspace.listDirectory` 对应的 browse 后端，才能列出目录。
+
+## 3.2 Jupyter Notebook 预览异常（v1.2.0）
+
+- 从 DSH 工作区文件树打开 `.ipynb`；此功能是**只读预览**，不启动 Jupyter Server，也不支持代码执行或保存编辑。
+- 文件必须为 nbformat 4 且不超过 12 MiB、2,000 个单元格；过大的 Notebook 或不符合格式的 JSON 会提示无法预览。
+- DataFrame 优先识别保存的 `text/html` 表格，典型 `text/plain` 也会尝试转成表格。仅有复杂富媒体、交互 widget、SVG/脚本输出时不会执行或展示；可以在 Jupyter 中先导出静态表格/图片再预览。
+- 代码单元格的 `In [n]:` 显示在代码框上方，代码区带行号并支持横向滚动；没有行号/仍显示原始 JSON 时，检查是否安装并加载了 v1.2.0、是否重启 Host、是否刷新了浏览器缓存，以及 DSH 是否提供文档预览扩展能力。
+- 从远程 SSH 工作区打开 Notebook 依赖该工作区的文件读取路由；连接/映射异常时先检查 `remote_ssh_status`。可选 `remote-ssh-notebook` 服务端组件还要求 DSH 的 `webServer` 和 `connection` 服务。
 
 ## 4. SSH 连接、Host Key 与认证
 
