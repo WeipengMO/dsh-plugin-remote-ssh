@@ -897,10 +897,10 @@ window.__ModuleLoader__.load({
             name: 'sidebar.workspaces.directoryFlow', priority: -2, inject: injectFlow,
           }, RemoteProjectDirectoryFlow);
         }));
-      registerNotebookViewer(ctx);
+      registerNotebookPreview(ctx);
     }
     exports.apply = apply;
-    exports.inject = ['slots', 'workspaces', 'uiWorkspace'];
+    exports.inject = ['slots', 'workspaces', 'uiWorkspace', 'documentPreviews'];
     return module.exports;
   }
 });

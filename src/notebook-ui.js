@@ -1,5 +1,5 @@
-    // Notebook Viewer is a distinct Settings section. Everything is rendered as
-    // React text/elements; untrusted notebook HTML, SVG and scripts are NOT run.
+    // Notebook rendering for DSH's workspace document preview. Everything is
+    // rendered as React text/elements; untrusted notebook HTML, SVG and scripts are NOT run.
     const NOTEBOOK_LIMIT = 12 * 1024 * 1024;
     function notebookText(value) {
       return Array.isArray(value) ? value.filter(part => typeof part === 'string').join('') :
@@ -106,106 +106,50 @@
                 cell.cell_type === 'code' && notebookOutputs(cell.outputs))
         )));
     }
-    function NotebookViewer() {
-      const [mode, setMode] = useState('local');
-      const [hosts, setHosts] = useState([]);
-      const [host, setHost] = useState('');
-      const [directory, setDirectory] = useState('~');
-      const [listing, setListing] = useState(null);
-      const [document, setDocument] = useState(null);
-      const [filename, setFilename] = useState('');
-      const [busy, setBusy] = useState(false);
-      const [error, setError] = useState('');
-      useEffect(() => {
-        let active = true;
-        api('/state').then(state => {
-          if (!active) return;
-          setHosts(state.hosts || []);
-          if (state.hosts?.length) setHost(state.hosts[0].id);
-        }).catch(() => { if (active) setHosts([]); });
-        return () => { active = false; };
-      }, []);
-      const loadLocal = async event => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-        setError(''); setDocument(null);
-        try {
-          if (!/\.ipynb$/i.test(file.name)) throw Error('请选择 .ipynb 文件');
-          if (file.size > NOTEBOOK_LIMIT) throw Error('文件超过 12 MiB 预览限制');
-          const value = parseNotebook(JSON.parse(await file.text()));
-          setDocument(value); setFilename(file.name);
-        } catch (e) { setError(e.message || String(e)); }
-        event.target.value = '';
-      };
-      const listRemote = async target => {
-        if (!host) return setError('请选择 SSH 主机');
-        setBusy(true); setError('');
-        try {
-          const value = await api('/browse?host=' + encodeURIComponent(host) + '&path=' + encodeURIComponent(target));
-          setListing(value); setDirectory(value.path);
-        } catch (e) { setError(e.message || String(e)); }
-        finally { setBusy(false); }
-      };
-      const openRemote = async remotePath => {
-        if (!host) return;
-        setBusy(true); setError(''); setDocument(null);
-        try {
-          const res = await fetch('/api/remote-ssh-notebook/read?host=' + encodeURIComponent(host) +
-            '&path=' + encodeURIComponent(remotePath), { credentials: 'same-origin', cache: 'no-store' });
-          const data = await res.json();
-          if (!res.ok || !data.ok) throw Error(data.error || '无法读取 Notebook。请确认 Notebook Viewer 组件已启用。');
-          setDocument(parseNotebook(data.notebook)); setFilename(data.path);
-        } catch (e) { setError(e.message || String(e)); }
-        finally { setBusy(false); }
-      };
-      return h('div', { className: 'rss-notebook-container' },
-        h('div', { className: 'rss-nb-top' },
-          h('div', null, h('strong', null, 'Jupyter Notebook Viewer'),
-            h('p', null, '只读预览 .ipynb；不会运行 Python、JavaScript 或 Notebook 单元格。')),
-          h('div', { className: 'rss-nb-switch' },
-            h('button', { type: 'button', 'aria-pressed': mode === 'local',
-              onClick: () => { setMode('local'); setError(''); setDocument(null); } }, '本地文件'),
-            h('button', { type: 'button', 'aria-pressed': mode === 'remote',
-              onClick: () => { setMode('remote'); setError(''); setDocument(null); } }, 'SSH 远程'))),
-        mode === 'local'
-          ? h('div', { className: 'rss-nb-picker' },
-              h('label', null, '选择本机 Notebook 文件',
-                h('input', { type: 'file', accept: '.ipynb,application/x-ipynb+json,application/json',
-                  onChange: loadLocal })),
-              h('small', null, '文件只在当前页面解析；不会上传到 SSH 服务器。'))
-          : h('div', { className: 'rss-nb-remote' },
-              h('div', { className: 'rss-nb-controls' },
-                h('label', null, 'SSH 主机',
-                  h('select', { value: host, onChange: e => {
-                      setHost(e.target.value); setListing(null); setDocument(null); setDirectory('~');
-                    } },
-                    !hosts.length && h('option', { value: '' }, '尚无已保存主机'),
-                    hosts.map(item => h('option', { key: item.id, value: item.id }, item.label || item.host)))),
-                h('label', null, '远程目录',
-                  h('input', { value: directory, onChange: e => setDirectory(e.target.value),
-                    spellCheck: false, placeholder: '/home/user/notebooks' })),
-                h('button', { type: 'button', disabled: busy || !host, onClick: () => listRemote(directory) }, '浏览')),
-              listing && h('div', { className: 'rss-nb-files', role: 'list' },
-                listing.path !== '/' && h('button', { type: 'button', onClick: () =>
-                  listRemote(listing.parent), disabled: busy }, '↑ 返回上一级'),
-                (listing.entries || []).filter(item => item.type === 'directory' ||
-                    (item.type === 'file' && /\.ipynb$/i.test(item.name))).map(item =>
-                  h('button', { type: 'button', key: item.name, disabled: busy,
-                    onClick: () => item.type === 'directory'
-                      ? listRemote(listing.path.replace(/\/$/, '') + '/' + item.name)
-                      : openRemote(listing.path.replace(/\/$/, '') + '/' + item.name) },
-                    item.type === 'directory' ? '📁 ' : '📓 ', item.name))),
-              !listing && h('p', { className: 'rss-nb-muted' }, '选择已保存的 SSH 主机，再浏览远程目录中的 .ipynb 文件。')),
-        busy && h('p', { className: 'rss-nb-muted', role: 'status' }, '正在读取…'),
-        error && h('p', { className: 'rss-nb-alert', role: 'alert' }, error),
-        document && h(NotebookDocument, { notebook: document, filename }));
+    function notebookFilename(resourceAddress) {
+      const value = typeof resourceAddress === 'string' ? resourceAddress : '';
+      const cleaned = value.split(/[?#]/)[0];
+      const parts = cleaned.split(/[\\/]/).filter(Boolean);
+      return parts.length ? parts[parts.length - 1] : 'Notebook';
     }
-    function registerNotebookViewer(ctx) {
-      ctx.slots.inject('settings.section', () => ctx.slots.register({
-        name: 'settings.section', id: 'notebook-viewer', order: 45,
-        label: () => 'Notebook',
-      }, NotebookViewer));
-      ctx.slots.inject('settings.section.icon', () => ctx.slots.register({
-        name: 'settings.section.icon', id: 'notebook-viewer',
-      }, ({ size = 16 }) => h(Icon, { name: 'file', size })));
+    // Body for DSH's right-sidebar document preview. When a notebook is opened
+    // from the workspace file tree, DSH reads the file (local or remote-SSH
+    // routed) as complete bytes and hands them to this renderer; we decode,
+    // validate nbformat 4, and render it read-only. Nothing is executed.
+    function NotebookFileBody(props) {
+      const content = props && props.content;
+      const data = content && content.kind === 'bytes' ? content.data : undefined;
+      if (data === undefined) {
+        return h('div', { className: 'rss-nb-muted', role: 'status' }, '正在读取 Notebook…');
+      }
+      if (data.byteLength > NOTEBOOK_LIMIT) {
+        return h('div', { className: 'rss-nb-alert', role: 'alert' }, 'Notebook 超过 12 MiB 预览限制。');
+      }
+      let notebook;
+      try {
+        const text = new TextDecoder('utf-8').decode(data);
+        notebook = parseNotebook(JSON.parse(text));
+      } catch (e) {
+        return h('div', { className: 'rss-nb-alert', role: 'alert' },
+          '无法预览 Notebook：' + (e && e.message ? e.message : String(e)));
+      }
+      return h(NotebookDocument, { notebook, filename: notebookFilename(props && props.resourceAddress) });
+    }
+    const NOTEBOOK_BODY_ID = 'dsh-plugin-remote-ssh/notebook';
+    function registerNotebookPreview(ctx) {
+      // Register .ipynb as an *extension* renderer in DSH's workspace document
+      // preview. Extension priority wins over the built-in plain-text fallback,
+      // so opening a Notebook from the workspace renders it instead of raw JSON.
+      ctx.effect(() => ctx.documentPreviews.register({
+        id: NOTEBOOK_BODY_ID,
+        extensions: ['ipynb'],
+        priority: 'extension',
+        title: () => 'Notebook',
+        loading: 'bytes-complete',
+      }));
+      ctx.effect(() => ctx.slots.inject('sidebar.right.tab.document', () =>
+        ctx.slots.register({
+          name: 'sidebar.right.tab.document',
+          key: NOTEBOOK_BODY_ID,
+        }, NotebookFileBody)));
     }

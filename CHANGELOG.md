@@ -1,12 +1,15 @@
 # Changelog
 
-## Unreleased — 1.2.0-notebook.1 (preview)
+## Unreleased — 1.2.0-notebook.2 (preview)
 
 ### Added
 - A second optional Cordis component, `dsh-plugin-remote-ssh/notebook`, for authenticated read-only Jupyter Notebook previews over verified SSH/SFTP.
 - A dedicated Notebook Settings view for browser-local `.ipynb` files and files on saved remote SSH hosts.
 - Safe rendering of code, basic Markdown, text streams/errors, and PNG/JPEG/GIF outputs. Notebook HTML/SVG/script outputs are never executed or embedded.
 - Maximum 12 MiB per notebook, nbformat 4 validation, signed-cookie/origin checks and viewer regression tests.
+
+### Changed
+- Notebooks now open rendered directly from the workspace file tree: a `.ipynb` document-preview renderer replaces the separate Notebook Settings page. It reads the opened workspace file through DSH's standard file reader, so it works for both local and remote-SSH workspaces.
 
 ### Notes
 - Preview only; no kernel, cell execution, notebook editing, arbitrary HTML rendering or Jupyter Server dependency.

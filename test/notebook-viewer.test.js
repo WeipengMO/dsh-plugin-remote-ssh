@@ -57,8 +57,11 @@ test('the Notebook Viewer is a second Cordis component and ships a browser bundl
   const bundle = fs.readFileSync(path.join(root, 'lib/client.js'), 'utf8');
   assert.equal(manifest.exports['./notebook'], './dist/notebook.js');
   assert.match(patch, /id: remote-ssh-notebook[\s\S]*name: dsh-plugin-remote-ssh\/notebook/);
-  assert.match(bundle, /id: 'notebook-viewer'/);
-  assert.match(bundle, /Notebook Viewer/);
+  assert.match(bundle, /sidebar\.right\.tab\.document/);
+  assert.match(bundle, /documentPreviews/);
+  assert.match(bundle, /extensions: \['ipynb'\]/);
+  assert.match(bundle, /bytes-complete/);
+  assert.doesNotMatch(bundle, /id: 'notebook-viewer'/);
 });
 
 test('authenticated viewer returns a read-only nbformat 4 document via SFTP', async () => {

@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-remote-ssh",
-  "version": "1.2.0-notebook.1",
+  "version": "1.2.0-notebook.2",
   "description": "Remote Linux workspaces for DeepSeek Harness via SSH/SFTP, with scoped Agent tools, approval-gated remote Bash, file search, Git and native terminal integration, plus an optional read-only Jupyter Notebook Viewer.",
   "type": "module",
   "main": "dist/index.js",
