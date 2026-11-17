@@ -533,3 +533,27 @@ body [data-sidebar-terminal] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block
  .rss-directory-dialog .rss-project-modes button.rss-project-active{background:#263d66!important;border-color:transparent!important;color:#cfe1ff!important;box-shadow:none!important}
  .rss-directory-dialog .rss-project-modes button.rss-project-active:hover{background:#304d80!important}
 }
+
+/* In-app Host directory browsing for DSH Web (no native OS picker). */
+.rss-directory-dialog .rss-local-options {
+  display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;
+  gap:10px;min-width:0;
+}
+.rss-directory-dialog .rss-local-hidden {
+  display:inline-flex;align-items:center;gap:7px;white-space:nowrap;
+  font-size:12px;color:var(--rss-secondary);cursor:pointer;
+}
+.rss-directory-dialog .rss-local-hidden input {accent-color:#3768db;}
+.rss-directory-dialog .rss-local-create {
+  display:flex;align-items:center;gap:7px;min-width:0;flex:1 1 190px;justify-content:flex-end;
+}
+.rss-directory-dialog .rss-local-create input {
+  min-width:90px;max-width:220px;width:100%;min-height:35px;padding:7px 10px;
+  border:1px solid var(--rss-line);border-radius:7px;
+  background:var(--rss-bg);color:inherit;font:inherit;font-size:12px;
+}
+.rss-directory-dialog .rss-local-create button {flex:none;}
+@media(max-width:440px) {
+  .rss-directory-dialog .rss-local-create {flex-basis:100%;}
+  .rss-directory-dialog .rss-local-create input {max-width:none;}
+}
